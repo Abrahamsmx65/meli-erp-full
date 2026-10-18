@@ -95,7 +95,7 @@ function TablaInversion({ inversion, unidad, minimo }: { inversion: InversionEnB
                 <th className="num">Modelos</th>
                 <th className="num">{unidad[0].toUpperCase() + unidad.slice(1)}</th>
                 <th className="num">Valor en bodega</th>
-                <th className="num">Valor en camino</th>
+                <th className="num">Valor en barco</th>
                 <th className="num">Valor en Full</th>
                 <th className="num">Valor en FBA</th>
                 {conTikTok ? <th className="num">Valor en TikTok</th> : null}
@@ -230,7 +230,7 @@ export default async function Inventario({
       <Encabezado
         ceja="Inventario"
         titulo="Existencias"
-        descripcion="Calzado y fundas: bodega, lo que viene de China y lo que ya está en Full, FBA y TikTok, con lo invertido y lo que dejaría venderlo."
+        descripcion="Calzado y fundas: bodega, lo que viene en barco y lo que ya está en Full, FBA y TikTok, con lo invertido y lo que dejaría venderlo."
         frescura={"error" in fundasLeidas ? undefined : fundasLeidas.generadoEn}
         refrescando={"error" in fundasLeidas ? undefined : fundasLeidas.refrescando}
         ayuda={
@@ -240,7 +240,9 @@ export default async function Inventario({
               que estés viendo.
             </p>
             <p>
-              La inversión es todo a costo de Catálogo y costos: bodega, lo que viene de China, Full (con lo que va en
+              La inversión es todo a costo de Catálogo y costos: bodega, lo que viene de China YA EN BARCO (en calzado, las
+              cajas en contenedores sin recibir; en fundas, los pedidos marcados «en camino»; lo que sigue en la fábrica no
+              se ha pagado y no cuenta ni en la inversión ni en la ganancia), Full (con lo que va en
               transferencia), FBA (disponible, reservado y lo ya enviado; un envío solo dado de alta no, porque sus cajas
               siguen en la bodega) y, en calzado, la bodega de TikTok (el saldo del kardex, sin los productos de David).
               La ganancia estimada es vender TODO eso a lo que Mercado Pago depositó por pieza de cada modelo o diseño en
@@ -291,9 +293,13 @@ export default async function Inventario({
             nota={`En ${n(fichas.cajas)} cajas cerradas en México`}
           />
           <Ficha
-            titulo="En camino de China"
+            titulo="En barco"
             valor={n(fichas.paresEnCamino)}
-            nota="Pedidos que ya salieron y no han llegado"
+            nota={
+              fichas.paresEnFabrica > 0
+                ? `En contenedor sin llegar · ${n(fichas.paresEnFabrica)} pares más en la fábrica, no cuentan`
+                : "En contenedor sin llegar"
+            }
             tono={fichas.paresEnCamino > 0 ? "alerta" : "neutro"}
           />
           <Ficha titulo="En Full" valor={n(fichas.paresEnFull)} nota="Pares en Mercado Libre, con lo que va en transferencia" />
@@ -304,12 +310,12 @@ export default async function Inventario({
         <Cifras columnas={5}>
           <Ficha titulo="Valor en bodega" valor={fichas.valorEnBodega > 0 ? pesos(fichas.valorEnBodega) : "—"} nota="A costo" />
           <Ficha
-            titulo="Valor en camino"
+            titulo="Valor en barco"
             valor={fichas.valorEnCamino > 0 ? pesos(fichas.valorEnCamino) : "—"}
             nota={
               fichas.paresSinCosto > 0
-                ? `A costo · ${n(fichas.paresSinCosto)} pares sin costo capturado (casi todo en camino)`
-                : "Lo que viene de China, a costo"
+                ? `A costo · ${n(fichas.paresSinCosto)} pares sin costo capturado`
+                : "Lo que ya va en barco, a costo"
             }
           />
           <Ficha titulo="Valor en Full" valor={fichas.valorEnFull > 0 ? pesos(fichas.valorEnFull) : "—"} nota="Mercado Libre, a costo" />
@@ -322,7 +328,7 @@ export default async function Inventario({
           venta={ganancia.pares > 0 ? ganancia.deposito : null}
           costo={ganancia.costo}
           ganancia={ganancia.pares > 0 ? ganancia.ganancia : null}
-          notaInversion="Bodega + camino + Full + FBA + TikTok, a costo"
+          notaInversion="Bodega + barco + Full + FBA + TikTok, a costo"
           notaVenta={
             ganancia.pares > 0
               ? `Lo que depositaría MELI por ${n(ganancia.pares)} pares que costaron ${pesos(ganancia.costo)}${
@@ -363,9 +369,13 @@ export default async function Inventario({
                 }
               />
               <Ficha
-                titulo="En camino de China"
+                titulo="En barco"
                 valor={n(fundas.piezas.enCamino)}
-                nota="Pedidos de fundas que no han llegado"
+                nota={
+                  fundas.piezas.enFabrica > 0
+                    ? `Pedidos marcados «en camino» · ${n(fundas.piezas.enFabrica)} piezas más en la fábrica, no cuentan`
+                    : "Pedidos marcados «en camino»"
+                }
                 tono={fundas.piezas.enCamino > 0 ? "alerta" : "neutro"}
               />
               <Ficha titulo="En Full" valor={n(fundas.piezas.enFull)} nota="Cuenta de fundas, con lo que va en transferencia" />
@@ -373,7 +383,7 @@ export default async function Inventario({
             </Cifras>
             <Cifras columnas={4}>
               <Ficha titulo="Valor en bodega" valor={fi.total.enBodega > 0 ? pesos(fi.total.enBodega) : "—"} nota="A costo" />
-              <Ficha titulo="Valor en camino" valor={fi.total.enCamino > 0 ? pesos(fi.total.enCamino) : "—"} nota="A costo" />
+              <Ficha titulo="Valor en barco" valor={fi.total.enCamino > 0 ? pesos(fi.total.enCamino) : "—"} nota="A costo" />
               <Ficha titulo="Valor en Full" valor={fi.total.enFull > 0 ? pesos(fi.total.enFull) : "—"} nota="A costo" />
               <Ficha
                 titulo="Valor en FBA"
@@ -386,7 +396,7 @@ export default async function Inventario({
               venta={fi.ganancia.pares > 0 ? fi.ganancia.deposito : null}
               costo={fi.ganancia.costo}
               ganancia={fi.ganancia.pares > 0 ? fi.ganancia.ganancia : null}
-              notaInversion="Bodega + camino + Full + FBA, a costo"
+              notaInversion="Bodega + barco + Full + FBA, a costo"
               notaGanancia={
                 fi.ganancia.pares > 0
                   ? `Venta estimada − ${pesos(fi.ganancia.costo)} de costo${

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inversionPorCategoria } from "./inventario";
+import { inversionPorCategoria, soloLoEmbarcado } from "./inventario";
 
 const r = (modelo: string, enBodega: number, enCamino = 0) => ({ modelo, enBodega, enCamino });
 
@@ -121,5 +121,22 @@ describe("inversionPorCategoria", () => {
     expect(inv.ganancia.pares).toBe(0);
     expect(inv.sinVentaMeli.veces).toBeNull();
     expect(inv.categorias[0].paresPorPromedio).toBe(0);
+  });
+});
+
+describe("soloLoEmbarcado", () => {
+  const sku = (modelo: string, enCamino: number) => ({ modelo, enCamino, sku: `${modelo}-${enCamino}` });
+
+  it("deja en camino solo lo que va en barco, repartido entre los SKU del modelo", () => {
+    const r = soloLoEmbarcado([sku("GT110", 60), sku("GT110", 40), sku("GT200", 50)], new Map([["GT110", 25]]));
+    expect(r.renglones.map((x) => x.enCamino)).toEqual([15, 10, 0]);
+    expect(r.paresEnBarco).toBe(25);
+    expect(r.paresEnFabrica).toBe(125);
+  });
+
+  it("el barco nunca pasa de lo que el inventario trae en camino", () => {
+    const r = soloLoEmbarcado([sku("gt110", 10)], new Map([["GT110", 999]]));
+    expect(r.renglones[0].enCamino).toBe(10);
+    expect(r.paresEnFabrica).toBe(0);
   });
 });
