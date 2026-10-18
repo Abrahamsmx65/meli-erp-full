@@ -2502,10 +2502,17 @@ guárdala numerada.
   agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
   completo (activos, inactivos, precio, imagen principal) vive aparte y solo
   lo lee la sección de contenido.
-- **INVERSIÓN en Existencias = bodega + camino de China + Full + FBA + TikTok**
+- **INVERSIÓN en Existencias = bodega + lo que va EN BARCO + Full + FBA + TikTok**
   (`inversionPorCategoria` en `servicios/inventario.ts`, `vistaBodega` en
   `servicios/bodega.ts`; dueño, 16-oct-2026: «para ver cuánto dinero real
-  tenemos invertido»): todo a costo de `productos_config`. Full lleva lo que
+  tenemos invertido»): todo a costo de `productos_config`. **Lo que sigue en la
+  FÁBRICA no cuenta ni en la inversión ni en la ganancia** (dueño,
+  18-oct-2026: «ni lo he pagado»): `soloLoEmbarcado` recorta el `enCamino`
+  del inventario (que cuenta todo lo pedido sin llegar y así lo usa la
+  planeación) a los pares en contenedores sin recibir de
+  `paresEnBarcoPorModelo`, por modelo; en fundas solo los pedidos marcados
+  «en camino» (`enCaminoChinaEmbarcado`). Lo de la fábrica solo se enseña
+  en la nota. Full lleva lo que
   va en transferencia; FBA (`amazon_inventario`, solo calzado) lleva
   disponible, reservado, no disponible, investigando, transferencia y lo ya
   enviado o recibiéndose, NO lo «trabajando» (sus cajas siguen en bodega).

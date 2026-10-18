@@ -370,6 +370,74 @@ export function inversionPorCategoria(
   };
 }
 
+/**
+ * Lo que viene de China, recortado a lo que YA VA EN BARCO (dueño,
+ * 18-oct-2026: «lo que no está en barco no quiero tomarlo en cuenta ni para
+ * inversión porque ni lo he pagado ni para el cálculo de lo que voy a
+ * ganar»). `enCamino` del inventario cuenta TODO lo pedido que no ha
+ * llegado —esté en la fábrica o en un contenedor— y así lo necesitan
+ * Planificación China y el plan; solo Existencias lo recorta.
+ *
+ * Por MODELO: en barco = pares en contenedores aún no recibidos (de
+ * pedidos vivos), topado por lo que el inventario trae en camino; cada SKU
+ * del modelo se queda con esa misma proporción. Lo demás es fábrica.
+ * Función PURA.
+ */
+export function soloLoEmbarcado<R extends { modelo: string; enCamino: number }>(
+  renglones: R[],
+  barcoPorModelo: Map<string, number>,
+): { renglones: R[]; paresEnBarco: number; paresEnFabrica: number } {
+  const caminoPorModelo = new Map<string, number>();
+  for (const r of renglones) {
+    const k = r.modelo.toUpperCase();
+    caminoPorModelo.set(k, (caminoPorModelo.get(k) ?? 0) + Math.max(0, r.enCamino));
+  }
+  const factor = new Map<string, number>();
+  for (const [k, camino] of caminoPorModelo) {
+    const barco = Math.max(0, barcoPorModelo.get(k) ?? 0);
+    factor.set(k, camino > 0 ? Math.min(1, barco / camino) : 0);
+  }
+  let paresEnBarco = 0;
+  let paresEnFabrica = 0;
+  const salida = renglones.map((r) => {
+    const camino = Math.max(0, r.enCamino);
+    const enBarco = camino * (factor.get(r.modelo.toUpperCase()) ?? 0);
+    paresEnBarco += enBarco;
+    paresEnFabrica += camino - enBarco;
+    return { ...r, enCamino: enBarco };
+  });
+  return { renglones: salida, paresEnBarco, paresEnFabrica };
+}
+
+/**
+ * Pares por modelo en contenedores que todavía NO se reciben, de pedidos
+ * vivos: lo que ya va en el barco. Un contenedor en borrador también
+ * cuenta (su packing list ya dice que salió).
+ */
+export async function paresEnBarcoPorModelo(db: DB, accountId: string): Promise<Map<string, number>> {
+  const pedidos = await traerTodo<any>(
+    db,
+    "pedidos",
+    "pedido, estado, pedido_lineas(id, modelo, cajas, pares, contenedor_lineas(cajas, contenedores(estado)))",
+    (q) => q.eq("account_id", accountId).not("estado", "in", "(recibido,cancelado)"),
+  );
+  const r = new Map<string, number>();
+  for (const p of pedidos) {
+    for (const l of (p.pedido_lineas ?? []) as any[]) {
+      const cajas = Number(l.cajas) || 0;
+      const pares = Number(l.pares) || 0;
+      if (cajas <= 0 || pares <= 0) continue;
+      const enBarco = ((l.contenedor_lineas ?? []) as any[])
+        .filter((cl) => cl?.contenedores && cl.contenedores.estado !== "recibido")
+        .reduce((a, cl) => a + (Number(cl.cajas) || 0), 0);
+      if (enBarco <= 0) continue;
+      const k = String(l.modelo ?? "").trim().toUpperCase();
+      r.set(k, (r.get(k) ?? 0) + (enBarco * pares) / cajas);
+    }
+  }
+  return r;
+}
+
 export async function cargarInventario(
   db: DB,
   accountId: string,

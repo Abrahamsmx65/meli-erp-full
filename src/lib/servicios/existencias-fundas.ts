@@ -29,14 +29,15 @@ import { obtenerInventarioPantalla } from "../yapanizcel/inventario-pantalla";
 import { hoyMx, restarDias, rpcTodo } from "../yapanizcel/db";
 import { desglosar } from "../yapanizcel/sku";
 
-export const CLAVE_FUNDAS = "existencias:fundas:v1";
+export const CLAVE_FUNDAS = "existencias:fundas:v2";
 export const EDAD_FUNDAS_MS = 15 * 60_000;
 /** Con menos piezas vendidas en 30 días, el depósito por pieza no se usa. */
 export const PIEZAS_MINIMAS = 10;
 
 export interface ExistenciasFundas {
   hayCuenta: boolean;
-  piezas: { enBodega: number; enCamino: number; enFull: number; enFba: number };
+  /** enCamino = solo pedidos marcados «en camino»; enFabrica = los «creado», que no cuentan en dinero. */
+  piezas: { enBodega: number; enCamino: number; enFabrica: number; enFull: number; enFba: number };
   inversion: InversionEnBodega;
   /** Piezas del sheet que no amarran con ningún SKU de MELI: no se costean. */
   sinAmarrar: { unidades: number; renglones: number };
@@ -56,7 +57,7 @@ export async function calcularExistenciasFundas(db: DB): Promise<ExistenciasFund
   if (!cuenta) {
     return {
       hayCuenta: false,
-      piezas: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0 },
+      piezas: { enBodega: 0, enCamino: 0, enFabrica: 0, enFull: 0, enFba: 0 },
       inversion: vacio(),
       sinAmarrar: { unidades: 0, renglones: 0 },
       avisos: [],
@@ -101,7 +102,8 @@ export async function calcularExistenciasFundas(db: DB): Promise<ExistenciasFund
     ...pantalla.renglones.map((r) => ({
       modelo: (r.diseno || disenoDe(r.skuMeli)).toUpperCase(),
       enBodega: r.enBodega,
-      enCamino: r.enCaminoChina,
+      // Solo lo que ya salió de la fábrica es dinero (dueño, 18-oct-2026).
+      enCamino: r.enCaminoChinaEmbarcado ?? 0,
       enFull: r.enFull + r.enTransferencia,
     })),
     ...fba,
@@ -112,7 +114,11 @@ export async function calcularExistenciasFundas(db: DB): Promise<ExistenciasFund
     hayCuenta: true,
     piezas: {
       enBodega: pantalla.renglones.reduce((a, r) => a + r.enBodega, 0),
-      enCamino: pantalla.renglones.reduce((a, r) => a + r.enCaminoChina, 0),
+      enCamino: pantalla.renglones.reduce((a, r) => a + (r.enCaminoChinaEmbarcado ?? 0), 0),
+      enFabrica: pantalla.renglones.reduce(
+        (a, r) => a + Math.max(0, r.enCaminoChina - (r.enCaminoChinaEmbarcado ?? 0)),
+        0,
+      ),
       enFull: pantalla.renglones.reduce((a, r) => a + r.enFull + r.enTransferencia, 0),
       enFba: fba.reduce((a, r) => a + (r.enFba ?? 0), 0),
     },

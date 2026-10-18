@@ -12,7 +12,13 @@
  * editan a mano en Productos y costos, y una copia guardada quedaría vieja al
  * primer cambio sin que nadie se entere.
  */
-import { cargarInventario, inversionPorCategoria, type RenglonParaCostear } from "./inventario";
+import {
+  cargarInventario,
+  inversionPorCategoria,
+  paresEnBarcoPorModelo,
+  soloLoEmbarcado,
+  type RenglonParaCostear,
+} from "./inventario";
 import { configPorProducto } from "./productos";
 import { cuentaAmazon } from "./amazon";
 import { modeloUnificado } from "./costos-unificados";
@@ -40,7 +46,10 @@ export interface VistaBodega {
     skus: number;
     cajas: number;
     paresEnBodega: number;
+    /** Pares que vienen de China YA EN BARCO (contenedor sin recibir). */
     paresEnCamino: number;
+    /** Pares pedidos que siguen en la fábrica: NO cuentan en dinero. */
+    paresEnFabrica: number;
     valorEnBodega: number;
     valorEnCamino: number;
     /** Pares en Full (incluye lo que va en transferencia a Full). */
@@ -83,7 +92,7 @@ export async function vistaBodega(
   // corridas completos (los usa Planificación China); esta vista no, y
   // bajarlos era su costo dominante.
   const avisos: string[] = [];
-  const [inv, config, fba, tiktok, tarifas] = await Promise.all([
+  const [inv, config, fba, tiktok, tarifas, barco] = await Promise.all([
     medir("inventario", cargarInventario(db, accountId, { sinCrudos: true })),
     medir("config", configPorProducto(db, accountId)),
     medir(
@@ -109,6 +118,13 @@ export async function vistaBodega(
         return null;
       }),
     ),
+    medir(
+      "barco",
+      paresEnBarcoPorModelo(db, accountId).catch((err) => {
+        avisos.push(`No se pudo leer qué va en barco; lo de China no cuenta en el dinero: ${(err as Error).message}`);
+        return new Map<string, number>();
+      }),
+    ),
   ]);
 
   // Lo que MELI depositó DE VERDAD por par en 30 días (reventa incluida),
@@ -119,8 +135,11 @@ export async function vistaBodega(
     if (m?.netoPar != null && m.pares >= PARES_MINIMOS_GANANCIA) netoPorModelo.set(modelo.toUpperCase(), m.netoPar);
   }
 
+  // Solo lo que ya va en barco cuenta como dinero; lo de la fábrica ni se
+  // ha pagado (dueño, 18-oct-2026).
+  const embarcado = soloLoEmbarcado(inv.renglones, barco);
   const paraCostear: RenglonParaCostear[] = [
-    ...inv.renglones.map((r) => ({
+    ...embarcado.renglones.map((r) => ({
       modelo: r.modelo,
       enBodega: r.enBodega,
       enCamino: r.enCamino,
@@ -136,7 +155,8 @@ export async function vistaBodega(
       skus: inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length,
       cajas: inv.porAlmacen.reduce((a, x) => a + x.cajas, 0),
       paresEnBodega: inv.totales.enBodega,
-      paresEnCamino: inv.totales.enCamino,
+      paresEnCamino: Math.round(embarcado.paresEnBarco),
+      paresEnFabrica: Math.round(embarcado.paresEnFabrica),
       valorEnBodega: inversion.total.enBodega,
       valorEnCamino: inversion.total.enCamino,
       paresEnFull: inv.renglones.reduce((a, r) => a + r.enFull + r.enTransferencia, 0),

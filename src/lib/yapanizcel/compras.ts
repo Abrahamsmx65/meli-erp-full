@@ -145,12 +145,14 @@ export async function cargarPedidosEnCamino(
   db: DB,
   accountId: string,
   amarre: { indice: IndiceSkus; manual: Map<string, string>; porBodega: Map<string, string | null> },
+  /** Por omisión todo lo vivo; ["en_camino"] = solo lo que ya salió de la fábrica. */
+  estados: string[] = ["creado", "en_camino"],
 ): Promise<Map<string, number>> {
   const { data: cab } = await db
     .from("yz_pedidos")
     .select("id")
     .eq("account_id", accountId)
-    .in("estado", ["creado", "en_camino"]);
+    .in("estado", estados);
   const ids = (cab ?? []).map((c) => c.id);
   if (!ids.length) return new Map();
 
