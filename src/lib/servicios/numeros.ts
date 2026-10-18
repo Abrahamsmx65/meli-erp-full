@@ -8,6 +8,7 @@
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
 import { ENTRADA_VACIA, type EntradaNumeros, type TarifasReales } from "../finanzas/numeros";
+import { CAMPOS_NUMEROS, marcarEditados, type GuardadoNumeros, type ValoresNumeros } from "../finanzas/numeros-sheet";
 import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_COSTEO, type ResultadoCosteo } from "./costeo";
 import { configPorProducto } from "./productos";
@@ -95,22 +96,45 @@ export async function guardarNumeros(db: DB, accountId: string, e: Partial<Entra
   if (!/^[A-Z]{1,4}\d{2,5}[A-Z]?$/.test(modelo)) throw new Error("Modelo inválido.");
   const comision = precio(e.tiktokComision, "Comisión TikTok") ?? ENTRADA_VACIA.tiktokComision;
   if (comision >= 1) throw new Error("La comisión de TikTok va en fracción (0.24 = 24 %).");
+  const valores: ValoresNumeros = {
+    envio_meli: precio(e.envioMeli, "Envío MELI"),
+    precio_relampago: precio(e.precioRelampago, "Precio relámpago"),
+    pv_normal: precio(e.pvNormal, "PV normal"),
+    retencion: Boolean(e.retencion),
+    envio_amazon: precio(e.envioAmazon, "Envío Amazon"),
+    pvp_deal: precio(e.pvpDeal, "PVP deal"),
+    tiktok_extra: precio(e.tiktokExtra, "Extra TikTok") ?? ENTRADA_VACIA.tiktokExtra,
+    tiktok_comision: comision,
+    tiktok_oferta: precio(e.tiktokOferta, "Factor oferta TikTok") ?? ENTRADA_VACIA.tiktokOferta,
+  };
+  // Lo que se cambia aquí le gana al sheet hasta que el sheet cambie ese campo.
+  const { data: actual, error: errLee } = await db
+    .from("numeros_modelos")
+    .select(`${CAMPOS_NUMEROS.join(", ")}, editados_erp, valores_sheet`)
+    .eq("account_id", accountId)
+    .eq("modelo", modelo)
+    .maybeSingle();
+  if (errLee) throw new Error(`numeros_modelos: ${errLee.message}`);
   const { error } = await db.from("numeros_modelos").upsert(
     {
       account_id: accountId,
       modelo,
-      envio_meli: precio(e.envioMeli, "Envío MELI"),
-      precio_relampago: precio(e.precioRelampago, "Precio relámpago"),
-      pv_normal: precio(e.pvNormal, "PV normal"),
-      retencion: Boolean(e.retencion),
-      envio_amazon: precio(e.envioAmazon, "Envío Amazon"),
-      pvp_deal: precio(e.pvpDeal, "PVP deal"),
-      tiktok_extra: precio(e.tiktokExtra, "Extra TikTok") ?? ENTRADA_VACIA.tiktokExtra,
-      tiktok_comision: comision,
-      tiktok_oferta: precio(e.tiktokOferta, "Factor oferta TikTok") ?? ENTRADA_VACIA.tiktokOferta,
+      ...valores,
+      editados_erp: marcarEditados(valores, guardadoDe(actual)),
       actualizado_en: new Date().toISOString(),
     },
     { onConflict: "account_id,modelo" },
   );
   if (error) throw new Error(`numeros_modelos: ${error.message}`);
+}
+
+/** Renglón de `numeros_modelos` tal como lo necesita la regla sheet / ERP. */
+export function guardadoDe(fila: any): GuardadoNumeros | null {
+  if (!fila) return null;
+  const valores = {} as ValoresNumeros;
+  for (const c of CAMPOS_NUMEROS) {
+    const v = fila[c];
+    valores[c] = c === "retencion" ? Boolean(v) : v == null ? null : Number(v);
+  }
+  return { valores, editados: Array.isArray(fila.editados_erp) ? fila.editados_erp : [], sheet: fila.valores_sheet ?? null };
 }

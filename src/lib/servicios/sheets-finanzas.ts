@@ -21,6 +21,8 @@ import {
 } from "../finanzas/sheets";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { recalcularCosteo } from "./costeo";
+import { guardadoDe } from "./numeros";
+import { CAMPOS_NUMEROS, mezclarConSheet, type ValoresNumeros } from "../finanzas/numeros-sheet";
 
 export const CLAVE_SHEETS = "finanzas:sheets";
 
@@ -199,20 +201,32 @@ async function escribirNumeros(db: DB, accountId: string, buf: Buffer, r: Result
   const n = leerNumeros(await libroDeXlsx(buf));
   r.avisos.push(...n.avisos);
   const ahora = new Date().toISOString();
-  const filas = n.modelos.map((m) => ({
-    account_id: accountId,
-    modelo: m.modelo,
-    envio_meli: m.envioMeli,
-    precio_relampago: m.precioRelampago,
-    pv_normal: m.pvNormal,
-    retencion: m.retencion,
-    envio_amazon: m.envioAmazon,
-    pvp_deal: m.pvpDeal,
-    tiktok_extra: m.tiktokExtra,
-    tiktok_comision: m.tiktokComision,
-    tiktok_oferta: m.tiktokOferta,
-    actualizado_en: ahora,
-  }));
+  // Lo cambiado en el ERP le gana al sheet mientras el sheet no cambie ese campo.
+  const guardados = await traerTodo<any>(
+    db,
+    "numeros_modelos",
+    `modelo, ${CAMPOS_NUMEROS.join(", ")}, editados_erp, valores_sheet`,
+    (q) => q.eq("account_id", accountId).order("modelo", { ascending: true }),
+  );
+  const previos = new Map(guardados.map((g) => [String(g.modelo), guardadoDe(g)]));
+  let respetados = 0;
+  const filas = n.modelos.map((m) => {
+    const sheet: ValoresNumeros = {
+      envio_meli: m.envioMeli,
+      precio_relampago: m.precioRelampago,
+      pv_normal: m.pvNormal,
+      retencion: m.retencion,
+      envio_amazon: m.envioAmazon,
+      pvp_deal: m.pvpDeal,
+      tiktok_extra: m.tiktokExtra,
+      tiktok_comision: m.tiktokComision,
+      tiktok_oferta: m.tiktokOferta,
+    };
+    const x = mezclarConSheet(sheet, previos.get(m.modelo) ?? null);
+    if (x.respetados.length) respetados++;
+    return { account_id: accountId, modelo: m.modelo, ...x.valores, editados_erp: x.editados, valores_sheet: sheet, actualizado_en: ahora };
+  });
+  if (respetados) r.avisos.push(`Números: ${respetados} modelos conservan lo cambiado en el ERP (el sheet no cambió esos campos).`);
   for (let i = 0; i < filas.length; i += LOTE) {
     const { error } = await db.from("numeros_modelos").upsert(filas.slice(i, i + LOTE), { onConflict: "account_id,modelo" });
     if (error) throw new Error(`numeros_modelos: ${error.message}`);
