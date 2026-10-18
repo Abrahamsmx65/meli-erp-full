@@ -59,20 +59,31 @@ export function aporteMeli(p: PromoMeli): number {
 }
 
 /**
+ * Lo que MELI suele poner en Buen Fin cuando la candidata NO trae el dato:
+ * 3 % del precio original (GT151, Buen Fin 26: $14.97 de $499, visto por el
+ * dueño en el Seller Center el 18-oct-2026).
+ */
+export const APORTE_BUEN_FIN_SUPUESTO_PCT = 3;
+
+/**
  * Con el aporte de MELI una venta abajo de $299 se cobra como si fuera de
  * $299 o más, y entonces el vendedor paga el envío (~$20). Dueño,
  * 14-oct-2026, GT266 en Buen Fin 26: «arriba de 298.99 yo pago envío;
  * prefiero ponerlo a 298.99 de mi bolsa que me bajen $10 pero me lo cobren
  * como si lo vendí a $300». Esa promoción NO se toca: se queda su precio
- * propio.
+ * propio. Solo cuando precio + aporte de verdad cruza los $299: GT151 a
+ * $249.99 en Buen Fin (+ $14.97 = $264.96) SÍ se inscribe (dueño,
+ * 18-oct-2026: «sí quiero inscribirme a 249.99, no hay ningún tema»).
  */
 export function cruzaEnvioPorAporte(p: PromoMeli, nuevo: number | null): boolean {
   if (nuevo == null || nuevo >= UMBRAL_ENVIO_VENDEDOR) return false;
-  // MELI NO manda el aporte en las candidatas (Buen Fin 26 de GT266 llegó
-  // sin `meli_percentage`, 14-oct-2026): Buen Fin trae aporte de MELI, así
-  // que abajo de $299 se deja el precio propio aunque no venga el dato.
-  if (clasificarPromo(p) === "buen_fin") return true;
-  const aporte = aporteMeli(p);
+  let aporte = aporteMeli(p);
+  // MELI NO manda el aporte en las candidatas (Buen Fin 26 llegó sin
+  // `meli_percentage`): en Buen Fin se supone el 3 % del precio original.
+  if (aporte <= 0 && clasificarPromo(p) === "buen_fin") {
+    const base = Number(p.original_price ?? 0) || Number(p.max_discounted_price ?? 0) || nuevo;
+    aporte = (base * APORTE_BUEN_FIN_SUPUESTO_PCT) / 100;
+  }
   return aporte > 0 && nuevo + aporte >= UMBRAL_ENVIO_VENDEDOR;
 }
 
