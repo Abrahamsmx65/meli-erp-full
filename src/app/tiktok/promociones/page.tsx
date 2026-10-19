@@ -43,9 +43,10 @@ export default async function Promociones() {
             Estrategia de precios en el nivel que elijas; se puede corregir por modelo antes de crear. Lo que el API de TikTok
             no permite y sigue en el Seller Center: la relámpago de LIVE, las existencias reservadas para el creador y la
             inscripción a campañas de la plataforma. Un modelo CÍCLICO lleva su precio y el sistema le mantiene siempre
-            tres relámpagos encadenadas (cada una de hasta 72 h, la siguiente empieza cuando termina la anterior); el fondo
-            repone cada hora la que falte. Cambiar el precio lo lleva a las que todavía no empiezan; quitarlo desactiva esas
-            y deja terminar la que corre.
+            una relámpago viva (de hasta 72 h): TikTok no deja tener dos vivas o programadas del mismo producto, así que
+            en cuanto termina una, el fondo (cada 10 minutos) crea la siguiente, que arranca a los 15 minutos. Cambiar el
+            precio lo lleva a la que todavía no empieza; quitarlo desactiva esa y deja terminar la que corre. La lista de
+            todos los modelos activos sirve para volver cíclicos muchos de un jalón, con el precio de su última relámpago.
           </p>
         }
       />

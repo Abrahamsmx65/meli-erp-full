@@ -15,6 +15,8 @@ import {
   ultimaRelampago,
   ventanaDeOferta,
   ventanasQueFaltan,
+  explicarErrorDeCiclica,
+  VENTANAS_ADELANTE,
   ventanasVivasDeRelampagos,
 } from "./promociones";
 
@@ -129,36 +131,45 @@ describe("relámpagos cíclicos", () => {
   const ahora = new Date("2026-10-15T18:00:00Z");
   const h = 3_600_000;
 
-  it("sin nada programado arma 3 ventanas de 72 h encadenadas desde ahora + 15 min", () => {
+  it("sin nada vivo arma UNA ventana de 72 h desde ahora + 15 min (TikTok no deja dos a la vez)", () => {
+    expect(VENTANAS_ADELANTE).toBe(1);
     const v = ventanasQueFaltan([], 72, ahora);
-    expect(v).toHaveLength(3);
+    expect(v).toHaveLength(1);
     expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
     expect(v[0].fin.getTime() - v[0].inicio.getTime()).toBe(72 * h);
-    expect(v[1].inicio.getTime()).toBe(v[0].fin.getTime());
-    expect(v[2].inicio.getTime()).toBe(v[1].fin.getTime());
   });
 
-  it("con una ventana corriendo y otra programada, solo falta UNA, pegada al fin de la última", () => {
-    const corriendo = { inicio: new Date(ahora.getTime() - 10 * h), fin: new Date(ahora.getTime() + 62 * h) };
-    const siguiente = { inicio: corriendo.fin, fin: new Date(corriendo.fin.getTime() + 72 * h) };
-    const v = ventanasQueFaltan([corriendo, siguiente], 72, ahora);
-    expect(v).toHaveLength(1);
-    expect(v[0].inicio.getTime()).toBe(siguiente.fin.getTime());
+  it("con una ventana corriendo (o programada) no falta nada, aunque esté por terminar", () => {
+    const corriendo = { inicio: new Date(ahora.getTime() - 71 * h), fin: new Date(ahora.getTime() + 1 * h) };
+    expect(ventanasQueFaltan([corriendo], 72, ahora)).toEqual([]);
+    const programada = { inicio: new Date(ahora.getTime() + 5 * h), fin: new Date(ahora.getTime() + 77 * h) };
+    expect(ventanasQueFaltan([programada], 72, ahora)).toEqual([]);
   });
 
-  it("una ventana que ya terminó no cuenta y no sirve de base: se arranca desde ahora", () => {
+  it("una ventana que ya terminó no cuenta: se arranca desde ahora", () => {
     const vieja = { inicio: new Date(ahora.getTime() - 100 * h), fin: new Date(ahora.getTime() - 28 * h) };
     const v = ventanasQueFaltan([vieja], 72, ahora);
-    expect(v).toHaveLength(3);
+    expect(v).toHaveLength(1);
     expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
   });
 
-  it("las horas se topan a 72 y por omisión son 72; con las 3 ya programadas no falta nada", () => {
+  it("las horas se topan a 72 y por omisión son 72; con más ventanas pedidas se encadenan desde el fin de la última", () => {
     expect(horasDeCiclica(100)).toBe(72);
     expect(horasDeCiclica(24)).toBe(24);
     expect(horasDeCiclica(null)).toBe(72);
-    const tres = [0, 1, 2].map((i) => ({ inicio: new Date(ahora.getTime() + i * 72 * h), fin: new Date(ahora.getTime() + (i + 1) * 72 * h) }));
-    expect(ventanasQueFaltan(tres, 72, ahora)).toEqual([]);
+    const corriendo = { inicio: new Date(ahora.getTime() - 10 * h), fin: new Date(ahora.getTime() + 62 * h) };
+    const v = ventanasQueFaltan([corriendo], 72, ahora, 3);
+    expect(v).toHaveLength(2);
+    expect(v[0].inicio.getTime()).toBe(corriendo.fin.getTime());
+    expect(v[1].inicio.getTime()).toBe(v[0].fin.getTime());
+  });
+
+  it("el error de TikTok se explica en palabras, sin códigos ni rutas", () => {
+    const conflicto =
+      "Lote 1 de 1 (1 productos): TikTok Shop 17029022 en /promotion/202309/activities/769/products: Resource Conflict. The `product or sku` conflicts with `another ONGOING or NOT_START activity`";
+    expect(explicarErrorDeCiclica("GT135", conflicto)).toBe("TikTok ya tiene el GT135 en otra relámpago viva o programada; la cíclica entra cuando termine esa.");
+    expect(explicarErrorDeCiclica("GT148", "TikTok Shop 17029004 en /promotion/202309/activities: Resource Already Exists. A promotion name is already in use.")).toMatch(/otro nombre/);
+    expect(explicarErrorDeCiclica("GT1", "TikTok Shop 12345 en /promotion/x: Algo raro")).toBe("Algo raro");
   });
 
   it("el título lleva el modelo y la hora de inicio en México, dentro de 50 caracteres", () => {
@@ -201,9 +212,9 @@ describe("relámpagos por producto desde el detalle de la actividad", () => {
     const ahora = new Date("2026-10-15T18:00:00Z");
     const ventanas = ventanasVivasDeRelampagos([vencida, enCurso, programada], ahora);
     expect(ventanas).toHaveLength(2);
-    // y la cíclica se encadena DESPUÉS de la programada del GT148
-    const faltan = ventanasQueFaltan(ventanas, 72, ahora);
-    expect(faltan).toHaveLength(1);
-    expect(faltan[0].inicio.toISOString()).toBe("2026-10-20T02:20:00.000Z");
+    // y mientras el GT148 tenga relámpago viva o programada, la cíclica no crea nada
+    expect(ventanasQueFaltan(ventanas, 72, ahora)).toEqual([]);
+    // en cuanto terminan, arranca
+    expect(ventanasQueFaltan(ventanas, 72, new Date("2026-10-20T02:21:00Z"))).toHaveLength(1);
   });
 });

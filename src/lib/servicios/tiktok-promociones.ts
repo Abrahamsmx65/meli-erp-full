@@ -20,6 +20,7 @@ import { conCacheApp, invalidarApp } from "./cache-app";
 import { clienteDeCuenta } from "./tiktok";
 import { actividad, actualizarProductosDeActividad, buscarActividades, crearActividad, desactivarActividad } from "../tiktok/api";
 import {
+  explicarErrorDeCiclica,
   cuerpoDeActividad,
   HORAS_POR_OMISION,
   lotesDeProductos,
@@ -482,16 +483,16 @@ export interface PedidoCiclica {
 }
 
 /**
- * Da de alta o corrige una cíclica. Un cambio de PRECIO se lleva también a
- * las ventanas ya programadas que no han empezado (TikTok deja editar los
- * productos de una actividad); la que ya corre se queda con su precio.
- * Luego se programan en el acto las ventanas que falten.
+ * Da de alta o corrige una cíclica SIN programar nada todavía. Un cambio de
+ * PRECIO se lleva también a la ventana ya programada que no ha empezado
+ * (TikTok deja editar los productos de una actividad); la que ya corre se
+ * queda con su precio. Devuelve el id.
  */
-export async function guardarCiclica(admin: any, accountId: string, pedido: PedidoCiclica, usuario: string | null): Promise<CiclicaGuardada> {
+async function altaDeCiclica(admin: any, accountId: string, pedido: PedidoCiclica, usuario: string | null): Promise<number> {
   const modelo = String(pedido.modelo ?? "").trim().toUpperCase();
   const precio = Math.round(Number(pedido.precio) * 100) / 100;
   if (!modelo) throw new Error("Falta el modelo.");
-  if (!(precio > 0)) throw new Error("El precio tiene que ser mayor a cero.");
+  if (!(precio > 0)) throw new Error(`${modelo}: el precio tiene que ser mayor a cero.`);
   const horas = horasDeCiclica(pedido.horas);
   const topes = { porTalla: topeParaTikTok(pedido.topePorTalla), porComprador: topeParaTikTok(pedido.topePorComprador) };
   const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
@@ -553,11 +554,53 @@ export async function guardarCiclica(admin: any, accountId: string, pedido: Pedi
       await invalidarApp(admin, accountId, "cíclica corregida", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
     }
   }
+  return id;
+}
 
-  await programarCiclicas(admin, accountId, { soloId: id, presupuestoMs: 150_000 });
+/** Da de alta o corrige UNA cíclica y programa en el acto su relámpago si le falta. */
+export async function guardarCiclica(admin: any, accountId: string, pedido: PedidoCiclica, usuario: string | null): Promise<CiclicaGuardada> {
+  const id = await altaDeCiclica(admin, accountId, pedido, usuario);
+  await programarCiclicas(admin, accountId, { soloIds: [id], presupuestoMs: 150_000 });
   const [guardada] = (await ciclicasGuardadas(admin, accountId)).filter((c) => c.id === id);
   if (!guardada) throw new Error("La cíclica se guardó pero no se pudo releer.");
   return guardada;
+}
+
+export interface ResultadoCiclicasMasivas {
+  guardadas: number;
+  /** modelos que no se pudieron dar de alta, con su porqué */
+  errores: string[];
+  programacion: ResultadoProgramacion;
+}
+
+/**
+ * Alta MASIVA (dueño, 19-oct-2026: «una sección de listas de todos los
+ * productos activos en TikTok para poner muchos cíclicos»): cada modelo se
+ * da de alta por su cuenta (uno que falle no frena a los demás) y al final
+ * se programan juntos con el presupuesto que quede; lo que no alcance lo
+ * recoge el cron de los 10 minutos.
+ */
+export async function guardarCiclicas(
+  admin: any,
+  accountId: string,
+  lista: PedidoCiclica[],
+  usuario: string | null,
+  presupuestoMs = 150_000,
+): Promise<ResultadoCiclicasMasivas> {
+  const arranque = Date.now();
+  const ids: number[] = [];
+  const errores: string[] = [];
+  for (const pedido of lista ?? []) {
+    try {
+      ids.push(await altaDeCiclica(admin, accountId, pedido, usuario));
+    } catch (err) {
+      errores.push((err as Error).message);
+    }
+  }
+  const programacion = ids.length
+    ? await programarCiclicas(admin, accountId, { soloIds: ids, presupuestoMs: Math.max(10_000, presupuestoMs - (Date.now() - arranque)) })
+    : { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0 };
+  return { guardadas: ids.length, errores, programacion };
 }
 
 /**
@@ -600,42 +643,59 @@ export interface ResultadoProgramacion {
   creadas: number;
   errores: string[];
   sinTiempo: boolean;
+  /** actividades vacías (sin productos) que se desactivaron en TikTok para que no estorben */
+  limpiadas: number;
 }
 
 /**
- * Repone las ventanas que falten a cada cíclica activa (`ventanasQueFaltan`
- * con las vivas de `tiktok_promociones`), una actividad por ventana, con
- * presupuesto de tiempo: lo que no alcance lo recoge la siguiente corrida
- * del cron. Un modelo que ya no tiene producto activo en TikTok se anota y
- * se salta; un error de TikTok queda en `ultimo_error` sin frenar a los
- * demás.
+ * Repone a cada cíclica activa su relámpago cuando le falta: UNA viva o
+ * programada por modelo (`ventanasQueFaltan`; TikTok no deja dos a la vez,
+ * ver `tiktok/promociones.ts`), contando también las que el producto tiene
+ * a mano. Con presupuesto de tiempo: lo que no alcance lo recoge la
+ * siguiente corrida del cron (cada 10 min). Un modelo que ya no tiene
+ * producto activo en TikTok se anota y se salta; un error de TikTok queda
+ * en `ultimo_error` sin frenar a los demás.
+ *
+ * Antes de reponer, LIMPIA: una ventana propia que quedó `sin_productos`
+ * (TikTok creó la actividad y rechazó los productos) se desactiva en TikTok
+ * —si no, se queda ahí vacía con su título ocupado— y las constancias
+ * repetidas de «name already in use» del cron viejo se borran.
  */
 export async function programarCiclicas(
   admin: any,
   accountId: string,
-  opciones: { soloId?: number; presupuestoMs?: number } = {},
+  opciones: { soloIds?: number[]; presupuestoMs?: number } = {},
 ): Promise<ResultadoProgramacion> {
   const arranque = Date.now();
   const presupuesto = opciones.presupuestoMs ?? 240_000;
-  const salida: ResultadoProgramacion = { revisadas: 0, creadas: 0, errores: [], sinTiempo: false };
+  const salida: ResultadoProgramacion = { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0 };
   let consulta = admin
     .from("tiktok_promociones_ciclicas")
     .select("id, modelo, precio, horas, tope_por_talla, tope_por_comprador")
     .eq("account_id", accountId)
     .eq("activo", true)
     .order("programado_en", { ascending: true, nullsFirst: true });
-  if (opciones.soloId) consulta = consulta.eq("id", opciones.soloId);
+  if (opciones.soloIds?.length) consulta = consulta.in("id", opciones.soloIds);
   const { data: ciclicas, error } = await consulta;
   if (error) throw new Error(error.message);
   if (!ciclicas?.length) return salida;
+  const ids = ciclicas.map((c: any) => Number(c.id));
+  salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
   const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
   const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
-  const vivas = await ventanasVivasDeCiclicas(admin, accountId, ciclicas.map((c: any) => Number(c.id)));
+  const vivas = await ventanasVivasDeCiclicas(admin, accountId, ids);
   // Lo que el producto YA tiene en TikTok (una relámpago a mano, como la del
-  // GT148 hasta el 19-oct) cuenta como ventana viva: la cadena arranca
+  // GT148 hasta el 22-oct) cuenta como ventana viva: la cíclica arranca
   // cuando termine, nunca encimada (dueño, 15-oct-2026).
   const enTikTok = await relampagosPorProducto(admin, accountId);
-  if (enTikTok.error) salida.errores.push(`Relámpagos en TikTok: ${enTikTok.error}`);
+  if (enTikTok.error) {
+    // Sin saber qué relámpagos tiene cada producto no se crea nada: la que se
+    // creara a ciegas chocaría con una a mano y quedaría vacía.
+    salida.errores.push(`No se pudo leer qué relámpagos hay en TikTok: ${enTikTok.error}. No se programó nada en esta pasada.`);
+    return salida;
+  }
+  const estadoEnTikTok = new Map<string, string>();
+  for (const lista of Object.values(enTikTok.porProducto)) for (const r of lista) estadoEnTikTok.set(r.activityId, r.estado);
 
   for (const c of ciclicas) {
     if (Date.now() - arranque > presupuesto) {
@@ -655,7 +715,13 @@ export async function programarCiclicas(
       salida.errores.push(`${modelo}: sin producto activo en TikTok`);
       continue;
     }
-    const propias = vivas.get(id) ?? [];
+    // Una ventana propia que el dueño DESACTIVÓ en el Seller Center ya no cuenta como viva.
+    const propias = (vivas.get(id) ?? []).filter((v) => {
+      const estado = v.activityId ? estadoEnTikTok.get(v.activityId) : undefined;
+      if (estado !== "DEACTIVATED") return true;
+      admin.from("tiktok_promociones").update({ estado: "desactivada" }).eq("id", v.id).then(() => undefined, () => undefined);
+      return false;
+    });
     const propiasIds = new Set(propias.map((v) => v.activityId).filter(Boolean));
     const ajenas = (enTikTok.porProducto[porModelo.get(modelo)!.productId] ?? []).filter((r) => !propiasIds.has(r.activityId));
     const programadas = [...propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })), ...ventanasVivasDeRelampagos(ajenas)];
@@ -666,29 +732,34 @@ export async function programarCiclicas(
         salida.sinTiempo = true;
         break;
       }
+      const pedido = (titulo: string): PedidoDeOferta => ({
+        ciclicoId: id,
+        titulo,
+        inicio: v.inicio.toISOString(),
+        horas: Math.round((v.fin.getTime() - v.inicio.getTime()) / 3_600_000),
+        nivel: "normal",
+        topePorTalla: Number(c.tope_por_talla),
+        topePorComprador: Number(c.tope_por_comprador),
+        modelos: [{ modelo, precio: Number(c.precio) }],
+      });
+      const titulo = tituloDeCiclica(modelo, v.inicio);
       try {
-        const r = await crearOferta(
-          admin,
-          accountId,
-          {
-            ciclicoId: id,
-            titulo: tituloDeCiclica(modelo, v.inicio),
-            inicio: v.inicio.toISOString(),
-            horas: Math.round((v.fin.getTime() - v.inicio.getTime()) / 3_600_000),
-            nivel: "normal",
-            topePorTalla: Number(c.tope_por_talla),
-            topePorComprador: Number(c.tope_por_comprador),
-            modelos: [{ modelo, precio: Number(c.precio) }],
-          },
-          null,
-        );
+        let r: ResultadoOferta;
+        try {
+          r = await crearOferta(admin, accountId, pedido(titulo), null);
+        } catch (err) {
+          // El título ya existe en TikTok (una actividad vacía de antes): se
+          // intenta UNA vez con otro nombre en vez de fallar cada corrida.
+          if (!esTituloRepetido(err)) throw err;
+          r = await crearOferta(admin, accountId, pedido(`${titulo} ·2`), null);
+        }
         if (r.errores.length) {
-          errorDeEsta = `TikTok rechazó los productos de «${r.titulo}»: ${r.errores.join(" | ")}`;
+          errorDeEsta = explicarErrorDeCiclica(modelo, r.errores.join(" | "));
           break;
         }
         salida.creadas++;
       } catch (err) {
-        errorDeEsta = `«${tituloDeCiclica(modelo, v.inicio)}»: ${(err as Error).message}`;
+        errorDeEsta = explicarErrorDeCiclica(modelo, (err as Error).message);
         break;
       }
     }
@@ -696,4 +767,52 @@ export async function programarCiclicas(
     await anotar(errorDeEsta);
   }
   return salida;
+}
+
+function esTituloRepetido(err: unknown): boolean {
+  const m = String((err as Error)?.message ?? "");
+  return m.includes("17029004") || /already in use/i.test(m);
+}
+
+/**
+ * Desactiva en TikTok las ventanas propias que quedaron SIN productos y aún
+ * no terminan (quedan como `desactivada`) y borra las constancias `error`
+ * repetidas del cron viejo («name already in use»). Devuelve cuántas
+ * actividades desactivó. Si TikTok no deja desactivar alguna, se queda
+ * para la siguiente corrida.
+ */
+async function limpiarVentanasVacias(admin: any, accountId: string, ids: number[]): Promise<number> {
+  if (!ids.length) return 0;
+  await admin
+    .from("tiktok_promociones")
+    .delete()
+    .eq("account_id", accountId)
+    .in("ciclico_id", ids)
+    .eq("estado", "error")
+    .is("activity_id", null)
+    .ilike("error", "%already in use%")
+    .then(() => undefined, () => undefined);
+  const { data: vacias } = await admin
+    .from("tiktok_promociones")
+    .select("id, activity_id")
+    .eq("account_id", accountId)
+    .in("ciclico_id", ids)
+    .eq("estado", "sin_productos")
+    .not("activity_id", "is", null)
+    .gt("fin", new Date().toISOString());
+  if (!vacias?.length) return 0;
+  const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+  if (!cliente?.tienda.shopCipher) return 0;
+  let n = 0;
+  for (const v of vacias) {
+    try {
+      const r = await desactivarActividad(cliente, String(v.activity_id));
+      await admin.from("tiktok_promociones").update({ estado: "desactivada", respuesta: { desactivada: r, motivo: "vacía: TikTok rechazó sus productos" } }).eq("id", v.id);
+      n++;
+    } catch {
+      /* la siguiente corrida lo reintenta */
+    }
+  }
+  if (n) await invalidarApp(admin, accountId, "ventanas vacías desactivadas", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
+  return n;
 }

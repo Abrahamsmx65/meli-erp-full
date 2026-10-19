@@ -1592,10 +1592,30 @@ guárdala numerada.
   yo pongo un producto, cuál es el precio y el sistema se encarga de que
   siempre va a estar con relámpagos programadas; se pueden adelantar muchas
   y cada una dura máximo 72 horas»): por modelo, precio, horas (≤ 72) y
-  topes; el fondo mantiene SIEMPRE 3 ventanas vivas o programadas por
-  modelo, una actividad FLASHSALE por ventana («Cíclica GT148 15/10 20:30»),
-  encadenadas: la siguiente empieza cuando termina la anterior (o en 15 min
-  si no hay ninguna); una que ya terminó no cuenta. Cambiar el precio lo
+  topes; el fondo mantiene SIEMPRE UNA ventana viva o programada por
+  modelo, una actividad FLASHSALE por ventana («Cíclica GT148 15/10 20:30»):
+  cuando la que corre termina, la siguiente se crea en la siguiente corrida
+  (cron cada 10 min) arrancando a los 15 min; una que ya terminó no cuenta.
+  **TikTok NO deja adelantar** (19-oct-2026, dueño: «me salió esto en la
+  cíclica de GT135 pero no hay ninguna»): un producto solo puede estar en
+  UNA actividad ONGOING o NOT_START (17029022 «Resource Conflict»), así que
+  la primera versión (3 ventanas encadenadas, `VENTANAS_ADELANTE` 3) creaba
+  la segunda actividad VACÍA (TikTok rechazaba sus productos, estado
+  `sin_productos`) y como esa no contaba como viva, el cron de cada hora
+  volvía a pedir la misma ventana con el mismo título y TikTok contestaba
+  17029004 «name already in use»: 90 constancias `error` en dos días.
+  `VENTANAS_ADELANTE` es 1; `programarCiclicas` LIMPIA antes (desactiva en
+  TikTok las propias `sin_productos` que no han terminado y borra las
+  constancias repetidas de «already in use»), reintenta UNA vez con «·2» si
+  el título ya existe (`esTituloRepetido`) y acepta `soloIds`.
+  **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
+  dueño, 19-oct-2026: «una sección de listas de todos los productos activos
+  en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
+  última relámpago ya esté ahí»): la pestaña enseña TODOS los modelos
+  activos en TikTok con casilla y el precio precargado con su última
+  relámpago (si no, el nivel normal de la estrategia); cada alta va por su
+  cuenta y al final se programan juntas con el presupuesto que quede. El
+  formulario de uno también precarga el precio al elegir el modelo. Cambiar el precio lo
   lleva a las ventanas que no han empezado (`actualizarProductosDeActividad`);
   «Quitar» desactiva esas en TikTok y deja terminar la que corre. Un modelo
   sin producto activo o un rechazo de TikTok queda en `ultimo_error` sin
