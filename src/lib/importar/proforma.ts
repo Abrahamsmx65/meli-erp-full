@@ -496,6 +496,17 @@ export async function importarProforma(
       }
     }
 
+    // Lo que viene debajo de la tabla (los datos del banco de CHAOZHOU:
+    // «BANK'S NAME:THE BANK OF EAST ASIA,LIMITED»), un encabezado repetido
+    // que no redefine tallas («ITEM NO.») o un color suelto en la columna del modelo NO es un
+    // renglón: se leía como modelo nuevo con el color de arriba y un número
+    // del pie como talla, y daba de alta corridas basura (IN10154, IN10155,
+    // IN10170, IN10171, IN10181–IN10183; 18-oct-2026).
+    if (modeloCrudo && !pareceModelo(modeloCrudo)) {
+      ultima = null;
+      continue;
+    }
+
     const tallasFila = colsTalla
       .map(({ col, talla }) => ({ talla, valor: numero(f[col]) }))
       .filter((x) => x.valor > 0);
@@ -783,4 +794,17 @@ export async function importarProforma(
     tallasDetectadas: [...new Set([...tallasVistas, ...colsTalla.map((c) => c.talla)])],
     avisos,
   };
+}
+
+/**
+ * ¿La celda de «Item No.» trae un modelo? Un modelo es un código con
+ * número (GT114, GT104-1, MY2304, GT148G, 686), de una a tres palabras y sin
+ * «:» — así se descartan el pie del banco, los encabezados repetidos y un
+ * color escrito en la columna equivocada.
+ */
+export function pareceModelo(celda: string): boolean {
+  const t = celda.trim();
+  if (!t || t.includes(":")) return false;
+  if (t.split(/\s+/).length > 3) return false;
+  return /^[A-Z]{0,5}[-\s]?\d{2,6}/i.test(t);
 }

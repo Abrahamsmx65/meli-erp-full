@@ -146,6 +146,41 @@ async function renglonRepetido(
 }
 
 /**
+ * Quita la corrida de la PROFORMA que se quedó sin renglón de corrida en el
+ * pedido (se borró el renglón, pasó a talla única o se renombró sobre otro
+ * que ya tenía corrida). Antes se quedaba para siempre: el pie del banco
+ * salía en Corridas como modelo «BANK'S NAME…» y el GT125 CREAM del
+ * IN10171, que es de pura talla única, conservaba una receta de «48 pares
+ * de la 26» que Planeación de compras tomaba como la más nueva. Las de
+ * Sheets o capturadas a mano no se tocan: esas las decide el dueño.
+ */
+async function quitarCorridaHuerfana(
+  supabase: any,
+  accountId: string,
+  pedido: { id: string; pedido: string },
+  modelo: string,
+  color: string,
+): Promise<void> {
+  const { data: siguen } = await supabase
+    .from("pedido_lineas")
+    .select("id")
+    .eq("pedido_id", pedido.id)
+    .eq("modelo", modelo)
+    .eq("color", color)
+    .eq("talla", "")
+    .limit(1);
+  if (siguen?.length) return;
+  await supabase
+    .from("corridas")
+    .delete()
+    .eq("account_id", accountId)
+    .eq("pedido", pedido.pedido)
+    .eq("modelo", modelo)
+    .eq("color", color)
+    .eq("origen", "proforma");
+}
+
+/**
  * Corrige un renglón del pedido: modelo, color o talla (un SKU mal
  * capturado en la proforma), las cajas (una parte ya no se fabricó) o los
  * pares por caja de una caja de talla única. Los pares se recalculan solos
@@ -261,7 +296,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .eq("pedido", c.pedido.pedido)
         .eq("modelo", linea.modelo)
         .eq("color", linea.color ?? "");
+    } else {
+      await quitarCorridaHuerfana(c.supabase, c.cuenta.id, c.pedido, linea.modelo, linea.color ?? "");
     }
+  }
+  // De corrida a talla única: la receta vieja ya no describe ninguna caja.
+  if (!linea.talla && talla) {
+    await quitarCorridaHuerfana(c.supabase, c.cuenta.id, c.pedido, linea.modelo, linea.color ?? "");
   }
 
   await recalcularEstadoPedido(c.supabase, c.pedido.id);
@@ -381,6 +422,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   const { error } = await c.supabase.from("pedido_lineas").delete().eq("id", linea.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (!linea.talla) {
+    await quitarCorridaHuerfana(c.supabase, c.cuenta.id, c.pedido, linea.modelo, linea.color ?? "");
+  }
 
   await recalcularEstadoPedido(c.supabase, c.pedido.id);
   invalidarInventario(c.cuenta.id);

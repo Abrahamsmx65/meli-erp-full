@@ -57,7 +57,7 @@ function k(pedido: string, modelo: string, color: string): string {
 export async function cargarCorridas(db: DB, accountId: string): Promise<ResumenCorridas> {
   const eq = (q: any) => q.eq("account_id", accountId);
 
-  const [corridasRaw, existRaw] = await Promise.all([
+  const [todasLasCorridas, existRaw] = await Promise.all([
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total, origen, actualizado_en", eq),
     traerTodo<any>(
       db,
@@ -66,6 +66,15 @@ export async function cargarCorridas(db: DB, accountId: string): Promise<Resumen
       eq,
     ),
   ]);
+
+  // Una corrida sin receta (vacía) no describe ninguna caja: es la basura
+  // del pie de la proforma que se vació por SQL el 19-oct-2026 (el MCP no
+  // deja borrar). No se enseña ni cuenta, igual que en los cálculos.
+  const corridasRaw = todasLasCorridas.filter(
+    (c) =>
+      Number(c.total) > 0 ||
+      Object.values((c.tallas ?? {}) as Record<string, number>).some((v) => Number(v) > 0),
+  );
 
   // Cuántas cajas físicas cuelgan de cada corrida. Una corrida sin cajas no
   // está mal, solo ya no aplica: el pedido se acabó.
