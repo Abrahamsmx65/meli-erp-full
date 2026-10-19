@@ -125,11 +125,13 @@ describe("solo lo DISPONIBLE del 3PL entra al kardex (29-sep-2026)", () => {
       ]);
     });
 
-    it("sin disponibles pero con pedidos pagados sin despachar, la baja se detiene y dice cuántos apartó Industher", () => {
+    it("sin disponibles pero con pedidos pagados sin despachar, si Industher lo tiene APARTADO la baja NO se detiene (19-oct-2026)", () => {
       const conFantasma: Movimiento[] = [...movs, { sku, tipo: "entrada", cantidad: 1, referencia: `${REFERENCIA_INDUSTHER}${FOTO}`, fecha: FOTO }];
       const r = conciliarAcumulado(new Map(), conFantasma, "2026-09-29T22:31:15Z", confirmadas7, new Map([[sku, 2]]), new Map([[sku, 1]]));
-      expect(r.movimientos).toEqual([]);
-      expect(r.detenidas).toEqual([{ sku, pares: 1, apartados: 2, apartadasBodega: 1 }]);
+      expect(r.movimientos).toEqual([
+        expect.objectContaining({ sku, tipo: "merma", cantidad: 1, motivo: "Apartado en Industher: 1 par reservado por la bodega, no disponibles" }),
+      ]);
+      expect(r.detenidas).toEqual([]);
     });
   });
 });
@@ -312,6 +314,32 @@ describe("la guarda del 20-sep: un SKU que desaparece con pares apartados no se 
     const r = conciliarAcumulado(new Map(), brown29, FOTO, confirmadas81, new Map([["MY2304-BROWN-29", 21]]));
     expect(r.movimientos).toEqual([]);
     expect(r.detenidas).toEqual([{ sku: "MY2304-BROWN-29", pares: 21, apartados: 21 }]);
+  });
+
+  it("el GT148-M BROWN-26 del 19-oct: Industher lo tiene físico pero TODO apartado por la bodega → es baja a propósito, se escribe", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    // 782 entrados, 773 confirmados por el 3PL, 4 devueltos: el kardex dice 13 y 8 están en pedidos.
+    const movs: Movimiento[] = [
+      { sku: "GT148-M BROWN-26-MX", tipo: "entrada", cantidad: 782, referencia: ref("2026-10-05T18:52:20.503346+00:00"), fecha: "2026-10-05T18:52:20Z" },
+      { sku: "GT148-M BROWN-26-MX", tipo: "devolucion", cantidad: 4, referencia: "586377415622952088", fecha: "2026-10-16T22:16:42Z" },
+    ];
+    const r = conciliarAcumulado(
+      new Map(),
+      movs,
+      "2026-10-19T16:30:52.813015+00:00",
+      { confirmadas: new Map([["GT148-M BROWN-26-MX", 773]]), pendientes: new Map<string, number>() },
+      new Map([["GT148-M BROWN-26-MX", 8]]),
+      new Map([["GT148-M BROWN-26-MX", 9]]),
+    );
+    expect(r.detenidas).toEqual([]);
+    expect(r.movimientos).toEqual([
+      expect.objectContaining({
+        sku: "GT148-M BROWN-26-MX",
+        tipo: "merma",
+        cantidad: 13,
+        motivo: "Apartado en Industher: 9 pares reservados por la bodega, no disponibles; 4 más que Industher ya no reporta",
+      }),
+    ]);
   });
 
   it("desaparece completo SIN nada apartado: sigue siendo merma, como siempre", async () => {

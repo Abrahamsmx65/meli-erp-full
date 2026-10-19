@@ -101,6 +101,8 @@ export interface StockFisico {
   salidasPendientes: number;
   /** contado a mano después de la foto del estante: manda el kardex */
   contadoDespues: boolean;
+  /** pares que Industher tiene FÍSICOS pero APARTADOS por su cuenta (no disponibles); sin dato = 0 */
+  apartadoBodega?: number;
 }
 
 /** Lo que de verdad hay: el menor entre el kardex y el estante (ajustado por lo que el 3PL aún no descontó). */
@@ -144,9 +146,16 @@ export interface AutoBloqueo {
  * había apartado por precaución). Un contado a mano después de la foto
  * manda el kardex, como siempre; una baja PARCIAL sigue siendo merma y
  * se bloquea como antes.
+ *
+ * Y NO es duda si Industher sí tiene el SKU pero APARTADO por su cuenta
+ * (19-oct-2026, GT148-M BROWN-26: físico 9, apartado 9, disponible 0; el
+ * dueño los había quitado a propósito y 6 pedidos se quedaron fuera del
+ * corte #81): la bodega lo reporta, solo que no lo va a despachar, así
+ * que cuenta como cero y los pedidos se cancelan como con cualquier
+ * faltante. La conciliación escribe la misma baja en el kardex.
  */
 export function stockEnDuda(s: StockFisico): boolean {
-  return !s.contadoDespues && s.estante === 0 && s.saldo > 0;
+  return !s.contadoDespues && s.estante === 0 && s.saldo > 0 && !(s.apartadoBodega && s.apartadoBodega > 0);
 }
 
 /**

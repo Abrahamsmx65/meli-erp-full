@@ -256,6 +256,16 @@ export interface Conciliacion {
  * regresa. Una baja PARCIAL sigue siendo merma (el 3PL corrigió a propósito),
  * y un SKU que desaparece sin nada apartado también.
  *
+ * Y la guarda es SOLO para un SKU que Industher ya no tiene (19-oct-2026,
+ * dueño: «yo los quité de stock para que no se vendan […] que cuando
+ * quitamos, aunque esté en el kardex, se den de baja»): el GT148-M BROWN-26
+ * seguía en la foto con 9 pares FÍSICOS y los 9 APARTADOS por la bodega
+ * (disponible 0), y como el ERP solo lee lo disponible, la baja se detuvo y
+ * 6 pedidos se quedaron «en duda» sin cancelarse. Lo que Industher tiene
+ * apartado por su cuenta no se va a despachar: es una baja a propósito y se
+ * escribe como merma («Apartado en Industher»); la defensa del corte cancela
+ * lo que ya no alcanza. Si Industher lo vuelve a soltar, entra otra vez.
+ *
  * Y un SKU CONTADO a mano (`ajuste`) se compara desde su conteo: la base es
  * el saldo del kardex más las salidas pendientes, no la historia de Industher
  * (ver abajo; 6-oct-2026).
@@ -332,8 +342,10 @@ export function conciliarAcumulado(
     const resto = baja - aSalidas;
     const comprometidos = apartados.get(sku) ?? 0;
     const reservadas = apartadasBodega.get(sku) ?? 0;
-    if (resto > 0 && enBodega === 0 && comprometidos > 0) {
-      detenidas.push(reservadas > 0 ? { sku, pares: resto, apartados: comprometidos, apartadasBodega: reservadas } : { sku, pares: resto, apartados: comprometidos });
+    // Se detiene SOLO si Industher ya no tiene el SKU ni apartado: con pares
+    // físicos reservados por la bodega, la baja es a propósito (ver arriba).
+    if (resto > 0 && enBodega === 0 && comprometidos > 0 && reservadas === 0) {
+      detenidas.push({ sku, pares: resto, apartados: comprometidos });
       continue;
     }
     if (resto > 0) {
@@ -347,7 +359,9 @@ export function conciliarAcumulado(
           ? "Devolución que no volvió al estante de Industher"
           : reservadas >= resto
             ? `Apartado en Industher: ${reservadas} ${reservadas === 1 ? "par reservado" : "pares reservados"} por la bodega, no disponibles`
-            : "Industher reportó menos en la bodega TikTok",
+            : reservadas > 0
+              ? `Apartado en Industher: ${reservadas} ${reservadas === 1 ? "par reservado" : "pares reservados"} por la bodega, no disponibles; ${resto - reservadas} más que Industher ya no reporta`
+              : "Industher reportó menos en la bodega TikTok",
         fecha: fechaFoto,
       });
     }
