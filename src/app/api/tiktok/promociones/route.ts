@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { crearOferta, desactivarOferta, guardarCiclica, listarOfertas, programarCiclicas, quitarCiclica, repetirOferta } from "@/lib/servicios/tiktok-promociones";
+import { crearOferta, desactivarOferta, guardarCiclica, guardarCiclicas, listarOfertas, programarCiclicas, quitarCiclica, repetirOferta } from "@/lib/servicios/tiktok-promociones";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,7 @@ async function sesion() {
  *   { accion: "desactivar", activityId }
  *   { accion: "refrescar" }                       — vuelve a leer las ofertas de TikTok
  *   { accion: "ciclica-guardar", modelo, precio, horas?, topePorTalla?, topePorComprador? } — alta o corrección y programa lo que falte
+ *   { accion: "ciclica-guardar-varios", lista: [{ modelo, precio, horas?, topePorTalla?, topePorComprador? }] } — alta masiva
  *   { accion: "ciclica-quitar", id }              — deja de reponer y desactiva las ventanas que no han empezado
  *   { accion: "ciclica-programar" }               — repone ahora las ventanas que falten a todas
  */
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest) {
     }
     if (body?.accion === "ciclica-guardar") {
       return NextResponse.json({ ok: true, ciclica: await guardarCiclica(admin, s.cuenta.id, body, s.user.id) });
+    }
+    if (body?.accion === "ciclica-guardar-varios") {
+      const lista = Array.isArray(body.lista) ? body.lista : [];
+      if (!lista.length) return NextResponse.json({ error: "Marca al menos un modelo." }, { status: 400 });
+      return NextResponse.json({ ok: true, ...(await guardarCiclicas(admin, s.cuenta.id, lista, s.user.id, 170_000)) });
     }
     if (body?.accion === "ciclica-quitar") {
       return NextResponse.json({ ok: true, ...(await quitarCiclica(admin, s.cuenta.id, Number(body.id))) });

@@ -7,12 +7,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Relámpagos CÍCLICOS de TikTok, cada hora: a cada modelo cíclico activo se
- * le reponen las ventanas que falten para que siempre tenga
- * `VENTANAS_ADELANTE` programadas, una detrás de otra, de hasta 72 h cada
- * una (dueño, 15-oct-2026: «el sistema se encarga de que siempre va a estar
- * con relámpagos programadas»). Lo que no alcance en esta corrida lo recoge
- * la siguiente.
+ * Relámpagos CÍCLICOS de TikTok, cada 10 minutos: a cada modelo cíclico
+ * activo cuya relámpago ya terminó (o que no tiene ninguna) se le crea la
+ * siguiente, de hasta 72 h (dueño, 15-oct-2026: «el sistema se encarga de
+ * que siempre va a estar con relámpagos programadas»). TikTok no deja dos
+ * vivas o programadas del mismo producto, así que no se adelantan: por eso
+ * la corrida es cada 10 min y no cada hora. Lo que no alcance en esta
+ * corrida lo recoge la siguiente.
  */
 export async function GET(req: NextRequest) {
   const secreto = process.env.CRON_SECRET;

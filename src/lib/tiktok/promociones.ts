@@ -230,14 +230,38 @@ export function precioDeNivel(niveles: { live: number; normal: number; campana: 
 // Pedido del dueño, 15-oct-2026: «en cíclicos yo pongo un producto, cuál es
 // el precio y el sistema se encarga de que siempre va a estar con relámpagos
 // programadas; se pueden adelantar muchas y cada una dura máximo 72 horas».
-// Cada modelo cíclico lleva su propia cadena de actividades, una detrás de
-// otra (la siguiente empieza cuando termina la anterior), y el fondo repone
-// las que faltan para tener siempre `VENTANAS_ADELANTE` por delante.
+//
+// TikTok NO deja adelantar: un producto solo puede estar en UNA actividad
+// viva o programada (17029022 «Resource Conflict: the product or sku
+// conflicts with another ONGOING or NOT_START activity», 17 y 18-oct-2026:
+// la segunda ventana de la cadena se rechazaba SIEMPRE, la actividad quedaba
+// vacía en TikTok y el cron volvía a intentar la misma cada hora con
+// 17029004 «name already in use»). Así que cada modelo cíclico lleva UNA
+// relámpago a la vez: el fondo (cada 10 min) crea la siguiente en cuanto
+// la que corre termina, arrancando en `MINUTOS_DE_ARRANQUE`.
 
 /** TikTok deja una relámpago de hasta 72 h; el ciclo nunca pasa de ahí. */
 export const HORAS_MAX_CICLICA = 72;
-/** Cuántas ventanas (la que corre más las que siguen) se mantienen siempre programadas por modelo. */
-export const VENTANAS_ADELANTE = 3;
+/** Cuántas ventanas (la que corre o la que sigue) puede tener un modelo: UNA, por la regla de TikTok de arriba. */
+export const VENTANAS_ADELANTE = 1;
+
+/**
+ * El error de TikTok en palabras para la pantalla (dueño, 19-oct-2026: «está
+ * muy no profesional» viendo códigos y rutas). Lo crudo se queda en la
+ * constancia de la ventana (`tiktok_promociones.error`).
+ */
+export function explicarErrorDeCiclica(modelo: string, mensaje: string): string {
+  const m = String(mensaje ?? "");
+  if (m.includes("17029022") || /ONGOING or NOT_START/i.test(m)) {
+    return `TikTok ya tiene el ${modelo} en otra relámpago viva o programada; la cíclica entra cuando termine esa.`;
+  }
+  if (m.includes("17029004") || /already in use/i.test(m)) {
+    return `El nombre de la relámpago ya existía en TikTok; se reintenta con otro nombre en la siguiente pasada.`;
+  }
+  if (/not connected|no está conectado/i.test(m)) return "TikTok Shop no está conectado.";
+  const sinRuta = m.replace(/TikTok Shop \d+ en \/[^:]+: /g, "").replace(/Lote \d+ de \d+ \(\d+ productos\): /g, "");
+  return sinRuta.length > 160 ? `${sinRuta.slice(0, 157)}…` : sinRuta;
+}
 
 export interface VentanaProgramada {
   inicio: Date;
@@ -258,10 +282,12 @@ export function tituloDeCiclica(modelo: string, inicio: Date): string {
 
 /**
  * Las ventanas que FALTAN para que un modelo tenga `ventanasAdelante`
- * relámpagos vivas o programadas: se encadenan a partir del fin de la última
- * programada (o de ahora + `MINUTOS_DE_ARRANQUE` si no hay ninguna por
- * delante), cada una de `horas` (tope 72). Una ventana que ya terminó no
- * cuenta; una que corre o que empieza después, sí.
+ * relámpagos vivas o programadas (una, por la regla de TikTok). Si no hay
+ * ninguna viva, una nueva desde ahora + `MINUTOS_DE_ARRANQUE` de `horas`
+ * (tope 72). Una ventana que ya terminó no cuenta; una que corre o que
+ * empieza después, sí, y mientras exista no se crea nada: TikTok la
+ * rechazaría. (Con más de una ventana pedida, se encadenan desde el fin de
+ * la última; hoy no se usa.)
  */
 export function ventanasQueFaltan(
   programadas: VentanaProgramada[],

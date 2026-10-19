@@ -10,7 +10,6 @@ import {
   HORAS_MAX_CICLICA,
   HORAS_POR_OMISION,
   MINUTOS_DE_ARRANQUE,
-  VENTANAS_ADELANTE,
   nombreDeEstado,
   precioDeNivel,
   tituloDeOferta,
@@ -28,6 +27,14 @@ const NIVELES: { clave: NivelOferta; nombre: string; nota: string }[] = [
 function cuando(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+/** «21 oct 18:16», hora de México, para las celdas angostas. */
+function cuandoCorto(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso)
+    .toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+    .replace(",", "");
 }
 
 function dinero(x: number | null | undefined): string {
@@ -81,7 +88,16 @@ export function PromocionesTikTok({
   const [ciclicaHoras, setCiclicaHoras] = useState(String(HORAS_MAX_CICLICA));
   const [ciclicaTopeTalla, setCiclicaTopeTalla] = useState("");
   const [ciclicaTopeComprador, setCiclicaTopeComprador] = useState("");
+  /** el dueño ya escribió un precio a mano: no se pisa con el sugerido al cambiar de modelo */
+  const [precioTocado, setPrecioTocado] = useState(false);
   const [preciosCiclicas, setPreciosCiclicas] = useState<Record<number, string>>({});
+  // Alta masiva: todos los modelos activos en TikTok con casilla y precio precargado.
+  const [busquedaMasiva, setBusquedaMasiva] = useState("");
+  const [marcadosMasivo, setMarcadosMasivo] = useState<Set<string>>(new Set());
+  const [preciosMasivo, setPreciosMasivo] = useState<Record<string, string>>({});
+  const [masivoHoras, setMasivoHoras] = useState(String(HORAS_MAX_CICLICA));
+  const [masivoTopeTalla, setMasivoTopeTalla] = useState("");
+  const [masivoTopeComprador, setMasivoTopeComprador] = useState("");
   const [nivel, setNivel] = useState<NivelOferta>("normal");
   const [inicio, setInicio] = useState(() => inicioPorOmision(ahora));
   const [horas, setHoras] = useState(String(HORAS_POR_OMISION));
@@ -98,6 +114,11 @@ export function PromocionesTikTok({
     const q = busqueda.trim().toLowerCase();
     return q ? modelos.filter((m) => `${m.modelo} ${m.titulo ?? ""}`.toLowerCase().includes(q)) : modelos;
   }, [modelos, busqueda]);
+
+  const visiblesMasivo = useMemo(() => {
+    const q = busquedaMasiva.trim().toLowerCase();
+    return q ? modelos.filter((m) => `${m.modelo} ${m.titulo ?? ""}`.toLowerCase().includes(q)) : modelos;
+  }, [modelos, busquedaMasiva]);
 
   /** El precio con el que entra un modelo: el capturado o el del nivel. */
   const precioDe = (m: ModeloParaOferta): number | null => {
@@ -197,8 +218,9 @@ export function PromocionesTikTok({
     const horas = Math.min(HORAS_MAX_CICLICA, Math.max(1, Number(ciclicaHoras) || HORAS_MAX_CICLICA));
     if (
       !window.confirm(
-        `¿Volver cíclico el ${modelo} a ${dinero(precio)}? Desde ahora tendrá siempre ${VENTANAS_ADELANTE} relámpagos programadas en TikTok, ` +
-          `una tras otra, de ${horas} horas cada una. La primera empieza en ${MINUTOS_DE_ARRANQUE} minutos.`,
+        `¿Volver cíclico el ${modelo} a ${dinero(precio)}? Desde ahora tendrá siempre una relámpago viva en TikTok, ` +
+          `de ${horas} horas; cuando termine una, el sistema crea la siguiente. La primera empieza en ${MINUTOS_DE_ARRANQUE} minutos ` +
+          `(o cuando termine la que ya tenga).`,
       )
     )
       return;
@@ -217,6 +239,64 @@ export function PromocionesTikTok({
     contarCiclica(j.ciclica, "ya es cíclico");
     setCiclicaModelo("");
     setCiclicaPrecio("");
+    setPrecioTocado(false);
+    router.refresh();
+  }
+
+  /** El precio con el que arranca una cíclica: el de su última relámpago en TikTok o, si no, el nivel normal de la estrategia. */
+  function precioSugeridoCiclica(m: ModeloParaOferta): number | null {
+    const ultima = ultimaPorModelo[m.modelo]?.precio;
+    if (ultima && ultima > 0) return ultima;
+    return precioDeNivel(m.niveles ?? undefined, "normal");
+  }
+
+  function elegirModeloCiclica(valor: string) {
+    setCiclicaModelo(valor);
+    if (precioTocado) return;
+    const m = modelos.find((x) => x.modelo === valor.trim().toUpperCase());
+    const sugerido = m ? precioSugeridoCiclica(m) : null;
+    setCiclicaPrecio(sugerido ? String(sugerido) : "");
+  }
+
+  const precioMasivoDe = (m: ModeloParaOferta): number | null => {
+    const capturado = Number(preciosMasivo[m.modelo]);
+    if (capturado > 0) return capturado;
+    return precioSugeridoCiclica(m);
+  };
+
+  async function guardarCiclicasMasivo() {
+    const elegidos = modelos.filter((m) => marcadosMasivo.has(m.modelo));
+    const conPrecio = elegidos.filter((m) => (precioMasivoDe(m) ?? 0) > 0);
+    if (!conPrecio.length) return;
+    const horas = Math.min(HORAS_MAX_CICLICA, Math.max(1, Number(masivoHoras) || HORAS_MAX_CICLICA));
+    const sinPrecioN = elegidos.length - conPrecio.length;
+    if (
+      !window.confirm(
+        `¿Volver cíclicos ${conPrecio.length} modelos, cada uno con el precio de su renglón y relámpagos de ${horas} horas?` +
+          (sinPrecioN ? ` ${sinPrecioN} marcados sin precio se quedan fuera.` : ""),
+      )
+    )
+      return;
+    const j = await llamar(
+      {
+        accion: "ciclica-guardar-varios",
+        lista: conPrecio.map((m) => ({
+          modelo: m.modelo,
+          precio: precioMasivoDe(m),
+          horas,
+          topePorTalla: masivoTopeTalla === "" ? -1 : Number(masivoTopeTalla),
+          topePorComprador: masivoTopeComprador === "" ? -1 : Number(masivoTopeComprador),
+        })),
+      },
+      "ciclica-masivo",
+    );
+    if (!j) return;
+    const partes = [`${j.guardadas} modelos ya son cíclicos; ${j.programacion?.creadas ?? 0} relámpagos creadas en TikTok ahora mismo.`];
+    if (j.programacion?.sinTiempo) partes.push("Se acabó el tiempo: el fondo termina de crear las demás en los siguientes 10 minutos.");
+    if (j.errores?.length) partes.push(`No entraron: ${j.errores.join(" · ")}`);
+    if (j.programacion?.errores?.length) partes.push(`TikTok: ${j.programacion.errores.join(" · ")}`);
+    setAviso({ tono: j.errores?.length || j.programacion?.errores?.length ? "alerta" : "bien", texto: partes.join(" ") });
+    setMarcadosMasivo(new Set());
     router.refresh();
   }
 
@@ -249,7 +329,7 @@ export function PromocionesTikTok({
     if (!j) return;
     setAviso({
       tono: j.errores?.length ? "alerta" : "bien",
-      texto: `${j.revisadas} cíclicas revisadas, ${j.creadas} relámpagos creadas.${j.sinTiempo ? " Se acabó el tiempo: la siguiente hora sigue." : ""}${j.errores?.length ? ` ${j.errores.join(" · ")}` : ""}`,
+      texto: `${j.revisadas} cíclicas revisadas, ${j.creadas} relámpagos creadas${j.limpiadas ? `, ${j.limpiadas} actividades vacías desactivadas` : ""}.${j.sinTiempo ? " Se acabó el tiempo: el fondo sigue en 10 minutos." : ""}${j.errores?.length ? ` ${j.errores.join(" · ")}` : ""}`,
     });
     router.refresh();
   }
@@ -265,11 +345,41 @@ export function PromocionesTikTok({
     return `${dinero(r.precio)} · ${r.estado === "ONGOING" ? "en curso hasta" : r.estado === "NOT_START" ? "programada hasta" : "terminó"} ${cuandoTermina}${viva ? "" : ` (${nombreDeEstado(r.estado)})`} · «${r.titulo}»`;
   };
 
+  /** Qué relámpago tiene el modelo HOY en TikTok (la propia o una a mano) y en qué va. */
+  const relampagoViva = (c: CiclicaGuardada): { texto: string; precio: number | null; aMano: boolean; hasta: string | null; corre: boolean } | null => {
+    const propia = c.ventanas[0];
+    if (propia) {
+      const corre = Date.parse(propia.inicio) <= ahora;
+      return { texto: corre ? "En curso" : "Programada", precio: c.precio, aMano: false, hasta: propia.fin, corre };
+    }
+    const ajena = c.ajenas.find((r) => r.estado === "ONGOING") ?? c.ajenas[0];
+    if (ajena) return { texto: ajena.estado === "ONGOING" ? "En curso" : "Programada", precio: ajena.precio, aMano: true, hasta: ajena.fin, corre: ajena.estado === "ONGOING" };
+    return null;
+  };
+  const estadoDeCiclica = (c: CiclicaGuardada): { tono: "bien" | "alerta" | "critico" | "tenue"; texto: string; detalle?: string } => {
+    if (!c.activo) return { tono: "tenue", texto: "Quitado" };
+    if (!c.enTikTok) return { tono: "critico", texto: "Sin producto activo en TikTok" };
+    const viva = relampagoViva(c);
+    if (c.ultimoError) {
+      if (viva?.aMano) return { tono: "alerta", texto: `Esperando a que termine la relámpago a mano (${cuandoCorto(viva.hasta)})`, detalle: c.ultimoError };
+      return { tono: "critico", texto: c.ultimoError };
+    }
+    if (viva && !viva.aMano) return { tono: "bien", texto: "Al día" };
+    if (viva?.aMano) return { tono: "alerta", texto: `Entra cuando termine la relámpago a mano (${cuandoCorto(viva.hasta)})` };
+    return { tono: "tenue", texto: "Por programar: el fondo la crea en menos de 10 minutos" };
+  };
+  const tonoPastilla = (tono: "bien" | "alerta" | "critico" | "tenue"): { background: string; color: string } => {
+    if (tono === "bien") return { background: "var(--bien-suave)", color: "var(--exito-texto)" };
+    if (tono === "alerta") return { background: "var(--alerta-suave)", color: "var(--alerta-texto)" };
+    if (tono === "critico") return { background: "var(--critico-suave)", color: "var(--critico-texto)" };
+    return { background: "var(--grid)", color: "var(--ink-2)" };
+  };
+
   const panelCiclicos = (
     <>
       <Seccion
         titulo="Volver cíclico un modelo"
-        descripcion={`El sistema le mantiene siempre ${VENTANAS_ADELANTE} relámpagos programadas, una tras otra, de hasta ${HORAS_MAX_CICLICA} horas cada una.`}
+        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente (TikTok no deja dos a la vez). El precio viene precargado con el de su última relámpago.`}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -277,7 +387,7 @@ export function PromocionesTikTok({
             <input
               list="modelos-ciclicos"
               value={ciclicaModelo}
-              onChange={(e) => setCiclicaModelo(e.target.value)}
+              onChange={(e) => elegirModeloCiclica(e.target.value)}
               placeholder="GT148"
               className="w-32 rounded-lg border px-2 py-1 text-sm uppercase"
             />
@@ -299,14 +409,11 @@ export function PromocionesTikTok({
               min={1}
               step={1}
               value={ciclicaPrecio}
-              onChange={(e) => setCiclicaPrecio(e.target.value)}
-              placeholder={
-                ultimaDelElegido?.precio
-                  ? String(ultimaDelElegido.precio)
-                  : modeloCiclicaElegido
-                    ? String(precioDeNivel(modeloCiclicaElegido.niveles ?? undefined, "normal") ?? "")
-                    : ""
-              }
+              onChange={(e) => {
+                setCiclicaPrecio(e.target.value);
+                setPrecioTocado(e.target.value.trim() !== "");
+              }}
+              placeholder={modeloCiclicaElegido ? String(precioSugeridoCiclica(modeloCiclicaElegido) ?? "") : ""}
               className="w-28 rounded-lg border px-2 py-1 text-right text-sm"
             />
           </label>
@@ -362,7 +469,7 @@ export function PromocionesTikTok({
               <p>
                 Última relámpago del {modeloCiclicaElegido.modelo} en TikTok: {describirRelampago(ultimaDelElegido)}.
                 {ultimaDelElegido.estado === "ONGOING" || ultimaDelElegido.estado === "NOT_START"
-                  ? " La cíclica empieza cuando termine esa."
+                  ? " La cíclica empieza cuando termine esa (TikTok no deja dos a la vez)."
                   : ""}
               </p>
             ) : (
@@ -379,7 +486,7 @@ export function PromocionesTikTok({
       </Seccion>
       <Seccion
         titulo="Modelos cíclicos"
-        descripcion="Cada uno con sus relámpagos programadas en TikTok. El fondo repone cada hora la que falte."
+        descripcion="Cada uno con su relámpago en TikTok. El fondo revisa cada 10 minutos y crea la siguiente en cuanto termina la que corre."
         acciones={
           <button onClick={programarCiclicas} disabled={ocupado !== null || !ciclicasActivas.length} className="boton boton-borde boton-chico">
             {ocupado === "ciclica-programar" ? <Loader2 size={14} className="girando" /> : <RefreshCw size={14} />} Reponer ahora
@@ -393,100 +500,243 @@ export function PromocionesTikTok({
             <table>
               <thead>
                 <tr>
-                  <th>Modelo</th>
-                  <th className="num">Precio</th>
-                  <th className="num">Horas</th>
-                  <th>Última en TikTok</th>
-                  <th>Relámpagos programadas</th>
+                  <th style={{ width: "7rem" }}>Modelo</th>
+                  <th className="num" style={{ width: "11rem", whiteSpace: "nowrap" }}>
+                    Precio cíclico
+                  </th>
+                  <th className="num" style={{ width: "4.5rem" }}>Horas</th>
+                  <th style={{ width: "16rem" }}>Relámpago en TikTok</th>
                   <th>Estado</th>
-                  <th></th>
+                  <th style={{ width: "6rem" }}></th>
                 </tr>
               </thead>
               <tbody>
-                {ciclicas.map((c) => (
-                  <tr key={c.id} style={!c.activo ? { opacity: 0.6 } : undefined}>
-                    <td>
-                      <div className="text-sm font-semibold">{c.modelo}</div>
-                      {!c.enTikTok ? <div className="text-xs" style={{ color: "var(--critico)" }}>sin producto activo en TikTok</div> : null}
-                      {!c.activo ? <div className="text-xs texto-tenue">quitado</div> : null}
-                    </td>
-                    <td className="num">
-                      {c.activo ? (
-                        <span className="inline-flex items-center gap-1">
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            min={1}
-                            step={1}
-                            value={preciosCiclicas[c.id] ?? String(c.precio)}
-                            onChange={(e) => setPreciosCiclicas((p) => ({ ...p, [c.id]: e.target.value }))}
-                            className="w-24 rounded-lg border px-2 py-1 text-right text-sm"
-                          />
-                          {preciosCiclicas[c.id] != null && Number(preciosCiclicas[c.id]) !== c.precio ? (
-                            <button onClick={() => corregirCiclica(c)} disabled={ocupado !== null} className="boton boton-borde boton-chico">
-                              {ocupado === `ciclica:${c.id}` ? <Loader2 size={14} className="girando" /> : null} Cambiar
-                            </button>
-                          ) : null}
+                {ciclicas.map((c) => {
+                  const viva = relampagoViva(c);
+                  const estado = estadoDeCiclica(c);
+                  return (
+                    <tr key={c.id} style={!c.activo ? { opacity: 0.6 } : undefined}>
+                      <td>
+                        <div className="text-sm font-semibold">{c.modelo}</div>
+                      </td>
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        {c.activo ? (
+                          <span className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={1}
+                              step={1}
+                              value={preciosCiclicas[c.id] ?? String(c.precio)}
+                              onChange={(e) => setPreciosCiclicas((p) => ({ ...p, [c.id]: e.target.value }))}
+                              className="w-24 rounded-lg border px-2 py-1 text-right text-sm"
+                            />
+                            {preciosCiclicas[c.id] != null && Number(preciosCiclicas[c.id]) !== c.precio ? (
+                              <button onClick={() => corregirCiclica(c)} disabled={ocupado !== null} className="boton boton-borde boton-chico">
+                                {ocupado === `ciclica:${c.id}` ? <Loader2 size={14} className="girando" /> : null} Cambiar
+                              </button>
+                            ) : null}
+                          </span>
+                        ) : (
+                          dinero(c.precio)
+                        )}
+                      </td>
+                      <td className="num">{c.horas} h</td>
+                      <td className="text-xs" style={{ whiteSpace: "nowrap" }}>
+                        {viva ? (
+                          <>
+                            <div>
+                              <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={tonoPastilla(viva.corre ? "bien" : "alerta")}>
+                                {viva.texto}
+                              </span>
+                              <span className="ml-2 font-semibold">{dinero(viva.precio)}</span>
+                            </div>
+                            <div className="mt-0.5 texto-tenue">
+                              hasta {cuandoCorto(viva.hasta)}
+                              {viva.aMano ? " · creada a mano" : ""}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="texto-tenue">ninguna</span>
+                        )}
+                      </td>
+                      <td className="text-xs">
+                        <span className="rounded-full px-2 py-0.5 font-semibold" style={tonoPastilla(estado.tono)} title={estado.detalle}>
+                          {estado.texto}
                         </span>
-                      ) : (
-                        dinero(c.precio)
-                      )}
-                    </td>
-                    <td className="num">{c.horas}</td>
-                    <td className="text-xs">
-                      {c.ultimaEnTikTok ? (
-                        <>
-                          <div className="font-semibold">{dinero(c.ultimaEnTikTok.precio)}</div>
-                          <div className="texto-tenue">
-                            {c.ultimaEnTikTok.estado === "ONGOING" ? "en curso hasta " : c.ultimaEnTikTok.estado === "NOT_START" ? "programada hasta " : "terminó "}
-                            {c.ultimaEnTikTok.fin ? cuando(c.ultimaEnTikTok.fin) : "—"}
-                          </div>
-                          <div className="line-clamp-1 texto-tenue" title={c.ultimaEnTikTok.titulo}>
-                            «{c.ultimaEnTikTok.titulo}»
-                          </div>
-                        </>
-                      ) : (
-                        <span className="texto-tenue">ninguna</span>
-                      )}
-                    </td>
-                    <td>
-                      {c.ventanas.length || c.ajenas.length ? (
-                        <ul className="text-xs">
-                          {c.ajenas.map((r) => (
-                            <li key={r.activityId} className="texto-tenue">
-                              {r.inicio ? cuando(r.inicio) : "—"} → {r.fin ? cuando(r.fin) : "—"} (a mano: «{r.titulo}», {dinero(r.precio)})
-                            </li>
-                          ))}
-                          {c.ventanas.map((v) => (
-                            <li key={v.id}>
-                              {cuando(v.inicio)} → {cuando(v.fin)}
-                              {Date.parse(v.inicio) <= ahora ? <span className="ml-1 texto-tenue">(en curso)</span> : null}
-                              {v.estado === "parcial" ? <span className="ml-1" style={{ color: "var(--alerta-texto)" }}>(parcial)</span> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="text-xs texto-tenue">ninguna</span>
-                      )}
-                    </td>
-                    <td className="text-xs">
-                      {c.ultimoError ? (
-                        <span style={{ color: "var(--critico)" }}>{c.ultimoError}</span>
-                      ) : c.programadoEn ? (
-                        <span className="texto-tenue">revisado {cuando(c.programadoEn)}</span>
-                      ) : (
-                        <span className="texto-tenue">por programar</span>
-                      )}
-                    </td>
-                    <td className="num">
-                      {c.activo ? (
-                        <button onClick={() => quitarCiclica(c)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="Quitar de los cíclicos">
-                          {ocupado === `ciclica-quitar:${c.id}` ? <Loader2 size={14} className="girando" /> : <Trash2 size={14} />} Quitar
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
+                        {c.programadoEn && estado.tono !== "critico" ? <div className="mt-1 texto-tenue">revisado {cuandoCorto(c.programadoEn)}</div> : null}
+                      </td>
+                      <td className="num">
+                        {c.activo ? (
+                          <button onClick={() => quitarCiclica(c)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="Quitar de los cíclicos">
+                            {ocupado === `ciclica-quitar:${c.id}` ? <Loader2 size={14} className="girando" /> : <Trash2 size={14} />} Quitar
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Tabla>
+        )}
+      </Seccion>
+      <Seccion
+        titulo="Todos los modelos activos en TikTok"
+        descripcion="Marca los que quieras volver cíclicos de un jalón. El precio ya viene con el de su última relámpago (o el nivel normal de la estrategia) y se puede corregir por renglón."
+        acciones={
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative">
+              <Search size={14} className="absolute left-2 top-2 texto-tenue" />
+              <input
+                value={busquedaMasiva}
+                onChange={(e) => setBusquedaMasiva(e.target.value)}
+                placeholder="Buscar modelo…"
+                className="w-44 rounded-lg border py-1.5 pl-7 pr-2 text-sm"
+              />
+            </label>
+            <button
+              onClick={() => setMarcadosMasivo(new Set(visiblesMasivo.filter((m) => !yaCiclicos.has(m.modelo)).map((m) => m.modelo)))}
+              className="boton boton-borde boton-chico"
+              disabled={!visiblesMasivo.length}
+            >
+              Marcar los visibles
+            </button>
+            <button onClick={() => setMarcadosMasivo(new Set())} className="boton boton-borde boton-chico" disabled={!marcadosMasivo.size}>
+              Desmarcar
+            </button>
+          </div>
+        }
+      >
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="block text-xs texto-tenue">Horas por relámpago (máx. {HORAS_MAX_CICLICA})</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={HORAS_MAX_CICLICA}
+              value={masivoHoras}
+              onChange={(e) => setMasivoHoras(e.target.value)}
+              className="w-20 rounded-lg border px-2 py-1 text-right text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs texto-tenue">Tope por talla</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={99}
+              value={masivoTopeTalla}
+              onChange={(e) => setMasivoTopeTalla(e.target.value)}
+              placeholder="sin tope"
+              className="w-24 rounded-lg border px-2 py-1 text-right text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs texto-tenue">Tope por comprador</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={99}
+              value={masivoTopeComprador}
+              onChange={(e) => setMasivoTopeComprador(e.target.value)}
+              placeholder="sin tope"
+              className="w-24 rounded-lg border px-2 py-1 text-right text-sm"
+            />
+          </label>
+          <button
+            onClick={guardarCiclicasMasivo}
+            disabled={ocupado !== null || !modelos.some((m) => marcadosMasivo.has(m.modelo) && (precioMasivoDe(m) ?? 0) > 0)}
+            className="boton boton-primario"
+          >
+            {ocupado === "ciclica-masivo" ? <Loader2 size={14} className="girando" /> : <Repeat size={14} />} Volver cíclicos{" "}
+            {marcadosMasivo.size ? `(${marcadosMasivo.size})` : ""}
+          </button>
+        </div>
+        {!modelos.length ? (
+          <p className="py-6 text-center text-sm texto-tenue">No hay modelos activos en TikTok.</p>
+        ) : (
+          <Tabla>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "2.5rem" }}></th>
+                  <th style={{ width: "7rem" }}>Modelo</th>
+                  <th>Publicación</th>
+                  <th style={{ width: "15rem" }}>Última relámpago en TikTok</th>
+                  <th className="num" style={{ width: "9rem", whiteSpace: "nowrap" }}>
+                    Precio cíclico
+                  </th>
+                  <th className="num" style={{ width: "6rem" }}>Variantes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiblesMasivo.map((m) => {
+                  const ultima = ultimaPorModelo[m.modelo] ?? null;
+                  const esCiclico = yaCiclicos.has(m.modelo);
+                  const sugerido = precioSugeridoCiclica(m);
+                  return (
+                    <tr key={m.modelo} style={esCiclico ? { opacity: 0.55 } : undefined}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={marcadosMasivo.has(m.modelo)}
+                          disabled={esCiclico}
+                          onChange={(e) =>
+                            setMarcadosMasivo((prev) => {
+                              const n = new Set(prev);
+                              if (e.target.checked) n.add(m.modelo);
+                              else n.delete(m.modelo);
+                              return n;
+                            })
+                          }
+                        />
+                      </td>
+                      <td>
+                        <div className="text-sm font-semibold">{m.modelo}</div>
+                        {esCiclico ? <div className="text-xs texto-tenue">ya es cíclico</div> : null}
+                      </td>
+                      <td className="max-w-xs text-xs texto-tenue">
+                        <div className="line-clamp-2" title={m.titulo ?? m.productId}>
+                          {m.titulo ?? m.productId}
+                        </div>
+                      </td>
+                      <td className="text-xs" style={{ whiteSpace: "nowrap" }}>
+                        {ultima ? (
+                          <>
+                            <span
+                              className="rounded-full px-2 py-0.5 font-semibold"
+                              style={tonoPastilla(ultima.estado === "ONGOING" ? "bien" : ultima.estado === "NOT_START" ? "alerta" : "tenue")}
+                            >
+                              {ultima.estado === "ONGOING" ? "En curso" : ultima.estado === "NOT_START" ? "Programada" : "Terminó"}
+                            </span>
+                            <span className="ml-2 font-semibold">{dinero(ultima.precio)}</span>
+                            <div className="mt-0.5 texto-tenue">hasta {cuandoCorto(ultima.fin)}</div>
+                          </>
+                        ) : (
+                          <span className="texto-tenue">ninguna{m.niveles ? ` · normal ${dinero(m.niveles.normal)}` : ""}</span>
+                        )}
+                      </td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={1}
+                          step={1}
+                          disabled={esCiclico}
+                          value={preciosMasivo[m.modelo] ?? (sugerido ? String(sugerido) : "")}
+                          onChange={(e) => setPreciosMasivo((p) => ({ ...p, [m.modelo]: e.target.value }))}
+                          placeholder="sin precio"
+                          className="w-24 rounded-lg border px-2 py-1 text-right text-sm"
+                        />
+                      </td>
+                      <td className="num text-xs texto-tenue">{m.skuIds.length}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Tabla>
