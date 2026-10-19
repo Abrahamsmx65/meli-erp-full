@@ -9,7 +9,7 @@ export const maxDuration = 120;
 
 /**
  * Unifica el valor de un atributo (el caso típico: el material) en las
- * publicaciones indicadas. Escribe directo en MELI; no toca Supabase.
+ * publicaciones indicadas, o con `desde` RENOMBRA solo ese valor (un color). Escribe directo en MELI; no toca Supabase.
  */
 export async function POST(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -24,6 +24,8 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const atributoId = typeof body.atributoId === "string" ? body.atributoId.trim() : "";
   const valor = typeof body.valor === "string" ? body.valor.trim() : "";
+  // Renombrar: solo cambia donde hoy dice este valor (p. ej. un color).
+  const desde = typeof body.desde === "string" && body.desde.trim() ? body.desde.trim() : undefined;
   const itemIds = Array.isArray(body.itemIds)
     ? body.itemIds.filter((x): x is string => typeof x === "string" && /^ML[A-Z]\d{4,}$/.test(x))
     : [];
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const resultados = await unificarAtributo(cliente, itemIds, atributoId, valor);
+  const resultados = await unificarAtributo(cliente, itemIds, atributoId, valor, desde);
   const errores = resultados.filter((r) => r.estado === "error").length;
 
   return NextResponse.json({ ok: errores === 0, resultados });

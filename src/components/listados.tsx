@@ -114,6 +114,46 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
     }
   };
 
+  // RENOMBRAR un valor (un color): solo en las publicaciones que hoy lo traen.
+  const [renombrar, setRenombrar] = useState<{ clave: string; desde: string; nuevo: string } | null>(null);
+
+  const aplicarRenombre = async (d: Diferencia, desde: string, donde: string[]) => {
+    if (!grupo || !renombrar) return;
+    const nuevo = renombrar.nuevo.trim();
+    if (!nuevo || nuevo === desde) return;
+    const itemIds = [...new Set(donde.map((x) => x.match(/^ML[A-Z]\d+/)?.[0]).filter((x): x is string => !!x))];
+    if (!itemIds.length) return;
+    const k = `${claveDif(d)}|${desde}`;
+
+    const seguro = await confirmar({
+      titulo: `¿Cambiar "${d.nombre}" de "${desde}" a "${nuevo}"?`,
+      mensaje: `Solo en lo que hoy dice "${desde}" (${itemIds.length} publicación${itemIds.length === 1 ? "" : "es"}). Esto escribe directo en Mercado Libre.`,
+      confirmar: "Escribir en MELI",
+    });
+    if (!seguro) return;
+
+    setAplicando(k);
+    try {
+      const r = await fetch("/api/listados/atributo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ atributoId: d.atributoId, valor: nuevo, desde, itemIds }),
+      });
+      const j = await r.json();
+      if (!r.ok && !j?.resultados) throw new Error(j?.error ?? "No se pudo renombrar.");
+      setResultados((prev) => ({ ...prev, [k]: j.resultados as ResultadoUnificacion[] }));
+      setRenombrar(null);
+      await buscar(grupo.agrupador);
+    } catch (err) {
+      setResultados((prev) => ({
+        ...prev,
+        [k]: [{ itemId: "—", estado: "error", niveles: [], detalle: (err as Error).message }],
+      }));
+    } finally {
+      setAplicando(null);
+    }
+  };
+
   // Las medidas del paquete difieren en cada publicación (MELI las mide) y
   // no parten el selector: van aparte para no tapar las diferencias reales.
   const raras = grupo?.diferencias.filter((d) => !d.esperada && !d.esMedida) ?? [];
@@ -331,7 +371,86 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
               <summary className="cursor-pointer text-sm font-semibold">
                 Diferencias esperadas ({esperadas.length})
               </summary>
-              <ListaValores diferencias={esperadas} />
+              <div className="mt-3 flex flex-col gap-3 text-sm">
+                {esperadas.map((d) => {
+                  const kd = claveDif(d);
+                  const sePuede = /COLOR/.test(d.atributoId);
+                  return (
+                    <div key={kd} className="flex flex-col gap-1.5">
+                      <span className="font-medium">{d.nombre}:</span>
+                      {d.valores.map((v) => {
+                        const k = `${kd}|${v.valor}`;
+                        const abierto = renombrar?.clave === kd && renombrar.desde === v.valor;
+                        const res = resultados[k];
+                        return (
+                          <div key={v.valor} className="flex flex-col gap-1 pl-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className="rounded-full border px-2 py-0.5 text-xs"
+                                style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                                title={v.donde.join("\n")}
+                              >
+                                {v.valor} <span className="cifra">×{v.veces}</span>
+                              </span>
+                              {sePuede && v.valor !== SIN_DATO && !abierto ? (
+                                <button
+                                  className="boton boton-chico"
+                                  disabled={aplicando !== null || cargando}
+                                  onClick={() => setRenombrar({ clave: kd, desde: v.valor, nuevo: v.valor })}
+                                >
+                                  Renombrar
+                                </button>
+                              ) : null}
+                              {abierto ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={renombrar.nuevo}
+                                    onChange={(e) => setRenombrar({ ...renombrar, nuevo: e.target.value })}
+                                    className="min-w-[12rem] rounded-lg border px-2 py-1 text-sm"
+                                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                                  />
+                                  <button
+                                    className="boton boton-primario boton-chico"
+                                    disabled={
+                                      aplicando !== null ||
+                                      !renombrar.nuevo.trim() ||
+                                      renombrar.nuevo.trim() === v.valor
+                                    }
+                                    onClick={() => void aplicarRenombre(d, v.valor, v.donde)}
+                                  >
+                                    {aplicando === k ? "Escribiendo en MELI…" : "Cambiar en MELI"}
+                                  </button>
+                                  <button className="boton boton-chico" onClick={() => setRenombrar(null)}>
+                                    Cancelar
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                            {res ? (
+                              <ul className="flex flex-col gap-0.5 text-xs">
+                                {res.map((r, i) => (
+                                  <li key={`${r.itemId}-${i}`} className="flex items-baseline gap-2">
+                                    <span className="cifra">{r.itemId}</span>
+                                    {r.estado === "actualizado" ? (
+                                      <span style={{ color: "var(--exito-texto)" }}>✓ actualizado</span>
+                                    ) : r.estado === "sin_cambio" ? (
+                                      <span className="texto-tenue">ya estaba bien</span>
+                                    ) : (
+                                      <span style={{ color: "var(--estado-critico)" }}>✗ {r.detalle ?? "error"}</span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </details>
           ) : null}
 
