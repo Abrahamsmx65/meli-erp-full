@@ -7,6 +7,8 @@ import {
   type PaginaTablaVentas,
 } from "@/lib/servicios/ventas-tabla";
 import { Aviso } from "@/components/ui/pagina";
+import { ModeloConFoto } from "@/components/ui/foto-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 
 /**
  * La tabla "Por modelo" del monitor de ventas, con buscador, filtro por
@@ -42,10 +44,13 @@ export function TablaModelosVentas({
   desde,
   hasta,
   inicial,
+  fotos,
 }: {
   desde: string;
   hasta: string;
   inicial: PaginaTablaVentas;
+  /** MODELO → foto (`fotos-producto`, ya masticado); sin él, la tabla va sin fotos. */
+  fotos?: Record<string, string> | null;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -91,6 +96,7 @@ export function TablaModelosVentas({
   }, [desde, hasta, busquedaDiferida, categoria, orden, pagina]);
 
   const renderizadas = useMemo(() => datos.filas.map(expandirFilaModelo), [datos.filas]);
+  const mapaFotos = useMemo(() => (fotos ? { modelos: fotos, colores: {} } : null), [fotos]);
   const { paginas, totales } = datos;
   const paginaSegura = datos.pagina;
 
@@ -164,7 +170,9 @@ export function TablaModelosVentas({
               const delta = f.unidades7 - f.unidades7Prev;
               return (
                 <tr key={f.modelo}>
-                  <td className="font-medium">{f.modelo}</td>
+                  <td className="font-medium">
+                    {mapaFotos ? <ModeloConFoto modelo={f.modelo} url={fotoDeProducto(mapaFotos, f.modelo)} /> : f.modelo}
+                  </td>
                   <td style={{ color: f.categoria ? "var(--ink-2)" : "var(--ink-muted)" }}>{f.categoria ?? "Sin categoría"}</td>
                   <td className="num cifra">{f.colores}</td>
                   <td className="num cifra">{n(f.unidadesHoy)}</td>

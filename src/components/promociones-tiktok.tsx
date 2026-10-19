@@ -18,6 +18,7 @@ import {
 } from "@/lib/tiktok/promociones";
 import type { CiclicaGuardada, ModeloParaOferta, OfertaGuardada, OfertasDeTikTok } from "@/lib/servicios/tiktok-promociones";
 import type { RelampagoDeProducto } from "@/lib/tiktok/promociones";
+import { confirmar } from "@/components/ui/confirmar";
 
 const NIVELES: { clave: NivelOferta; nombre: string; nota: string }[] = [
   { clave: "normal", nombre: "Relámpago normal", nota: "deja lo mismo que MELI" },
@@ -159,10 +160,11 @@ export function PromocionesTikTok({
   async function crear() {
     if (!listos.length || !inicioIso) return;
     if (
-      !window.confirm(
-        `¿Crear la oferta relámpago en TikTok con ${listos.length} modelo${listos.length === 1 ? "" : "s"} (${variantes} variantes)? ` +
-          `Empieza el ${cuando(inicioIso)} y dura ${horas} horas. El precio de oferta es el que ves en cada renglón.`,
-      )
+      !(await confirmar({
+        titulo: `¿Crear la oferta relámpago en TikTok con ${listos.length} modelo${listos.length === 1 ? "" : "s"} (${variantes} variantes)?`,
+        mensaje: `Empieza el ${cuando(inicioIso)} y dura ${horas} horas. El precio de oferta es el que ves en cada renglón.`,
+        confirmar: "Crear oferta",
+      }))
     )
       return;
     const j = await llamar(
@@ -185,7 +187,7 @@ export function PromocionesTikTok({
   }
 
   async function repetir(g: OfertaGuardada) {
-    if (!window.confirm(`¿Repetir «${g.titulo}» con los mismos ${g.modelos.length} modelos y precios? Empieza en ${MINUTOS_DE_ARRANQUE} minutos.`)) return;
+    if (!(await confirmar({ titulo: `¿Repetir «${g.titulo}» con los mismos ${g.modelos.length} modelos y precios?`, mensaje: `Empieza en ${MINUTOS_DE_ARRANQUE} minutos.`, confirmar: "Repetir" }))) return;
     const j = await llamar({ accion: "repetir", id: g.id }, `repetir:${g.id}`);
     if (!j) return;
     contarResultado(j);
@@ -193,7 +195,7 @@ export function PromocionesTikTok({
   }
 
   async function desactivar(activityId: string, nombre: string) {
-    if (!window.confirm(`¿Desactivar «${nombre}» en TikTok? Deja de enseñarse a los compradores en el acto.`)) return;
+    if (!(await confirmar({ titulo: `¿Desactivar «${nombre}» en TikTok?`, mensaje: "Deja de enseñarse a los compradores en el acto.", confirmar: "Desactivar", peligro: true }))) return;
     const j = await llamar({ accion: "desactivar", activityId }, `desactivar:${activityId}`);
     if (!j) return;
     setAviso({ tono: "bien", texto: `«${nombre}» desactivada.` });
@@ -218,11 +220,14 @@ export function PromocionesTikTok({
     if (!modelo || !(precio > 0)) return;
     const horas = Math.min(HORAS_MAX_CICLICA, Math.max(1, Number(ciclicaHoras) || HORAS_MAX_CICLICA));
     if (
-      !window.confirm(
-        `¿Volver cíclico el ${modelo} a ${dinero(precio)}? Desde ahora tendrá siempre una relámpago viva en TikTok, ` +
+      !(await confirmar({
+        titulo: `¿Volver cíclico el ${modelo} a ${dinero(precio)}?`,
+        mensaje:
+          `Desde ahora tendrá siempre una relámpago viva en TikTok, ` +
           `de ${horas} horas; cuando termine una, el sistema crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después. ` +
           `La primera empieza en ${MINUTOS_ARRANQUE_CICLICA} minutos (o cuando termine la que ya tenga).`,
-      )
+        confirmar: "Volver cíclico",
+      }))
     )
       return;
     const j = await llamar(
@@ -272,10 +277,11 @@ export function PromocionesTikTok({
     const horas = Math.min(HORAS_MAX_CICLICA, Math.max(1, Number(masivoHoras) || HORAS_MAX_CICLICA));
     const sinPrecioN = elegidos.length - conPrecio.length;
     if (
-      !window.confirm(
-        `¿Volver cíclicos ${conPrecio.length} modelos, cada uno con el precio de su renglón y relámpagos de ${horas} horas?` +
-          (sinPrecioN ? ` ${sinPrecioN} marcados sin precio se quedan fuera.` : ""),
-      )
+      !(await confirmar({
+        titulo: `¿Volver cíclicos ${conPrecio.length} modelos, cada uno con el precio de su renglón y relámpagos de ${horas} horas?`,
+        mensaje: sinPrecioN ? `${sinPrecioN} marcados sin precio se quedan fuera.` : undefined,
+        confirmar: "Volver cíclicos",
+      }))
     )
       return;
     const j = await llamar(
@@ -304,7 +310,7 @@ export function PromocionesTikTok({
   async function corregirCiclica(c: CiclicaGuardada) {
     const precio = Number(preciosCiclicas[c.id] ?? c.precio);
     if (!(precio > 0)) return;
-    if (!window.confirm(`¿Cambiar el ${c.modelo} a ${dinero(precio)}? Se aplica a las relámpagos que aún no empiezan; la que corre termina con su precio.`)) return;
+    if (!(await confirmar({ titulo: `¿Cambiar el ${c.modelo} a ${dinero(precio)}?`, mensaje: "Se aplica a las relámpagos que aún no empiezan; la que corre termina con su precio.", confirmar: "Cambiar precio" }))) return;
     const j = await llamar(
       { accion: "ciclica-guardar", modelo: c.modelo, precio, horas: c.horas, topePorTalla: c.topePorTalla, topePorComprador: c.topePorComprador },
       `ciclica:${c.id}`,
@@ -315,7 +321,7 @@ export function PromocionesTikTok({
   }
 
   async function quitarCiclica(c: CiclicaGuardada) {
-    if (!window.confirm(`¿Quitar el ${c.modelo} de los cíclicos? Se desactivan en TikTok sus relámpagos que no han empezado; la que corre termina sola.`)) return;
+    if (!(await confirmar({ titulo: `¿Quitar el ${c.modelo} de los cíclicos?`, mensaje: "Se desactivan en TikTok sus relámpagos que no han empezado; la que corre termina sola.", confirmar: "Quitar", peligro: true }))) return;
     const j = await llamar({ accion: "ciclica-quitar", id: c.id }, `ciclica-quitar:${c.id}`);
     if (!j) return;
     setAviso({

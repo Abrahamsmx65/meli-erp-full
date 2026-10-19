@@ -93,6 +93,55 @@ una pestaña: se desmontaría al cambiar.
 - Colores de estado en texto: `var(--exito-texto)`, `var(--alerta-texto)`,
   `var(--critico-texto)`. Fondos: `--bien-suave`, `--alerta-suave`,
   `--critico-suave`, `--info-suave`.
+- Tamaño mínimo de letra: **11 px**. Nada de `text-[9px]`, `text-[10px]` ni
+  `text-[10.5px]`.
+
+## Rediseño del 19-oct-2026: color, movimiento y teléfono
+
+**Tokens (todo en `globals.css`, `:root`).** Los estados usan los tonos tierra
+de las gráficas, ya sin azules ni rojos de semáforo:
+
+| Token | Valor | Contraste |
+|---|---|---|
+| `--ink-muted` (texto tenue) | #7a6b5d | 5.1:1 sobre blanco, 4.6:1 sobre `--plane` |
+| `--sidebar-tenue` | #776656 | 5.2:1 sobre `--sidebar` |
+| `--estado-bien` (puntos, barras) | #2f9c63 | solo gráfico, no texto |
+| `--exito-texto` | #1f7346 | 5.2:1 sobre `--bien-suave` |
+| `--estado-critico` | #b5523b | blanco encima 5.0:1 (insignia, botón peligro) |
+| `--critico-texto` | #a3402b | 6.3:1 sobre blanco, 5.5:1 sobre `--critico-suave` |
+| `--alerta-texto` | #8a6100 | 5.1:1 sobre `--alerta-suave` |
+
+El aviso `info` va en `--ink-2` sobre arena neutra (`--info-suave`). Hover de
+renglón: `--fila-hover`. Curvas: `--ease-out` (todo lo que entra o responde a
+un toque) y `--ease-drawer` (lo que se desliza).
+
+**Cifras = una banda.** `<Cifras>` es UNA tarjeta con divisiones de 1 px por
+dentro (2 columnas en el teléfono, las pedidas en escritorio); cada `<Ficha>`
+es una celda: etiqueta arriba, número grande en tinta, nota abajo. Solo
+`alerta` y `critico` pintan el número de su color y llevan un punto antes de
+la etiqueta; `bien` va en tinta (lo normal no grita). Cualquier otro hijo de
+`<Cifras>` se vuelve celda (pierde su borde y su fondo). Una `<Ficha>` fuera
+de `<Cifras>` sigue siendo su propia tarjeta.
+
+**Tablas.** Dentro de `<Tabla>`/`.tabla-caja` la primera columna queda fija al
+desplazar de lado, con su sombra solo cuando ya se desplazó (animación atada
+al scroll; sin soporte, sin sombra). El fondo de la celda fija lo hereda del
+renglón: un renglón resaltado se pinta en el `<tr>`, no en cada `<td>`. Una
+primera celda con `colspan` no se fija.
+
+**Movimiento.** Botones (`button` y `.boton`, también un `<a className="boton">`)
+se hunden a 0.97 al picarlos, 120 ms. Avisos (toasts): entran subiendo 8 px en
+200 ms y salen en 150 ms. Diálogo (`dialog.dialogo`): de 0.97 a 1 en 180 ms y
+el velo se aclara. Con movimiento reducido no se hunde nada, los avisos y el
+diálogo solo se desvanecen y los latidos (`animate-pulse`, la frescura) se
+quedan quietos; el anillo de carga gira lento. La pantalla de carga es solo
+huesos, sin circulito.
+
+**Teléfono.** Todo `:hover` hecho a mano va dentro de
+`@media (hover: hover) and (pointer: fine)` (si no, se queda pegado tras el
+toque). Sin destello al tocar, sin espera de doble toque, campos a 16 px con
+puntero grueso (si no, iOS hace zoom). Los atajos de fechas son UN renglón que
+se desplaza de lado. `viewport.themeColor` = crema del menú.
 
 ## Botones y avisos
 

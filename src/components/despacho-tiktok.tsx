@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
 import { etiquetaDeModelos, type PendientesPorModelo } from "@/lib/tiktok/corte-modelos";
 import { textoTiempoPreparacion } from "@/lib/tiktok/tiempo-preparacion";
+import { cierresDeRondas, revisarSimulacion, type CierreDeCorte, type ModoCorte } from "@/lib/tiktok/revision-corte";
 import { Aviso, Seccion } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 /** Cuántos tomos de etiquetas se bajan a la vez al imprimir (cada uno ~21 MB). */
 const TOMOS_A_LA_VEZ = 3;
@@ -48,6 +50,28 @@ function listosDe(c: CorteResumen): number | null {
   return c.preparados == null ? null : c.preparados + (c.enviados ?? 0);
 }
 
+/**
+ * Los tres cortes, ahora como modo de UN botón «Revisar corte». «Todo» es
+ * el «Hacer corte» de siempre (sin `modo` en el cuerpo).
+ */
+const MODOS_CORTE: { id: ModoCorte; texto: string; corto: string; ayuda: string }[] = [
+  {
+    id: "ayer",
+    texto: "Ayer",
+    corto: "Hasta ayer a las 23:59; lo de hoy se queda",
+    ayuda:
+      "Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día. Si se acaba el tiempo, se relanza solo hasta terminar",
+  },
+  {
+    id: "lunes",
+    texto: "Lunes",
+    corto: "Dos cortes: hasta el domingo y luego lo de hoy",
+    ayuda:
+      "Dos cortes: primero TODO lo pendiente hasta el domingo a las 23:59 (viernes, sábado, domingo y lo más viejo) y luego solo lo del lunes",
+  },
+  { id: "todo", texto: "Todo", corto: "Todo lo pendiente", ayuda: "Un corte con todo lo pendiente. Si se acaba el tiempo, se relanza solo hasta terminar" },
+];
+
 function cuando(iso: string): string {
   return new Date(iso).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
@@ -83,6 +107,15 @@ export function DespachoTikTok({
   const [error, setError] = useState<string | null>(null);
   const [simulacion, setSimulacion] = useState<any>(null);
   const [simulando, setSimulando] = useState(false);
+  // El corte se REVISA antes de confirmarse: se elige el modo, «Revisar
+  // corte» corre la simulación de siempre y el resultado se confirma ahí
+  // mismo. Si la simulación falla, se puede confirmar sin revisar.
+  const [modo, setModo] = useState<ModoCorte>("todo");
+  const [errorRevision, setErrorRevision] = useState<string | null>(null);
+  // La línea de cierre del último corte hecho desde esta pantalla.
+  const [cierres, setCierres] = useState<CierreDeCorte[]>([]);
+  // Candado del clic: el estado `ocupado` tarda un render en deshabilitar el botón.
+  const lanzando = useRef(false);
   // Los faltantes de cada corte, según se piden: el renglón del corte los
   // enseña abiertos abajo, sin cambiar de pantalla.
   const [faltantes, setFaltantes] = useState<Record<number, any>>({});
@@ -233,7 +266,15 @@ export function DespachoTikTok({
    * Las guías de cada paquete se quedan; solo se vuelven a juntar.
    */
   async function rearmarEtiquetas(c: CorteResumen) {
-    if (!window.confirm(`¿Rearmar las etiquetas del corte #${c.numero}? Se tiran los tomos guardados y se vuelven a armar por atrás.`)) return;
+    if (
+      !(await confirmar({
+        titulo: `¿Rearmar las etiquetas del corte #${c.numero}?`,
+        mensaje: "Se tiran los tomos guardados y se vuelven a armar por atrás.",
+        confirmar: "Rearmar",
+        peligro: true,
+      }))
+    )
+      return;
     const r = await fetch(`/api/tiktok/cortes/${c.id}/calentar`, { method: "DELETE" }).catch(() => null);
     const j = r && r.ok ? await r.json().catch(() => null) : null;
     if (!j || typeof j.tomos !== "number") {
@@ -298,6 +339,9 @@ export function DespachoTikTok({
   async function simular() {
     setSimulando(true);
     setError(null);
+    setErrorRevision(null);
+    setSimulacion(null);
+    setCierres([]);
     try {
       const parametros = new URLSearchParams();
       if (soloModelos.length) parametros.set("modelos", soloModelos.join(","));
@@ -307,9 +351,34 @@ export function DespachoTikTok({
       if (!r.ok) throw new Error(j.error ?? "No se pudo simular.");
       setSimulacion(j);
     } catch (e) {
-      setError((e as Error).message);
+      // Se dice en el panel del corte, que deja confirmar sin revisar.
+      setErrorRevision((e as Error).message);
     } finally {
       setSimulando(false);
+    }
+  }
+
+  /** Cambia el filtro de modelos: la revisión hecha con el filtro anterior ya no vale. */
+  function cambiarModelos(cambio: (s: string[]) => string[]) {
+    setSoloModelos(cambio);
+    setSimulacion(null);
+    setErrorRevision(null);
+  }
+
+  /** Cierra la revisión sin cortar nada. */
+  function volverDeRevision() {
+    setSimulacion(null);
+    setErrorRevision(null);
+  }
+
+  /** Confirma el corte revisado con el modo elegido: el mismo `hacerCorte` de siempre. */
+  async function confirmarCorte() {
+    if (lanzando.current) return;
+    lanzando.current = true;
+    try {
+      await hacerCorte(modo === "todo" ? undefined : modo);
+    } finally {
+      lanzando.current = false;
     }
   }
 
@@ -400,7 +469,9 @@ export function DespachoTikTok({
     setAviso(null);
     setError(null);
     setRonda(null);
+    setCierres([]);
     const resumenes: string[] = [];
+    const rondas: any[] = [];
     try {
       // Sin tope de rondas (decisión del dueño): se sigue hasta que no quede
       // nada por tiempo, o hasta que una ronda no avance.
@@ -444,6 +515,7 @@ export function DespachoTikTok({
         if (!r || !r.ok) throw new Error(j?.error ?? "No se pudo hacer el corte.");
         const cortesRonda: any[] = j.modo === "lunes" || j.modo === "ayer" ? (j.cortes ?? []) : [j];
         resumenes.push(...cortesRonda.map((c: any) => resumenDeCorte(c)));
+        rondas.push(...cortesRonda);
         // La lista de cortes se refresca UNA vez, al terminar la cadena (o al
         // fallar): refrescar en cada ronda volvía a armar la pantalla entera
         // mientras el servidor seguía cortando. Lo de cada ronda se dice
@@ -460,7 +532,9 @@ export function DespachoTikTok({
         setAviso(resumenes.join(" · "));
       }
       setAviso(resumenes.join(" · "));
+      setCierres(cierresDeRondas(rondas));
       setSimulacion(null);
+      setErrorRevision(null);
       setSoloModelos([]);
       router.refresh();
     } catch (e) {
@@ -500,49 +574,165 @@ export function DespachoTikTok({
               <RefreshCw size={14} className={actualizando ? "animate-spin" : undefined} />
               {actualizando ? "Leyendo TikTok…" : "Actualizar"}
             </button>
-            <button
-              onClick={simular}
-              disabled={simulando || !pendientes}
-              className="boton boton-borde boton-chico"
-              title="Ver qué haría el corte sin confirmar nada"
-            >
-              <Eye size={14} />
-              {simulando ? "Simulando…" : "Simular"}
-            </button>
           </>
         }
       >
-        {/* Barra del corte: los tres botones y el filtro por modelo juntos. */}
+        {/* Barra del corte: el modo, «Revisar corte» y el filtro por modelo
+            juntos; la revisión y la confirmación salen aquí mismo. */}
         <div className="rounded-lg border" style={{ borderColor: "var(--grid)" }}>
           <div className="flex flex-wrap items-center gap-2 p-3">
-            <span className="texto-2 mr-1 text-xs font-semibold">Corte</span>
-            <button
-              onClick={() => hacerCorte("ayer")}
-              disabled={ocupado || !pendientes}
-              className="boton boton-borde"
-              title="Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día. Si se acaba el tiempo, se relanza solo hasta terminar"
-            >
-              <CalendarClock size={14} />
-              {ocupado ? "Confirmando…" : "Corte ayer"}
-            </button>
-            <button
-              onClick={() => hacerCorte("lunes")}
-              disabled={ocupado || !pendientes}
-              className="boton boton-borde"
-              title="Dos cortes: primero TODO lo pendiente hasta el domingo a las 23:59 (viernes, sábado, domingo y lo más viejo) y luego solo lo del lunes"
-            >
-              <CalendarClock size={14} />
-              {ocupado ? "Confirmando…" : "Corte lunes"}
-            </button>
-            <button
-              onClick={() => hacerCorte()}
-              disabled={ocupado || !pendientes}
-              className="boton boton-primario"
-            >
-              <Scissors size={14} />
-              {ocupado ? "Confirmando en TikTok…" : soloModelos.length ? `Hacer corte ${etiquetaDeModelos(soloModelos)} (${pendientesFiltrados})` : `Hacer corte (${pendientes})`}
-            </button>
+            <span className="texto-2 mr-1 text-xs font-semibold" id="modo-corte">
+              Corte
+            </span>
+            <div role="group" aria-labelledby="modo-corte" className="inline-flex rounded-full border p-0.5" style={{ borderColor: "var(--borde)" }}>
+              {MODOS_CORTE.map((m) => {
+                const activo = m.id === modo;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={activo}
+                    disabled={ocupado}
+                    onClick={() => setModo(m.id)}
+                    title={m.ayuda}
+                    className="rounded-full px-3 py-1 text-xs font-medium disabled:opacity-60"
+                    style={activo ? { background: "var(--acento)", color: "#fff" } : { color: "var(--ink-2)" }}
+                  >
+                    {m.texto}
+                  </button>
+                );
+              })}
+            </div>
+            {simulacion || errorRevision ? null : (
+              <button onClick={simular} disabled={ocupado || simulando || !pendientes} className="boton boton-primario" aria-busy={simulando || undefined}>
+                <Eye size={14} />
+                {simulando ? "Revisando…" : "Revisar corte"}
+              </button>
+            )}
+            <span className="texto-2 text-xs">{MODOS_CORTE.find((m) => m.id === modo)?.corto}</span>
           </div>
+
+          {simulacion || errorRevision ? (
+            <div className="hairline border-t p-3 text-sm">
+              {simulacion
+                ? (() => {
+                    const rev = revisarSimulacion(simulacion, modo);
+                    const filtro = etiquetaDeModelos(simulacion.modelos);
+                    const deTodo = rev.defensaDeTodoLoPendiente ? " (de todo lo pendiente)" : "";
+                    const chips: { texto: string; tono: "critico" | "alerta" | "neutro" }[] = [];
+                    if (rev.seCancelan) chips.push({ texto: `${rev.seCancelan} ${rev.seCancelan === 1 ? "se cancela" : "se cancelan"} por stock${deTodo}`, tono: "critico" });
+                    if (rev.seCancelanEnParte) chips.push({ texto: `${rev.seCancelanEnParte} sin un renglón por stock${deTodo}`, tono: "critico" });
+                    if (rev.enDuda) chips.push({ texto: `${rev.enDuda} en duda: se quedan fuera sin cancelar${deTodo}`, tono: "alerta" });
+                    if (rev.revueltos)
+                      chips.push({
+                        texto: filtro ? `${rev.revueltos} revueltos se quedan para el corte general` : `${rev.revueltos} revueltos (varios modelos) van al final`,
+                        tono: "neutro",
+                      });
+                    return (
+                      <>
+                        <p className="font-semibold">
+                          Entran {rev.entran} {rev.entran === 1 ? "pedido" : "pedidos"}
+                          {rev.pares != null ? ` · ${rev.pares} pares` : ""}
+                          {filtro ? ` · solo ${filtro}` : ""}
+                        </p>
+                        {modo === "ayer" && rev.diaCorte ? (
+                          <p className="mt-1 text-xs texto-2">
+                            Hasta el {rev.diaCorte} a las 23:59 (hora de México) y lo más viejo
+                            {rev.seQuedanHoy ? `; los ${rev.seQuedanHoy} de hoy se quedan pendientes` : ""}.
+                          </p>
+                        ) : null}
+                        {modo === "lunes" && rev.diaCorte ? (
+                          <p className="mt-1 text-xs texto-2">
+                            Primer corte: {rev.primerCorte} hasta el {rev.diaCorte} a las 23:59 (hora de México).{" "}
+                            {rev.segundoCorte ? `Segundo corte: los ${rev.segundoCorte} de hoy.` : "No hay pedidos de hoy para el segundo."}
+                          </p>
+                        ) : null}
+                        {chips.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {chips.map((c) => (
+                              <span
+                                key={c.texto}
+                                className="chip"
+                                style={
+                                  c.tono === "critico"
+                                    ? { background: "var(--critico-suave)", color: "var(--critico-texto)" }
+                                    : c.tono === "alerta"
+                                      ? { background: "var(--alerta-suave)", color: "var(--alerta-texto)" }
+                                      : { background: "var(--grid)", color: "var(--ink-2)" }
+                                }
+                              >
+                                {c.texto}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {simulacion.pedidos.length ? (
+                          <details className="mt-2">
+                            <summary className="enlace cursor-pointer text-xs">Ver los {simulacion.pedidos.length} pedidos</summary>
+                            <ul className="mt-2 flex flex-col gap-1">
+                              {simulacion.pedidos.map((p: any) => (
+                                <li key={p.orderId} className="flex flex-wrap items-center gap-2">
+                                  <span className="cifra text-xs texto-2">{p.orderId}</span>
+                                  <span>{p.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}</span>
+                                  {p.bloqueados?.length ? (
+                                    <span className="chip" style={{ background: "var(--critico-suave)", color: "var(--critico-texto)" }}>
+                                      se cancela: {p.bloqueados.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
+                                    </span>
+                                  ) : null}
+                                  <span
+                                    className="chip"
+                                    style={{
+                                      background: p.recoleccion === true ? "var(--bien-suave)" : p.recoleccion === false ? "var(--alerta-suave)" : "var(--grid)",
+                                      color: p.recoleccion === true ? "var(--exito-texto)" : p.recoleccion === false ? "var(--alerta-texto)" : "var(--ink-2)",
+                                    }}
+                                  >
+                                    {p.recoleccion === true ? "recolección disponible" : p.recoleccion === false ? "solo drop-off" : "sin dato"}
+                                  </span>
+                                  {p.aviso ? <span className="text-xs texto-2">{p.aviso}</span> : null}
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="mt-3 text-xs texto-2">
+                              Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
+                              {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
+                            </div>
+                          </details>
+                        ) : null}
+                        <p className="mt-3 text-xs font-semibold texto-2">No cierres esta pestaña mientras corre: la pantalla encadena las rondas del corte.</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button onClick={confirmarCorte} disabled={ocupado || rev.entran === 0} className="boton boton-primario" aria-busy={ocupado || undefined}>
+                            <Scissors size={14} />
+                            {ocupado ? "Confirmando en TikTok…" : `Confirmar corte (${rev.entran} ${rev.entran === 1 ? "pedido" : "pedidos"})`}
+                          </button>
+                          <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma">
+                            Volver
+                          </button>
+                          {rev.entran === 0 ? <span className="text-xs texto-2">Con este modo no entra ningún pedido.</span> : null}
+                        </div>
+                      </>
+                    );
+                  })()
+                : (
+                  <>
+                    <Aviso tono="critico">No se pudo revisar el corte: {errorRevision}</Aviso>
+                    <p className="mt-3 text-xs font-semibold texto-2">No cierres esta pestaña mientras corre: la pantalla encadena las rondas del corte.</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button onClick={simular} disabled={ocupado || simulando} className="boton boton-borde">
+                        <RefreshCw size={14} className={simulando ? "animate-spin" : undefined} />
+                        {simulando ? "Revisando…" : "Revisar otra vez"}
+                      </button>
+                      <button onClick={confirmarCorte} disabled={ocupado || simulando} className="boton boton-borde" aria-busy={ocupado || undefined}>
+                        <Scissors size={14} />
+                        {ocupado ? "Confirmando en TikTok…" : "Confirmar sin revisar"}
+                      </button>
+                      <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma">
+                        Volver
+                      </button>
+                    </div>
+                  </>
+                )}
+            </div>
+          ) : null}
           {porModelo.modelos.length ? (
             <div className="hairline border-t p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -555,7 +745,7 @@ export function DespachoTikTok({
                   ) : null}
                 </span>
                 {soloModelos.length ? (
-                  <button onClick={() => setSoloModelos([])} disabled={ocupado} className="boton boton-fantasma boton-chico">
+                  <button onClick={() => cambiarModelos(() => [])} disabled={ocupado || simulando} className="boton boton-fantasma boton-chico">
                     Quitar filtro
                   </button>
                 ) : null}
@@ -567,9 +757,9 @@ export function DespachoTikTok({
                     <button
                       key={m.modelo}
                       type="button"
-                      disabled={ocupado}
+                      disabled={ocupado || simulando}
                       onClick={() =>
-                        setSoloModelos((s) => (s.includes(m.modelo) ? s.filter((x) => x !== m.modelo) : [...s, m.modelo]))
+                        cambiarModelos((s) => (s.includes(m.modelo) ? s.filter((x) => x !== m.modelo) : [...s, m.modelo]))
                       }
                       className="rounded-full border px-3 py-1 text-xs disabled:opacity-60"
                       style={{
@@ -595,58 +785,19 @@ export function DespachoTikTok({
           ) : null}
         </div>
 
-        {ronda ? <p className="mt-3 text-xs font-semibold texto-2">{ronda}</p> : null}
-        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
-        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
-
-        {simulacion ? (
-          <div className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--grid)" }}>
-            <div className="flex items-center justify-between">
-              <span className="font-semibold">
-                Simulación{etiquetaDeModelos(simulacion.modelos) ? ` (${etiquetaDeModelos(simulacion.modelos)})` : ""}: {simulacion.pedidos.length} pedidos · {simulacion.totalPares} pares
-              </span>
-              <button onClick={() => setSimulacion(null)} className="boton boton-fantasma boton-chico">
-                Cerrar
-              </button>
-            </div>
-            {simulacion.tandas && simulacion.tandas.urgentes ? (
-              <p className="mt-1 text-xs texto-2">
-                Corte ayer: {simulacion.tandas.urgentes} pedidos hasta el {simulacion.tandas.corte} a las 23:59 (hora de
-                México; ayer y lo más viejo){simulacion.tandas.resto ? `, y los ${simulacion.tandas.resto} de hoy se quedan pendientes` : ""}.
-                {simulacion.tandas.resto
-                  ? ` Corte lunes: los mismos ${simulacion.tandas.urgentes} en el primer corte y los ${simulacion.tandas.resto} de hoy en el segundo.`
-                  : ""}
+        {ronda ? <p className="mt-3 text-xs font-semibold texto-2" role="status">{ronda}</p> : null}
+        {cierres.length ? (
+          <div className="mt-3 flex flex-col gap-1" role="status">
+            {cierres.map((c) => (
+              <p key={c.corteId} className="text-sm font-semibold">
+                Corte #{c.numero} listo · {c.pedidos} {c.pedidos === 1 ? "pedido" : "pedidos"} ·{" "}
+                {etiquetas[c.corteId]?.completo ? "etiquetas listas" : "etiquetas armándose"}
               </p>
-            ) : null}
-            <ul className="mt-2 flex flex-col gap-1">
-              {simulacion.pedidos.map((p: any) => (
-                <li key={p.orderId} className="flex flex-wrap items-center gap-2">
-                  <span className="cifra text-xs texto-2">{p.orderId}</span>
-                  <span>{p.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}</span>
-                  {p.bloqueados?.length ? (
-                    <span className="chip" style={{ background: "var(--critico-suave)", color: "var(--critico-texto)" }}>
-                      se cancela: {p.bloqueados.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
-                    </span>
-                  ) : null}
-                  <span
-                    className="chip"
-                    style={{
-                      background: p.recoleccion === true ? "var(--bien-suave)" : p.recoleccion === false ? "var(--alerta-suave)" : "var(--grid)",
-                      color: p.recoleccion === true ? "var(--exito-texto)" : p.recoleccion === false ? "var(--alerta-texto)" : "var(--ink-2)",
-                    }}
-                  >
-                    {p.recoleccion === true ? "recolección disponible" : p.recoleccion === false ? "solo drop-off" : "sin dato"}
-                  </span>
-                  {p.aviso ? <span className="text-xs texto-2">{p.aviso}</span> : null}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-3 text-xs texto-2">
-              Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
-              {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
-            </div>
+            ))}
           </div>
         ) : null}
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
       </Seccion>
 
       <Seccion titulo="Cortes" sinRelleno>

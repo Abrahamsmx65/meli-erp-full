@@ -9,6 +9,7 @@ import type {
   ResultadoUnificacion,
 } from "@/lib/servicios/listados";
 import { Aviso } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 /**
  * Buscador de agrupadores + comparador de atributos + unificación.
@@ -30,7 +31,7 @@ function ChipEstado({ estado }: { estado: string | null }) {
   const e = (estado && ESTADOS[estado]) || { texto: estado ?? "—", color: "var(--ink-muted)" };
   return (
     <span
-      className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+      className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
       style={{ background: "color-mix(in oklab, currentColor 12%, transparent)", color: e.color }}
     >
       {e.texto}
@@ -80,9 +81,11 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
     const valor = libre || eleccion[k] || "";
     if (!valor || valor === SIN_DATO) return;
 
-    const seguro = confirm(
-      `Se va a poner "${d.nombre}" = "${valor}" en las ${grupo.items.length} publicaciones del agrupador ${grupo.agrupador}. Esto escribe directo en Mercado Libre. ¿Continuar?`,
-    );
+    const seguro = await confirmar({
+      titulo: `¿Poner "${d.nombre}" = "${valor}"?`,
+      mensaje: `Se va a poner en las ${grupo.items.length} publicaciones del agrupador ${grupo.agrupador}. Esto escribe directo en Mercado Libre.`,
+      confirmar: "Escribir en MELI",
+    });
     if (!seguro) return;
 
     setAplicando(k);
@@ -197,7 +200,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold">{d.nombre}</span>
                         <span
-                          className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                          className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase"
                           style={{
                             background: "var(--acento-suave)",
                             color: "var(--acento)",
@@ -207,7 +210,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                         </span>
                         {d.esMaterial ? (
                           <span
-                            className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                            className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase"
                             style={{
                               background: "color-mix(in oklab, var(--ambar) 20%, transparent)",
                               color: "var(--ink-1)",

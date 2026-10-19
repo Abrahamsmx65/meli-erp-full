@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { confirmar } from "@/components/ui/confirmar";
 
 export function ControlesOfertas({ automatico, hayParaAceptar }: { automatico: boolean; hayParaAceptar: boolean }) {
   const router = useRouter();
@@ -39,8 +40,8 @@ export function ControlesOfertas({ automatico, hayParaAceptar }: { automatico: b
       <button
         className="boton-primario"
         disabled={ocupado != null || !hayParaAceptar}
-        onClick={() => {
-          if (window.confirm("¿Aceptar en MELI todas las ofertas que cumplen el PV normal de Números?")) llamar("aceptar");
+        onClick={async () => {
+          if (await confirmar({ titulo: "¿Aceptar en MELI todas las ofertas que cumplen el PV normal de Números?", confirmar: "Aceptar ofertas" })) llamar("aceptar");
         }}
       >
         {ocupado === "aceptar" ? "Aceptando…" : "Aceptar las que cumplen"}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { GrupoDiseno } from "@/lib/yapanizcel/listados";
 import type { ResultadoUnificacion } from "@/lib/servicios/listados";
 import { estiloInput } from "./comunes";
+import { confirmar } from "@/components/ui/confirmar";
 
 const ESTADOS: Record<string, { texto: string; color: string }> = {
   active: { texto: "activa", color: "var(--estado-bien)" },
@@ -15,7 +16,7 @@ const ESTADOS: Record<string, { texto: string; color: string }> = {
 function ChipEstado({ estado }: { estado: string | null }) {
   const e = (estado && ESTADOS[estado]) || { texto: estado ?? "—", color: "var(--ink-muted)" };
   return (
-    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: "color-mix(in oklab, currentColor 12%, transparent)", color: e.color }}>
+    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide" style={{ background: "color-mix(in oklab, currentColor 12%, transparent)", color: e.color }}>
       {e.texto}
     </span>
   );
@@ -64,7 +65,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
   };
 
   const escribir = async (cuerpo: Record<string, unknown>, aviso: string) => {
-    if (!confirm(`${aviso}\n\nEsto escribe directo en Mercado Libre. ¿Continuar?`)) return;
+    if (!(await confirmar({ titulo: "¿Escribir en Mercado Libre?", mensaje: `${aviso} Esto escribe directo en Mercado Libre.`, confirmar: "Escribir en MELI" }))) return;
     setAplicando(true);
     setError(null);
     try {

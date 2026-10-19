@@ -17,6 +17,10 @@ import { AccionesCorteGeneral } from "@/components/corte-general";
 import { CascadaVista, RepartoPesoVista } from "@/components/corte-general-graficas";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import { PuntoCanal } from "@/components/ui/punto-canal";
+import { ModeloConFoto, esDisenoDeFunda } from "@/components/ui/foto-producto";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -59,14 +63,18 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   if (!cuenta) return <SinCuenta titulo="Estado de resultados" />;
   // El consolidado vive en consolidado_cache (10 min): correr los cuatro
   // canales completos en cada visita costaba hasta 300 s de función.
-  const [cns, cortes, anterior, mismosDias] = await Promise.all([
+  const [cns, cortes, anterior, mismosDias, fotos] = await Promise.all([
     obtenerConsolidado(supabase, cuenta, periodo),
     listarCortesGenerales(supabase, cuenta.id),
     // El mes anterior (completo y cortado a los mismos días) solo se LEE:
     // lo calcula el cron, nunca el clic.
     leerConsolidadoGuardado(supabase, cuenta, periodoAnterior(periodo)),
     leerMismosDiasGuardado(supabase, cuenta, periodo),
+    // Fotos de la tabla por modelo: un renglón masticado; si falla, sin fotos.
+    leerFotosProducto(supabase, cuenta.id).catch(() => null),
   ]);
+  // Sin renglón de fotos (o vacío) la tabla va sin miniaturas, no con cuadros vacíos.
+  const conFotos = fotos && Object.keys(fotos.modelos).length ? fotos : null;
   const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0), mismosDias) : null;
   // La venta del mes por día y por hora de los cuatro canales (masticada).
   const hastaGrafica = cns.hasta < fechaMx(0) ? cns.hasta : fechaMx(0);
@@ -283,8 +291,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                           <th>Concepto</th>
                           {cns.canales.map((k) => (
                             <th key={k.canal} className="num">
+                              <PuntoCanal canal={k.canal} className="mr-1.5 align-middle" />
                               {CANAL_CORTO[k.canal]}
-                              {k.calculable === false ? <span className="chip aviso-critico ml-1 text-[10px]">no calculable</span> : null}
+                              {k.calculable === false ? <span className="chip aviso-critico ml-1 text-[11px]">no calculable</span> : null}
                             </th>
                           ))}
                           <th className="num">Total</th>
@@ -371,7 +380,8 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             cuenta: cns.canales.reduce((a, k) => a + k.gastos.length, 0) || null,
             contenido: (
               <>
-                <Seccion titulo="Gastos generales por canal" sinRelleno>
+                {/* La pestaña ya se llama «Gastos generales»: la sección no lo repite. */}
+                <Seccion sinRelleno>
                   {cns.canales.every((k) => k.gastos.length === 0) ? (
                     <p className="p-4 text-sm texto-2">Sin gastos generales registrados.</p>
                   ) : (
@@ -390,6 +400,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                             .flatMap((k) => [
                               <tr key={`g-${k.canal}`}>
                                 <td colSpan={3} className="text-[11px] font-semibold uppercase tracking-wide texto-tenue" style={{ background: "var(--surface-2)" }}>
+                                  <PuntoCanal canal={k.canal} className="mr-1.5 align-middle" />
                                   {CANAL_CORTO[k.canal]} · {n(k.unidades)} unidades
                                 </td>
                               </tr>,
@@ -427,7 +438,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             cuenta: cns.porCategoria.length,
             contenido: (
               <Seccion
-                titulo="Por categoría"
                 sinRelleno
                 ayuda={<p>Ganancia = neto − costo − publicidad − su parte de los gastos de plataforma. El desglose de comisión, envío y retenciones está en el Excel.</p>}
               >
@@ -446,7 +456,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                         <th className="num">Margen</th>
                         <th className="num">Por unidad</th>
                         {canales.map((k) => (
-                          <th key={k} className="num">{CANAL_CORTO[k]}</th>
+                          <th key={k} className="num">
+                            <PuntoCanal canal={k} className="mr-1.5 align-middle" />
+                            {CANAL_CORTO[k]}
+                          </th>
                         ))}
                       </tr>
                     </thead>
@@ -483,11 +496,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             titulo: "Por modelo",
             cuenta: cns.porModelo.length,
             contenido: (
-              <Seccion
-                titulo="Por modelo"
-                descripcion={perdieron ? `${perdieron} modelos perdieron dinero` : undefined}
-                sinRelleno
-              >
+              <Seccion titulo={perdieron ? `${n(perdieron)} ${perdieron === 1 ? "modelo perdió" : "modelos perdieron"} dinero` : undefined} sinRelleno>
                 <div className="max-h-[40rem] overflow-auto">
                   <table className="datos">
                     <thead>
@@ -509,9 +518,24 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                     <tbody>
                       {modelosPorGanancia.map((m) => (
                         <tr key={m.modelo}>
-                          <td className="font-medium">{m.modelo}</td>
+                          <td className="font-medium">
+                            {conFotos ? (
+                              <ModeloConFoto modelo={m.modelo} url={fotoDeProducto(conFotos, m.modelo)} conFoto={!esDisenoDeFunda(m.modelo)} />
+                            ) : (
+                              m.modelo
+                            )}
+                          </td>
                           <td className="texto-2">{m.categoria}</td>
-                          <td className="text-xs texto-tenue">{m.canales.map((c) => CANAL_CORTO[c] ?? NOMBRE_CANAL[c]).join(", ")}</td>
+                          <td className="text-xs texto-tenue">
+                            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                              {m.canales.map((c) => (
+                                <span key={c} className="inline-flex items-center gap-1 whitespace-nowrap">
+                                  <PuntoCanal canal={c} />
+                                  {CANAL_CORTO[c] ?? NOMBRE_CANAL[c]}
+                                </span>
+                              ))}
+                            </span>
+                          </td>
                           <td className="num cifra">{n(m.unidades)}</td>
                           <td className="num cifra">{redondo(m.importe)}</td>
                           <td className="num cifra">{redondo(m.neto)}</td>

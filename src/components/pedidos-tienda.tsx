@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { Aviso, Vacio } from "@/components/ui/pagina";
 import { NOMBRE_ESTADO, type EstadoTienda, type PedidoTienda } from "@/lib/tienda/estados";
+import { confirmar } from "@/components/ui/confirmar";
 
 const ORDEN: EstadoTienda[] = ["pagado", "sin_stock", "pendiente_pago", "enviado", "entregado", "cancelado", "expirado"];
 
@@ -247,9 +248,17 @@ export function PedidosTienda({
                   <button
                     className="boton boton-peligro boton-chico"
                     disabled={ocupado !== null}
-                    onClick={() => {
+                    onClick={async () => {
                       const pagado = p.estado !== "pendiente_pago";
-                      if (!confirm(`¿Cancelar ${p.folio}?${pagado ? " Se devuelve el dinero en Mercado Pago." : ""}`)) return;
+                      if (
+                        !(await confirmar({
+                          titulo: `¿Cancelar ${p.folio}?`,
+                          mensaje: pagado ? "Se devuelve el dinero en Mercado Pago." : undefined,
+                          confirmar: pagado ? "Cancelar y devolver" : "Cancelar pedido",
+                          peligro: true,
+                        }))
+                      )
+                        return;
                       const nota = prompt("Motivo (opcional)") ?? "";
                       accion(p.id, { accion: "cancelar", nota });
                     }}

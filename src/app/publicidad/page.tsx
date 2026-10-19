@@ -164,7 +164,7 @@ export default async function Publicidad({
                             <td className="font-medium">
                               {f.modelo}
                               {f.anuncios > 0 ? (
-                                <span className="ml-1.5 text-[10px] texto-tenue">
+                                <span className="ml-1.5 text-[11px] texto-tenue">
                                   {f.anuncios} {f.anuncios === 1 ? "anuncio" : "anuncios"}
                                 </span>
                               ) : null}

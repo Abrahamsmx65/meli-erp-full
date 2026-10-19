@@ -2,19 +2,21 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChevronRight, LogOut, Menu, X } from "lucide-react";
-import { MenuLateral, ubicacion } from "@/components/menu-lateral";
+import { LogOut, Menu, Search, X } from "lucide-react";
+import { MenuLateral, abrirPaleta } from "@/components/menu-lateral";
 import { Logo } from "@/components/logo";
 import { EstadoConexion } from "@/components/estado-conexion";
 import { Avisos } from "@/components/ui/avisos";
+import { Paleta } from "@/components/ui/paleta";
 import type { Rol } from "@/lib/acceso/roles";
 
 /**
- * Armazón de la app (rediseño del 9-oct-2026): riel azul marino de la marca
- * a la izquierda con el logo y las secciones, barra superior blanca y
- * delgada con dónde estás, el buscador y la salida, y el área de trabajo
- * sobre gris muy claro. Ya no hay franja azul arriba: la pantalla es del
- * trabajo, no del marco.
+ * Armazón de la app (rediseño del 9-oct-2026; 19-oct-2026 sin barra
+ * superior en escritorio): riel crema a la izquierda con el logo, las
+ * secciones y al pie Buscar (⌘K) y Cerrar sesión, y el área de trabajo
+ * sobre crema. La barra blanca de arriba solo repetía la ceja de la
+ * pantalla y se quitó; en el celular queda una barra delgada con el menú,
+ * el logo, buscar y salir.
  *
  * Las pantallas SIN sesión (login, el link de contenido de Amazon y la
  * estación de preparar pedidos) reciben solo la franja de marca: quien entra
@@ -37,7 +39,7 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
 
   if (publica) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-dvh flex-col">
         <header
           aria-label="Barra superior"
           className="no-imprimir flex h-14 items-center px-5"
@@ -53,7 +55,7 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
   return <Marco rol={rol} abierto={abierto} setAbierto={setAbierto}>{children}</Marco>;
 }
 
-/** El marco de trabajo con sesión: riel, barra superior y área de trabajo. */
+/** El marco de trabajo con sesión: riel, barra del celular y área de trabajo. */
 export function Marco({
   children,
   rol = "dueño",
@@ -65,66 +67,71 @@ export function Marco({
   abierto?: boolean;
   setAbierto?: (v: boolean | ((v: boolean) => boolean)) => void;
 }) {
+  // Esc cierra el cajón del menú en el celular.
+  useEffect(() => {
+    if (!abierto) return;
+    function tecla(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setAbierto(false);
+    }
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [abierto, setAbierto]);
+
   return (
     <div className="flex min-h-dvh">
       <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} rol={rol} />
+        <BarraMovil abierto={abierto} alternar={() => setAbierto((v) => !v)} />
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
+      {/* Invisible: mantiene vivo el latido mientras la app está abierta. */}
+      <EstadoConexion oculto />
+      <Paleta rol={rol} />
       <Avisos />
     </div>
   );
 }
 
-
 /**
- * La barra superior: blanca y delgada, encima del área de trabajo. Solo
- * dónde estás (sección › pantalla) y la salida; el buscador, la hora de la
- * sincronización y los pendientes se quitaron por decisión del dueño
- * (9-oct-2026). En pantallas chicas también el botón del menú.
+ * Barra delgada SOLO en pantallas chicas: abrir el menú, el logo, buscar y
+ * salir. En escritorio todo eso vive en el riel.
  */
-function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alternar: () => void; rol?: Rol }) {
-  const ruta = usePathname();
-  const donde = ubicacion(ruta, rol);
-
+function BarraMovil({ abierto, alternar }: { abierto: boolean; alternar: () => void }) {
   return (
     <header
       aria-label="Barra superior"
-      className="no-imprimir sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 md:gap-5 md:px-8"
-      style={{ background: "rgba(255,255,255,.92)", borderColor: "var(--borde)", backdropFilter: "saturate(1.4) blur(6px)" }}
+      className="no-imprimir sticky top-0 z-30 flex h-12 items-center gap-1 border-b px-2 lg:hidden"
+      style={{ background: "var(--sidebar)", borderColor: "var(--sidebar-borde)" }}
     >
       <button
+        type="button"
         onClick={alternar}
         aria-label={abierto ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={abierto}
-        className="-ml-1 rounded-md p-1.5 lg:hidden"
+        aria-controls="menu-lateral"
+        className="salir grid h-10 w-10 place-items-center rounded-md"
         style={{ color: "var(--ink-1)" }}
       >
         {abierto ? <X size={20} /> : <Menu size={20} />}
       </button>
-
-      {donde ? (
-        <nav aria-label="Ubicación" className="hidden min-w-0 items-center gap-1.5 text-[13px] md:flex">
-          <span className="texto-tenue truncate">{donde.grupo}</span>
-          <ChevronRight size={14} className="texto-tenue shrink-0" aria-hidden="true" />
-          <span className="truncate font-medium" style={{ color: "var(--ink-1)" }}>
-            {donde.pagina}
-          </span>
-        </nav>
-      ) : null}
-
-      <div className="ml-auto flex items-center gap-2">
-        {/* Invisible: mantiene vivo el latido mientras la app está abierta. */}
-        <EstadoConexion oculto />
+      <Logo alto={28} />
+      <div className="ml-auto flex items-center">
+        <button
+          type="button"
+          onClick={abrirPaleta}
+          aria-label="Buscar pantalla"
+          className="salir grid h-10 w-10 place-items-center rounded-md"
+          style={{ color: "var(--ink-2)" }}
+        >
+          <Search size={19} strokeWidth={2} />
+        </button>
         <a
           href="/api/salir"
-          className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium"
+          aria-label="Cerrar sesión"
+          className="salir grid h-10 w-10 place-items-center rounded-md"
           style={{ color: "var(--ink-2)" }}
-          title="Cerrar sesión"
         >
-          <LogOut size={15} strokeWidth={2} />
-          <span className="hidden sm:inline">Salir</span>
+          <LogOut size={18} strokeWidth={2} />
         </a>
       </div>
     </header>

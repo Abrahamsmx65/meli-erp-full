@@ -4,6 +4,7 @@ import { listarCortes, periodoActual, validarPeriodo } from "@/lib/servicios/cor
 import { obtenerEstadoResultadosMeli } from "@/lib/servicios/corte-cache";
 import { CorteVista } from "@/components/corte-vista";
 import { SinCuenta } from "@/components/ui/pagina";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,7 +23,12 @@ export default async function Cortes({ searchParams }: { searchParams: Promise<{
 
   // El corte del periodo vive masticado (app_cache «corte:YYYY-MM»): cambiar
   // de mes es leer un renglón; el refresco corre por atrás.
-  const [e, cortes] = await Promise.all([obtenerEstadoResultadosMeli(supabase, cuenta, periodo), listarCortes(supabase, cuenta.id)]);
+  const [e, cortes, fotos] = await Promise.all([
+    obtenerEstadoResultadosMeli(supabase, cuenta, periodo),
+    listarCortes(supabase, cuenta.id),
+    // Fotos de la tabla por modelo: un renglón masticado; si falla, sin fotos.
+    leerFotosProducto(supabase, cuenta.id).catch(() => null),
+  ]);
   return (
     <CorteVista
       ceja="Mercado Libre"
@@ -35,6 +41,7 @@ export default async function Cortes({ searchParams }: { searchParams: Promise<{
       hoy={periodoActual()}
       e={e}
       cortes={cortes}
+      fotos={fotos && Object.keys(fotos.modelos).length ? fotos : null}
     />
   );
 }

@@ -92,7 +92,7 @@ export function PedidosTikTok({ pedidos }: { pedidos: PedidoPorEnviar[] }) {
                   <div className="text-sm font-semibold">
                     Pedido {p.orderId}
                     {p.esMuestra ? (
-                      <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
+                      <span className="ml-2 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
                         Muestra
                       </span>
                     ) : null}

@@ -1,7 +1,10 @@
 /**
  * Fichas de cifra. Cuando el dato es UN número, un número grande se lee
- * mejor que cualquier gráfica. La ficha lleva una línea de color arriba
- * solo cuando el tono dice algo (crítico, alerta, bien); la neutra va limpia.
+ * mejor que cualquier gráfica. Dentro de <Cifras> todas forman UNA banda con
+ * divisiones finas (globals.css, `.cifras`); suelta, la ficha es su propia
+ * tarjeta. La cifra va en tinta: solo alerta y crítico la pintan de su color
+ * y llevan un punto antes de la etiqueta. «Bien» ya no se pinta de verde: lo
+ * normal no tiene por qué llamar la atención.
  */
 
 /**
@@ -41,31 +44,22 @@ export function Ficha({
 }) {
   const color =
     tono === "critico"
-      ? "var(--estado-critico)"
+      ? "var(--critico-texto)"
       : tono === "alerta"
         ? "var(--alerta-texto)"
-        : tono === "bien"
-          ? "var(--exito-texto)"
-          : "var(--ink-1)";
+        : "var(--ink-1)";
+  const punto =
+    tono === "critico" ? "var(--estado-critico)" : tono === "alerta" ? "var(--estado-alerta)" : null;
 
   const texto = typeof valor === "number" ? valor.toLocaleString("es-MX") : valor;
 
   return (
-    // La tarjeta es el contenedor de referencia: la cifra se mide contra SU
-    // ancho, no contra el de la ventana.
-    <div
-      className="tarjeta relative overflow-hidden p-4"
-      style={{ containerType: "inline-size" }}
-    >
-      {tono !== "neutro" ? (
-        <span
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-[3px]"
-          style={{ background: tono === "alerta" ? "var(--estado-alerta)" : color }}
-        />
-      ) : null}
-      <div className="text-[12px] font-medium" style={{ color: "var(--ink-2)" }}>
-        {titulo}
+    // La ficha es el contenedor de referencia (container-type en `.ficha`):
+    // la cifra se mide contra SU ancho, no contra el de la ventana.
+    <div className="ficha">
+      <div className="ficha-titulo">
+        {punto ? <span aria-hidden="true" className="ficha-punto" style={{ background: punto }} /> : null}
+        <span className="min-w-0">{titulo}</span>
       </div>
       <div
         className="cifra mt-2 leading-none font-semibold"
@@ -74,11 +68,7 @@ export function Ficha({
       >
         {texto}
       </div>
-      {nota ? (
-        <div className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
-          {nota}
-        </div>
-      ) : null}
+      {nota ? <div className="ficha-nota">{nota}</div> : null}
     </div>
   );
 }

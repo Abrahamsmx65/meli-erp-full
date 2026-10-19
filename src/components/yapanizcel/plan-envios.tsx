@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { LineaPlan, MotivoNoEnviar } from "@/lib/yapanizcel/plan";
 import type { EnvioRegistrado } from "@/lib/yapanizcel/envios";
 import { estiloInput } from "./comunes";
+import { confirmar } from "@/components/ui/confirmar";
 
 const MOTIVO: Record<MotivoNoEnviar, string> = {
   ok: "",
@@ -80,7 +81,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
       return;
     }
     const fueraDeDecena = seleccion.filter((s) => s.unidades % multiplo !== 0);
-    if (fueraDeDecena.length && !confirm(`${fueraDeDecena.length} SKU(s) no van en múltiplos de ${multiplo}. ¿Registrar de todos modos?`)) return;
+    if (fueraDeDecena.length && !(await confirmar({ titulo: "¿Registrar de todos modos?", mensaje: `${fueraDeDecena.length} SKU(s) no van en múltiplos de ${multiplo}.`, confirmar: "Registrar" }))) return;
 
     setOcupado("registrar");
     setError(null);

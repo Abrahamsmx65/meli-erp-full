@@ -14,6 +14,7 @@ import {
   type GrupoDevolucion,
 } from "@/lib/tiktok/devoluciones";
 import type { DevolucionGuardada } from "@/lib/servicios/tiktok-devoluciones";
+import { confirmar as preguntar } from "@/components/ui/confirmar";
 
 const TITULOS: Record<GrupoDevolucion, string> = {
   por_recibir: "Por recibir: el cliente ya la mandó, falta confirmar el paquete",
@@ -175,7 +176,7 @@ function Renglon({ d, ahora, abierta }: { d: DevolucionGuardada; ahora: number; 
   const plazoCerca = Number.isFinite(plazoMs) && !plazoVencido && plazoMs - ahora < 48 * 3_600_000;
 
   async function confirmar() {
-    if (!window.confirm("¿Confirmar que el paquete llegó? TikTok le reembolsa al cliente en ese momento.")) return;
+    if (!(await preguntar({ titulo: "¿Confirmar que el paquete llegó?", mensaje: "TikTok le reembolsa al cliente en ese momento.", confirmar: "Confirmar recibido" }))) return;
     setGuardando(true);
     setError(null);
     try {

@@ -161,7 +161,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           className="mt-4 rounded-lg p-4"
           style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
+          <div className="text-[11px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
             Último
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: estado.error ? "var(--estado-critico)" : "var(--acento)" }}>

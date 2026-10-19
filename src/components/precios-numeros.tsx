@@ -5,6 +5,7 @@ import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promo
 import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/lib/precios/promociones";
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,7 +84,7 @@ export function PreciosNumeros() {
   // Lo mismo que el cron de las 10:00, a mano: todas las relámpago
   // candidatas al precio relámpago de Números; MELI rechaza las que no lo aceptan.
   const confirmarRelampagos = async () => {
-    if (!confirm("Se van a inscribir TODAS las relámpago candidatas al precio relámpago de Números (5 pares o lo que pida MELI). ¿Continuar?")) return;
+    if (!(await confirmar({ titulo: "¿Inscribir todas las relámpago?", mensaje: "Se van a inscribir TODAS las relámpago candidatas al precio relámpago de Números (5 pares o lo que pida MELI).", confirmar: "Inscribir" }))) return;
     setCargando("relampagos");
     setError(null);
     setRelampagos(null);
@@ -124,7 +125,7 @@ export function PreciosNumeros() {
 
   const aplicar = async () => {
     if (!revision || !porHacer) return;
-    if (!confirm(`Se van a cambiar ${porHacer} precios en Mercado Libre y Amazon. ¿Continuar?`)) return;
+    if (!(await confirmar({ titulo: `¿Cambiar ${porHacer} precios?`, mensaje: `Se van a cambiar ${porHacer} precios en Mercado Libre y Amazon.`, confirmar: "Cambiar precios" }))) return;
     setCargando("aplicar");
     setError(null);
     try {
@@ -175,14 +176,14 @@ export function PreciosNumeros() {
         {din(r.nuevo)}
         {r.minimo || r.maximo ? (
           <div
-            className="text-[10px] font-normal"
+            className="text-[11px] font-normal"
             style={{ color: r.fueraDeRango ? "var(--estado-alerta)" : "var(--ink-3)" }}
             title="Rango que MELI mandó para esta promoción; si no lo acepta, al aplicar sale su mensaje"
           >
             MELI {din(r.minimo)}–{din(r.maximo)}
           </div>
         ) : null}
-        {r.aporte ? <div className="text-[10px] font-normal texto-tenue">aporte MELI {din(r.aporte)}</div> : null}
+        {r.aporte ? <div className="text-[11px] font-normal texto-tenue">aporte MELI {din(r.aporte)}</div> : null}
       </td>
       <td className="px-2 py-1">
         <Accion a={r.accion} />
@@ -324,7 +325,7 @@ export function PreciosNumeros() {
                     <td className="px-2 py-1 text-right cifra font-semibold">
                       {din(a.nuevo)}
                       {a.nuevo != null ? (
-                        <div className="text-[10px] font-normal texto-tenue">mínimo {din(precioMinimoAmazon(a.nuevo))}</div>
+                        <div className="text-[11px] font-normal texto-tenue">mínimo {din(precioMinimoAmazon(a.nuevo))}</div>
                       ) : null}
                     </td>
                     <td className="px-2 py-1">

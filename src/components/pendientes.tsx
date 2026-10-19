@@ -69,7 +69,7 @@ export function FormularioCorrida({
       <div className="flex flex-wrap gap-1">
         {TALLAS.map((t) => (
           <label key={t} className="flex flex-col items-center">
-            <span className="text-[10px] texto-tenue">
+            <span className="text-[11px] texto-tenue">
               {t}
             </span>
             <input

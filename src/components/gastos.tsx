@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { prepararIntentoGasto, type IntentoGastoPendiente } from "@/lib/servicios/gastos-idempotencia";
 import type { GastoEmpresarial } from "@/lib/servicios/gastos-empresariales";
 import type { GastoFijo } from "@/lib/servicios/gastos-fijos";
+import { confirmar } from "@/components/ui/confirmar";
 
 const entrada = "mt-1 w-full rounded-lg border px-2 py-1.5 text-sm";
 const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-2)" };
@@ -56,7 +57,7 @@ export function GastosFijosVista({ fijos, mesActual, categorias }: { fijos: Gast
   }
 
   async function baja(f: GastoFijo) {
-    if (!window.confirm(`¿Dejar de pagar «${f.concepto}» desde ${nombreMes(mesActual)}? Los meses pasados se quedan como están.`)) return;
+    if (!(await confirmar({ titulo: `¿Dejar de pagar «${f.concepto}» desde ${nombreMes(mesActual)}?`, mensaje: "Los meses pasados se quedan como están.", confirmar: "Dar de baja", peligro: true }))) return;
     setOcupado(true);
     setError("");
     try {
@@ -157,7 +158,7 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
 
   async function quitar(g: GastoEmpresarial) {
     const pregunta = g.fijoId != null ? `¿Omitir «${g.concepto}» solo en este mes?` : `¿Eliminar «${g.concepto}»?`;
-    if (!window.confirm(pregunta)) return;
+    if (!(await confirmar({ titulo: pregunta, confirmar: g.fijoId != null ? "Omitir" : "Eliminar", peligro: true }))) return;
     setOcupado(true);
     setError("");
     try {

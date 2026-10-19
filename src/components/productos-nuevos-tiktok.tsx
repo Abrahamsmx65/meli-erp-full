@@ -6,6 +6,7 @@ import { Aviso } from "@/components/ui/pagina";
 import type { ProductosNuevosTikTok, PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { ProductoAmazonParaTikTok } from "@/lib/tiktok/publicar";
 import { PublicacionesMeliTikTok } from "./publicaciones-meli-tiktok";
+import { confirmar } from "@/components/ui/confirmar";
 
 function dinero(x: number | null | undefined, moneda: string): string {
   if (x == null) return "—";
@@ -185,12 +186,15 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     const n = listos.length;
     const nuevos = n - seAgregan;
     if (
-      !window.confirm(
-        (nuevos ? `¿Publicar ${nuevos} producto${nuevos === 1 ? "" : "s"} nuevo${nuevos === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? ` : "") +
+      !(await confirmar({
+        titulo: nuevos ? "¿Publicar en TikTok?" : "¿Agregar colores en TikTok?",
+        mensaje:
+          (nuevos ? `¿Publicar ${nuevos} producto${nuevos === 1 ? "" : "s"} nuevo${nuevos === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? ` : "") +
           (seAgregan ? `${nuevos ? "Y a" : "¿A"} ${seAgregan} listado${seAgregan === 1 ? "" : "s"} que ya existe${seAgregan === 1 ? "" : "n"} se le${seAgregan === 1 ? "" : "s"} agregan sus colores nuevos como variantes${nuevos ? "." : "?"} ` : "") +
           "Con sus colores y tallas y el precio capturado." +
           (volverAPublicar ? " Lo que TikTok ya tiene se publica OTRA VEZ como producto nuevo: borra el viejo en el Seller Center." : ""),
-      )
+        confirmar: nuevos ? "Publicar" : "Agregar colores",
+      }))
     )
       return;
     setEnviando(true);

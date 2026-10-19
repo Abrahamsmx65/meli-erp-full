@@ -346,7 +346,7 @@ export function DatosFiscales() {
                           }
                         />
                         {m.sugerenciaDe && m.sugerenciaDe !== "modelo" ? (
-                          <div className="text-[10px] texto-tenue">
+                          <div className="text-[11px] texto-tenue">
                             {m.sugerenciaDe === "categoria"
                               ? "de su categoría"
                               : "del catálogo: revísala"}

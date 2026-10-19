@@ -11,11 +11,16 @@ import { nombreDelPeriodo, periodoActual } from "@/lib/servicios/corte-meli";
 import { leerPlanParcial } from "@/lib/servicios/cache";
 import { NOMBRE_CANAL } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
-import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
 import { servirVariosCanalesConFecha } from "@/lib/servicios/ventas-tiempo";
 import { MonitorHoy } from "@/components/ui/monitor-hoy";
-import { armarMonitorHoy, minutoMx } from "@/lib/graficas/monitor-hoy";
+import { armarMonitorHoy, cambio, minutoMx } from "@/lib/graficas/monitor-hoy";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
+import { ModeloConFoto, esDisenoDeFunda } from "@/components/ui/foto-producto";
+import { PuntoCanal } from "@/components/ui/punto-canal";
+import { colorDeCanal } from "@/lib/graficas/canales";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +53,7 @@ export default async function Inicio() {
   const periodo = periodoActual();
   const hoy = fechaMx(0);
   const desde30 = fechaMx(29);
-  const [mes, plan, tiktok, contenedores, serie] = await Promise.all([
+  const [mes, plan, tiktok, contenedores, serie, fotos] = await Promise.all([
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
     supabase
@@ -73,6 +78,8 @@ export default async function Inicio() {
       ],
       { desde: desde30, hasta: hoy },
     ),
+    // Fotos de los modelos que más venden: un renglón masticado; si falla, sin fotos.
+    leerFotosProducto(supabase, cuenta.id).catch(() => null),
   ]);
 
   t.fin();
@@ -147,13 +154,34 @@ export default async function Inicio() {
 
   const canales = (mes?.canales ?? []).filter((k) => k.ventaBruta > 0);
   const maxVenta = Math.max(1, ...canales.map((k) => k.ventaBruta));
+  const conFotos = fotos && Object.keys(fotos.modelos).length ? fotos : null;
+  const masVendidos = [...(mes?.porModelo ?? [])].sort((x, y) => y.importe - x.importe).slice(0, 8);
+
+  // Lo más importante del día en UNA línea, solo con lo que ya se leyó arriba.
+  const sinCosto = (mes?.porModelo ?? []).filter((x) => x.costo == null && x.unidades > 0);
+  const llegaPronto = enCamino.find((c) => {
+    if (!c.fecha_llegada_est) return false;
+    const dias = Math.round((Date.parse(c.fecha_llegada_est) - Date.parse(hoy)) / 86_400_000);
+    return dias >= 0 && dias <= 1;
+  });
+  const vsAyer = cambio(monitor.total.hoyContraAyer.i, monitor.total.ayer?.i);
+  const hallazgo = hallazgoDelDia({
+    skusCriticos: resumen?.skusCriticos ?? 0,
+    cajas: resumen?.totalCajas ?? null,
+    pedidosTikTok,
+    porConfirmar,
+    sinCosto: sinCosto.length,
+    unidadesSinCosto: sinCosto.reduce((a, x) => a + x.unidades, 0),
+    llegaPronto: llegaPronto ? proximaLlegada([llegaPronto]) : null,
+    vsAyer,
+  });
 
   return (
     <Pagina vivo={120_000}>
       <Encabezado
         ceja={fechaLarga()}
         cejaFija
-        titulo={saludo()}
+        titulo="Hoy"
         descripcion="Lo que se vendió, lo que se gana y lo que toca hacer hoy."
         frescura={mes?.generadoEn ?? null}
       />
@@ -186,6 +214,51 @@ export default async function Inicio() {
         />
       </Cifras>
 
+      {/* «Qué hago hoy» va primero: el hallazgo del día y las tareas, antes de las gráficas. */}
+      {hallazgo ? (
+        <Aviso tono={hallazgo.tono}>
+          {hallazgo.texto}
+          {hallazgo.href ? (
+            <>
+              {" "}
+              <Link href={hallazgo.href} className="enlace">
+                {hallazgo.enlace}
+              </Link>
+            </>
+          ) : null}
+        </Aviso>
+      ) : null}
+
+      <Seccion titulo="Para hoy" sinRelleno>
+        <ul className="grid sm:grid-cols-2">
+          {tareas.map((t, i) => (
+            <li
+              key={t.href}
+              className={`border-b ${i >= tareas.length - (tareas.length % 2 || 2) ? "sm:border-b-0" : ""} last:border-b-0 ${i % 2 === 0 ? "sm:border-r" : ""}`}
+              style={{ borderColor: "var(--grid)" }}
+            >
+              <Link href={t.href} className="fila-inicio flex items-center gap-3 px-4 py-2.5">
+                <span
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background: t.urgente ? "var(--alerta-suave)" : "var(--surface-2)",
+                    color: t.urgente ? "var(--alerta-texto)" : "var(--ink-2)",
+                  }}
+                >
+                  <t.icono size={15} strokeWidth={1.9} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{t.titulo}</span>
+                  <span className="texto-tenue block truncate text-xs">{t.detalle}</span>
+                </span>
+                <span className="cifra text-lg font-semibold">{t.valor == null ? "—" : n(t.valor)}</span>
+                <ArrowRight size={15} className="texto-tenue shrink-0" aria-hidden="true" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Seccion>
+
       <Seccion titulo="Hoy contra ayer y la semana pasada" descripcion="A la misma hora">
         <MonitorHoy monitor={monitor} />
       </Seccion>
@@ -194,35 +267,9 @@ export default async function Inicio() {
         <GraficaVentasTiempo datos={diario} desde={desde30} hasta={hoy} />
       </Seccion>
 
-      <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
-        <Seccion titulo="Para hoy" sinRelleno>
-          <ul>
-            {tareas.map((t) => (
-              <li key={t.href} className="border-b last:border-b-0" style={{ borderColor: "var(--grid)" }}>
-                <Link href={t.href} className="fila-inicio flex items-center gap-4 px-4 py-3.5">
-                  <span
-                    className="flex size-9 shrink-0 items-center justify-center rounded-lg"
-                    style={{
-                      background: t.urgente ? "var(--alerta-suave)" : "var(--surface-2)",
-                      color: t.urgente ? "var(--alerta-texto)" : "var(--ink-2)",
-                    }}
-                  >
-                    <t.icono size={18} strokeWidth={1.9} aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{t.titulo}</span>
-                    <span className="texto-tenue block truncate text-xs">{t.detalle}</span>
-                  </span>
-                  <span className="cifra text-xl font-semibold">{t.valor == null ? "—" : n(t.valor)}</span>
-                  <ArrowRight size={16} className="texto-tenue shrink-0" aria-hidden="true" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Seccion>
-
+      <div className="grid gap-6 xl:grid-cols-[1fr_1.6fr]">
         <Seccion
-          titulo={`${nombreDelPeriodo(periodo)} por canal`}
+          titulo={`${capital(nombreDelPeriodo(periodo))} por canal`}
           acciones={
             <Link href="/cortes" className="enlace text-[13px]">
               Ver el corte
@@ -234,13 +281,16 @@ export default async function Inicio() {
               {canales.map((k) => (
                 <li key={k.canal}>
                   <div className="flex items-baseline justify-between gap-3 text-sm">
-                    <span className="font-medium">{NOMBRE_CANAL[k.canal]}</span>
+                    <span className="flex items-center gap-2 font-medium">
+                      <PuntoCanal canal={k.canal} />
+                      {NOMBRE_CANAL[k.canal]}
+                    </span>
                     <span className="cifra">{pesos(k.ventaBruta)}</span>
                   </div>
-                  <div className="mt-1.5 h-2 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${(k.ventaBruta / maxVenta) * 100}%`, background: "var(--acento)" }}
+                      style={{ width: `${(k.ventaBruta / maxVenta) * 100}%`, background: colorDeCanal(k.canal) ?? "var(--acento)" }}
                     />
                   </div>
                   <div className="texto-tenue mt-1 flex justify-between text-xs">
@@ -265,61 +315,70 @@ export default async function Inicio() {
             <p className="texto-2 text-sm">Calculando el corte del mes…</p>
           )}
         </Seccion>
-      </div>
 
-      {mes?.porModelo?.length ? (
-        <Seccion
-          titulo={`Modelos que más venden en ${nombreDelPeriodo(periodo)}`}
-          descripcion="Todos los canales juntos"
-          acciones={
-            <Link href="/cortes" className="enlace text-[13px]">
-              Ver el corte
-            </Link>
-          }
-          sinRelleno
-        >
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th>Canales</th>
-                <th className="num">Unidades</th>
-                <th className="num">Venta</th>
-                <th className="num">Ganancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...mes.porModelo]
-                .sort((x, y) => y.importe - x.importe)
-                .slice(0, 8)
-                .map((x) => (
-                  <tr key={x.modelo}>
-                    <td className="font-medium">{x.modelo}</td>
-                    <td className="texto-2 text-xs">{x.canales.map((k) => NOMBRE_CANAL[k].split(" ·")[0]).join(", ")}</td>
-                    <td className="num cifra">{n(x.unidades)}</td>
-                    <td className="num cifra">{pesos(x.importe)}</td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color: x.ganancia == null ? "var(--ink-muted)" : x.ganancia < 0 ? "var(--critico-texto)" : "var(--exito-texto)",
-                      }}
-                    >
-                      {x.ganancia == null ? "—" : pesos(x.ganancia)}
-                    </td>
+        {masVendidos.length ? (
+          <Seccion
+            titulo={`Modelos que más venden en ${nombreDelPeriodo(periodo)}`}
+            descripcion="Todos los canales juntos"
+            acciones={
+              <Link href="/cortes?pestana=modelo" className="enlace text-[13px]">
+                Ver todos
+              </Link>
+            }
+            sinRelleno
+          >
+            <div className="overflow-x-auto">
+              <table className="datos">
+                <thead>
+                  <tr>
+                    <th>Modelo</th>
+                    <th>Canales</th>
+                    <th className="num">Unidades</th>
+                    <th className="num">Venta</th>
+                    <th className="num">Ganancia</th>
                   </tr>
-                ))}
-            </tbody>
-          </table>
-        </Seccion>
-      ) : null}
+                </thead>
+                <tbody>
+                  {masVendidos.map((x) => (
+                    <tr key={x.modelo}>
+                      <td className="font-medium">
+                        {conFotos ? (
+                          <ModeloConFoto modelo={x.modelo} url={fotoDeProducto(conFotos, x.modelo)} conFoto={!esDisenoDeFunda(x.modelo)} />
+                        ) : (
+                          x.modelo
+                        )}
+                      </td>
+                      <td>
+                        <span className="flex items-center gap-1" title={x.canales.map((k) => NOMBRE_CANAL[k]).join(", ")}>
+                          {x.canales.map((k) => (
+                            <PuntoCanal key={k} canal={k} />
+                          ))}
+                          <span className="sr-only">{x.canales.map((k) => NOMBRE_CANAL[k]).join(", ")}</span>
+                        </span>
+                      </td>
+                      <td className="num cifra">{n(x.unidades)}</td>
+                      <td className="num cifra">{pesos(x.importe)}</td>
+                      <td
+                        className="num cifra"
+                        style={{
+                          color: x.ganancia == null ? "var(--ink-muted)" : x.ganancia < 0 ? "var(--critico-texto)" : "var(--exito-texto)",
+                        }}
+                      >
+                        {x.ganancia == null ? "—" : pesos(x.ganancia)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Seccion>
+        ) : null}
+      </div>
     </Pagina>
   );
 }
 
-/**
- * Orden de colores fijo y validado con el validador de dataviz (tonos tierra
- * de la marca: caramelo, mezclilla, verde y mostaza); no se cicla.
- */
+// El color de cada canal vive en `lib/graficas/canales.ts` (una sola fuente).
 
 interface Tarea {
   href: string;
@@ -342,15 +401,75 @@ function fechaDe(ms: number): string {
   return new Date(ms - 6 * 3_600_000).toISOString().slice(0, 10);
 }
 
-function horaMx(): number {
-  return new Date(Date.now() - 6 * 3_600_000).getUTCHours();
+function capital(x: string): string {
+  return x.charAt(0).toUpperCase() + x.slice(1);
 }
 
-function saludo(): string {
-  const h = horaMx();
-  if (h < 12) return "Buenos días";
-  if (h < 19) return "Buenas tardes";
-  return "Buenas noches";
+interface Hallazgo {
+  texto: string;
+  tono: "info" | "bien" | "alerta" | "critico";
+  href?: string;
+  enlace?: string;
+}
+
+/**
+ * El hallazgo más importante del día, en una línea, con lo que la página ya
+ * leyó (nada se consulta aquí). Va de lo que cuesta venta (Full en crítico)
+ * a lo que solo informa (hoy contra ayer a la misma hora).
+ */
+function hallazgoDelDia(d: {
+  skusCriticos: number;
+  cajas: number | null;
+  pedidosTikTok: number;
+  porConfirmar: number;
+  sinCosto: number;
+  unidadesSinCosto: number;
+  llegaPronto: string | null;
+  vsAyer: number | null;
+}): Hallazgo | null {
+  if (d.skusCriticos > 0) {
+    return {
+      tono: "critico",
+      texto: `${n(d.skusCriticos)} SKUs en crítico en Full${d.cajas ? `; el plan pide mandar ${n(d.cajas)} cajas` : ""}.`,
+      href: "/envios",
+      enlace: "Ver el plan",
+    };
+  }
+  if (d.pedidosTikTok > 0) {
+    return {
+      tono: "alerta",
+      texto: `${n(d.pedidosTikTok)} ${d.pedidosTikTok === 1 ? "pedido de TikTok espera" : "pedidos de TikTok esperan"} corte.`,
+      href: "/tiktok/despacho",
+      enlace: "Ir a despacho",
+    };
+  }
+  if (d.porConfirmar > 0) {
+    return {
+      tono: "alerta",
+      texto: `${n(d.porConfirmar)} ${d.porConfirmar === 1 ? "contenedor llegó" : "contenedores llegaron"} de Drive y ${d.porConfirmar === 1 ? "espera" : "esperan"} confirmación.`,
+      href: "/contenedores",
+      enlace: "Revisar",
+    };
+  }
+  if (d.sinCosto > 0) {
+    return {
+      tono: "alerta",
+      texto: `${n(d.sinCosto)} ${d.sinCosto === 1 ? "modelo vendió" : "modelos vendieron"} ${n(d.unidadesSinCosto)} unidades este mes sin costo capturado: su ganancia no se cuenta.`,
+      href: "/productos",
+      enlace: "Capturar costos",
+    };
+  }
+  if (d.llegaPronto) {
+    return { tono: "info", texto: `El contenedor ${d.llegaPronto}.`, href: "/contenedores", enlace: "Ver contenedores" };
+  }
+  if (d.vsAyer != null && Math.abs(d.vsAyer) >= 0.05) {
+    const pct = Math.round(Math.abs(d.vsAyer) * 100);
+    return {
+      tono: d.vsAyer > 0 ? "bien" : "info",
+      texto: `Hoy vas ${pct} % ${d.vsAyer > 0 ? "arriba" : "abajo"} de lo que ayer llevaba a esta hora.`,
+    };
+  }
+  return null;
 }
 
 function fechaLarga(): string {

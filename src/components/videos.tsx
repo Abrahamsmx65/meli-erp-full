@@ -1358,7 +1358,7 @@ export function GeneradorVideo({
                       <img src={url} alt="" className="h-20 w-20 rounded object-cover" />
                       {posicion >= 0 && (
                         <span
-                          className="cifra absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                          className="cifra absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
                           style={{ background: "var(--acento)" }}
                         >
                           {posicion + 1}
@@ -2195,7 +2195,7 @@ export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] 
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={url} alt={`Opción ${i + 1}`} className="h-40 w-auto rounded" />
             <span
-              className="absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
+              className="absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[11px] font-bold text-white"
               style={{ background: enviando === url ? "var(--acento)" : "rgba(0,0,0,0.55)" }}
             >
               {enviando === url ? "Animando…" : `Animar ${i + 1}`}

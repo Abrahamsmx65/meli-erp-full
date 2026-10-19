@@ -14,6 +14,7 @@ import Link from "next/link";
 import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
 import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 import { Pestanas } from "@/components/ui/pestanas";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +51,13 @@ export default async function Ventas({
   // Todo llega masticado del servicio: el monitor con la publicidad ya
   // descontada, la cascada real del dinero y los cuadres entre niveles.
   // Esta página no hace ninguna cuenta.
-  const [vista, tiempo] = await Promise.all([
+  const [vista, tiempo, fotos] = await Promise.all([
     vistaVentas(supabase, cuenta, rango, t),
     // La gráfica por día y por hora: masticada por rango (`ventas_por_hora`).
     servirVariosCanales(clienteAdmin(), [{ canal: "meli_calzado", accountId: cuenta.id }], rango),
+    // Las fotos de la tabla por modelo: UN renglón masticado (`fotos-producto`);
+    // si falla, la tabla sale sin fotos.
+    leerFotosProducto(supabase, cuenta.id).catch(() => null),
   ]);
   t.fin();
   const { monitor: m, gastoAds, gananciaConAds, finanzas, cuadres } = vista;
@@ -220,19 +224,38 @@ export default async function Ventas({
             cuenta: m.porModelo.length,
             contenido: (
             <>
+              <Seccion sinRelleno>
+                {/* La pestaña ya dice «Por modelo» y cuántos son: la sección no lo repite. */}
+                <Ayuda>
+                  <p>
+                    Ganancia = neto − costo − publicidad del modelo. Busca por modelo o SKU, filtra por categoría y da clic en
+                    una columna para ordenar.
+                  </p>
+                </Ayuda>
+                <TablaModelosVentas
+                  desde={rango.desde}
+                  hasta={rango.hasta}
+                  fotos={fotos && Object.keys(fotos.modelos).length ? fotos.modelos : null}
+                  inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
+                    busqueda: "",
+                    categoria: "",
+                    orden: { clave: "unidades7", desc: true },
+                    pagina: 1,
+                  })}
+                />
+              </Seccion>
+
               {m.porCategoria.length ? (
                 <Seccion
                   titulo="Por categoría"
                   sinRelleno
                 >
-                  <div className="px-4 pt-3">
-                    <Ayuda>
-                      <p>
-                        Las categorías se capturan en Productos y costos. Neto = lo que MELI deposita (ya sin su comisión);
-                        ganancia = neto − costo − publicidad del modelo que la gastó.
-                      </p>
-                    </Ayuda>
-                  </div>
+                  <Ayuda>
+                    <p>
+                      Las categorías se capturan en Productos y costos. Neto = lo que MELI deposita (ya sin su comisión);
+                      ganancia = neto − costo − publicidad del modelo que la gastó.
+                    </p>
+                  </Ayuda>
                   <Tabla>
                     <table className="datos">
                       <thead>
@@ -284,30 +307,6 @@ export default async function Ventas({
                   </Tabla>
                 </Seccion>
               ) : null}
-
-              <Seccion
-                titulo="Por modelo"
-                sinRelleno
-              >
-                <div className="px-4 pt-3">
-                  <Ayuda>
-                    <p>
-                      Ganancia = neto − costo − publicidad del modelo. Busca por modelo o SKU, filtra por categoría y da clic en
-                      una columna para ordenar.
-                    </p>
-                  </Ayuda>
-                </div>
-                <TablaModelosVentas
-                  desde={rango.desde}
-                  hasta={rango.hasta}
-                  inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
-                    busqueda: "",
-                    categoria: "",
-                    orden: { clave: "unidades7", desc: true },
-                    pagina: 1,
-                  })}
-                />
-              </Seccion>
 
             </>
           ),
