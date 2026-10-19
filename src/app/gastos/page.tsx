@@ -5,7 +5,7 @@ import { listarGastosEmpresariales } from "@/lib/servicios/gastos-empresariales"
 import { CATEGORIAS_GASTO, finDelMes, listarGastosFijos, mesSiguiente } from "@/lib/servicios/gastos-fijos";
 import { nombreDelPeriodo, periodoActual, validarPeriodo } from "@/lib/servicios/corte-meli";
 import { Ficha } from "@/components/tiles";
-import { GastosDelMes, GastosFijosVista } from "@/components/gastos";
+import { GastosDelMes, GastosFijosVista, SelectorMes } from "@/components/gastos";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
 
@@ -31,16 +31,25 @@ export default async function Gastos({ searchParams }: { searchParams: Promise<{
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Gastos" />;
 
-  const [fijos, gastos] = await Promise.all([
+  const [fijos, gastos, primero] = await Promise.all([
     listarGastosFijos(supabase, cuenta.id),
     listarGastosEmpresariales(supabase, cuenta.id, `${periodo}-01`, finDelMes(periodo)),
+    supabase
+      .from("gastos_empresariales")
+      .select("fecha")
+      .eq("account_id", cuenta.id)
+      .order("fecha", { ascending: true })
+      .limit(1),
   ]);
-  // Fijos primero (por categoría), luego los sueltos por fecha.
-  gastos.sort((a, b) =>
-    (a.fijoId == null ? 1 : 0) - (b.fijoId == null ? 1 : 0) ||
-    a.categoria.localeCompare(b.categoria, "es") ||
-    b.fecha.localeCompare(a.fecha),
-  );
+  // Por fecha dentro del mes (dueño, 19-oct-2026), del día 1 al último.
+  gastos.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.concepto.localeCompare(b.concepto, "es"));
+
+  // Meses para elegir: del primer gasto capturado (o enero 2026) a hoy.
+  const primerMes = [String(primero.data?.[0]?.fecha ?? "").slice(0, 7), "2026-01", periodo]
+    .filter((m) => /^\d{4}-\d{2}$/.test(m))
+    .sort()[0];
+  const meses: string[] = [];
+  for (let m = mesActual; m >= primerMes && meses.length < 120; m = mesSiguiente(m, -1)) meses.push(m);
 
   const delMes = gastos.reduce((s, g) => s + (g.montoMes ?? g.monto), 0);
   const aHoy = gastos.reduce((s, g) => s + g.monto, 0);
@@ -60,7 +69,7 @@ export default async function Gastos({ searchParams }: { searchParams: Promise<{
         acciones={
           <div className="flex items-center gap-2">
             <Link className="boton boton-fantasma boton-chico" href={`/gastos?mes=${mesSiguiente(periodo, -1)}`}>←</Link>
-            <span className="text-sm font-medium">{nombreDelPeriodo(periodo)}</span>
+            <SelectorMes periodo={periodo} meses={meses} />
             {siguiente <= mesActual ? (
               <Link className="boton boton-fantasma boton-chico" href={`/gastos?mes=${siguiente}`}>→</Link>
             ) : null}

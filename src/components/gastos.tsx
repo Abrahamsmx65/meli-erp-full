@@ -195,7 +195,7 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
           <table className="datos">
             <thead>
               <tr>
-                <th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Pagado con</th><th className="num">Del mes</th>
+                <th>Fecha</th><th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Pagado con</th><th className="num">Del mes</th>
                 {hayProrrateo ? <th className="num">A hoy</th> : null}
                 <th></th>
               </tr>
@@ -203,7 +203,8 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
             <tbody>
               {gastos.map((g) => (
                 <tr key={g.id}>
-                  <td className="whitespace-nowrap">{g.fijoId != null ? (g.editado ? "Fijo · corregido" : "Fijo") : g.fecha}</td>
+                  <td className="cifra whitespace-nowrap">{g.fecha}</td>
+                  <td className="whitespace-nowrap">{g.fijoId != null ? (g.editado ? "Fijo · corregido" : "Fijo") : "Suelto"}</td>
                   <td>{g.categoria}</td>
                   <td>{g.concepto}</td>
                   <td className="texto-2 text-[12px]">{g.medio === "efectivo" ? "Efectivo" : "Banco"}</td>
@@ -220,5 +221,23 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
         </div>
       ) : <p className="p-4 text-sm texto-2">Sin gastos en este mes.</p>}
     </section>
+  );
+}
+
+/** Elegir el mes a ver: de hoy hacia atrás hasta el primer gasto capturado. */
+export function SelectorMes({ periodo, meses }: { periodo: string; meses: string[] }) {
+  const router = useRouter();
+  return (
+    <select
+      className="rounded-lg border px-2 py-1.5 text-sm"
+      style={estiloEntrada}
+      value={periodo}
+      onChange={(e) => router.push(`/gastos?mes=${e.target.value}`)}
+      aria-label="Mes"
+    >
+      {meses.map((m) => (
+        <option key={m} value={m}>{nombreMes(m)}</option>
+      ))}
+    </select>
   );
 }
