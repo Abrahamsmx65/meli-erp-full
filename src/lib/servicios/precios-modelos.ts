@@ -275,11 +275,16 @@ async function inscribirRelampago(
   let ultimo = "";
   for (const stock of intentos) {
     try {
+      // Todas las relámpago de una publicación comparten `promotion_id`
+      // (LGH-MLM1000): sin el folio de la propuesta MELI inscribe UNA fecha y
+      // contesta «sí» a las demás (GT183, 17 al 19-oct-2026: dos «inscritas»
+      // por día y la del 20-oct siguió como propuesta).
       await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
         promotion_id: r.promoId,
         promotion_type: r.tipo,
         deal_price: r.nuevo,
         stock,
+        ...(r.offerId ? { offer_id: r.offerId } : {}),
       });
       return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares` };
     } catch (err) {
@@ -319,6 +324,7 @@ export async function confirmarRelampagosPendientes(
   const inscritas: ResultadoPrecio[] = [];
   const fallidas: ResultadoPrecio[] = [];
   const omitidas: string[] = [];
+  const porItem = new Map<string, ResultadoPrecio[]>();
   for (const r of revision.meli) {
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
     const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
@@ -330,14 +336,39 @@ export async function confirmarRelampagosPendientes(
     }
     const hecho = await inscribirRelampago(cliente, r, s.intentos);
     (hecho.ok ? inscritas : fallidas).push({ donde, ok: hecho.ok, detalle: hecho.detalle });
+    if (hecho.ok) porItem.set(r.itemId, [...(porItem.get(r.itemId) ?? []), inscritas[inscritas.length - 1]]);
   }
+
+  // MELI contesta «sí» aunque no inscriba la fecha (ver `inscribirRelampago`):
+  // se relee cada publicación y, si le quedan más propuestas de relámpago de
+  // las que debían quedar, las «inscritas» de más pasan a fallidas.
+  const muestra: unknown[] = [];
+  await enLotes([...porItem], 5, async ([itemId, hechas]) => {
+    const antes = revision.meli.filter(
+      (r) => r.itemId === itemId && r.tipo.toUpperCase() === "LIGHTNING" && r.estado.toLowerCase() === "candidate",
+    ).length;
+    let despues: PromoMeli[];
+    try {
+      despues = (await promosDe(cliente, itemId)).filter(
+        (p) => (p.type ?? "").toUpperCase() === "LIGHTNING" && (p.status ?? "").toLowerCase() === "candidate",
+      );
+    } catch {
+      return;
+    }
+    if (despues.length && muestra.length < 5) muestra.push(...despues.slice(0, 2));
+    const sinEntrar = Math.min(hechas.length, despues.length - (antes - hechas.length));
+    for (const h of hechas.slice(hechas.length - Math.max(0, sinEntrar))) {
+      inscritas.splice(inscritas.indexOf(h), 1);
+      fallidas.push({ ...h, ok: false, detalle: `MELI contestó que sí pero la relámpago sigue como propuesta (${h.detalle})` });
+    }
+  });
 
   await admin.from("sync_log").insert({
     account_id: accountId,
     tarea: TAREA_RELAMPAGOS,
     estado: fallidas.length ? "error" : "ok",
     fin: new Date().toISOString(),
-    detalle: { origen, modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
+    detalle: { origen, modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50), muestra },
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }

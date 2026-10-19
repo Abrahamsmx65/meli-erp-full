@@ -43,6 +43,8 @@ export interface PromoMeli {
   /** parte del descuento que pone MELI (% del precio original) */
   meli_percentage?: number | null;
   seller_percentage?: number | null;
+  /** folio de la propuesta (una relámpago trae uno por fecha; todas comparten `id`) */
+  offer_id?: string | null;
 }
 
 /** Desde este precio el vendedor paga el envío en MELI México. */
@@ -139,6 +141,8 @@ export interface RenglonPromo {
   /** relámpago candidata: pares que MELI deja reservar */
   stockMin: number | null;
   stockMax: number | null;
+  /** folio de la propuesta: con él se inscribe ESA fecha y no otra */
+  offerId: string | null;
   accion: AccionPromo;
 }
 
@@ -191,6 +195,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     fin: p.finish_date ?? null,
     stockMin: p.stock?.min ?? null,
     stockMax: p.stock?.max ?? null,
+    offerId: p.offer_id ?? null,
     accion,
   };
 }
