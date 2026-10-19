@@ -77,6 +77,10 @@
       "schedule": "0 16 * * *"
     },
     {
+      "path": "/api/cron/ofertas-meli",
+      "schedule": "20 * * * *"
+    },
+    {
       "path": "/api/cron/publicidad-correo",
       "schedule": "15 14 * * 1,4"
     },
