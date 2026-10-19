@@ -62,3 +62,22 @@ BLK
     expect(r.modelos[0].colores.map((c) => c.color)).toEqual(["TOFFEE"]);
   });
 });
+
+describe("SOLID SIZE 16 PRS (GT180 y GT181, 19-oct-2026)", () => {
+  it("son los pares por caja, no un color", () => {
+    const r = leerLista(
+      "GT180\tSOLID SIZE 16 PRS\nBLK\t\n26\t7\n27\t13\n28\t15\n29\t5\n30\t5\n\t\nBROWN\t\n26\t5\n27\t10\n28\t8\n29\t7\n30\t5\n\t\nGT181\t\nBLK\tSOLID SIZE 16 PRS\n26\t11\n27\t8\n28\t15\n29\t7",
+    );
+    expect(r.modelos.map((m) => m.modelo)).toEqual(["GT180", "GT181"]);
+    const [a, b] = r.modelos;
+    expect(a.colores.map((c) => c.color)).toEqual(["BLK", "BROWN"]);
+    expect(a.colores[0].renglones.map((x) => [x.unitalla, x.cajas, x.paresPorCaja])).toEqual([
+      ["26", 7, 16], ["27", 13, 16], ["28", 15, 16], ["29", 5, 16], ["30", 5, 16],
+    ]);
+    expect(a.colores[1].renglones.reduce((s, x) => s + x.cajas, 0)).toBe(35);
+    expect(b.colores.map((c) => c.color)).toEqual(["BLK"]);
+    expect(b.colores[0].renglones.every((x) => x.paresPorCaja === 16)).toBe(true);
+    expect(b.colores[0].renglones.reduce((s, x) => s + x.cajas, 0)).toBe(41);
+    expect([...a.avisos, ...b.avisos]).toEqual([]);
+  });
+});
