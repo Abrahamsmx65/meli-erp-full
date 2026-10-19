@@ -145,6 +145,34 @@ describe("calcularDiferencias", () => {
 });
 
 describe("armarPlanUnificacion", () => {
+  it("renombrar (desde) solo cambia las variantes que dicen el valor viejo", () => {
+    const item: ItemCrudo = {
+      id: "MLM400",
+      variations: [
+        { id: 1, attribute_combinations: [{ id: "COLOR", value_name: "Tabaco" }, { id: "SIZE", value_name: "25" }] },
+        { id: 2, attribute_combinations: [{ id: "COLOR", value_name: "Negro" }, { id: "SIZE", value_name: "25" }] },
+      ],
+    };
+    const plan = armarPlanUnificacion(item, "COLOR", "Café tostado", "tabaco");
+    const vs = (plan.cuerpo as { variations: Record<string, unknown>[] }).variations;
+    expect(vs[0].attribute_combinations).toContainEqual({ id: "COLOR", value_name: "Café tostado" });
+    expect(vs[1]).toEqual({ id: 2 });
+    expect(armarPlanUnificacion(item, "COLOR", "Café tostado", "Rojo").cuerpo).toBeNull();
+  });
+
+  it("renombrar a nivel publicación no toca otro color ni agrega el atributo", () => {
+    const item: ItemCrudo = { id: "MLM401", attributes: [{ id: "COLOR", value_name: "Negro" }] };
+    expect(armarPlanUnificacion(item, "COLOR", "Café", "Tabaco").cuerpo).toBeNull();
+    expect(armarPlanUnificacion({ id: "MLM402" }, "COLOR", "Café", "Tabaco").cuerpo).toBeNull();
+    const plan = armarPlanUnificacion(
+      { id: "MLM403", attributes: [{ id: "COLOR", value_name: "Tabaco" }] },
+      "COLOR",
+      "Café",
+      "Tabaco",
+    );
+    expect((plan.cuerpo as { attributes: unknown[] }).attributes).toEqual([{ id: "COLOR", value_name: "Café" }]);
+  });
+
   it("cuando el atributo vive en las variantes, manda TODAS (MELI borra las omitidas) y solo cambia la desviada", () => {
     const item = grupoDesparejo()[0]; // variante 1 bien, variante 2 desviada
     const plan = armarPlanUnificacion(item, "MATERIAL", "Piel real");

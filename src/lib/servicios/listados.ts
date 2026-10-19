@@ -364,6 +364,7 @@ export function armarPlanUnificacion(
   item: ItemCrudo,
   atributoId: string,
   valor: string,
+  desde?: string,
 ): PlanUnificacion {
   // SIEMPRE por nombre, nunca por value_id: mandar solo el id truena con
   // "Value name of attribute MATERIALS was not provided and couldn't be
@@ -383,6 +384,11 @@ export function armarPlanUnificacion(
 
   const coincide = (a: AtributoCrudo): boolean =>
     (valorDeAtributo(a) ?? "").trim() === valor.trim();
+  // RENOMBRAR (`desde`): solo se toca lo que hoy dice ese valor (cambiar el
+  // nombre de UN color sin pisar los demás); nada se agrega donde falta.
+  const viejo = desde?.trim().toLowerCase();
+  const toca = (a: AtributoCrudo): boolean =>
+    !coincide(a) && (viejo == null || (valorDeAtributo(a) ?? "").trim().toLowerCase() === viejo);
 
   const variaciones = item.variations ?? [];
   const enCombos = variaciones.some((v) =>
@@ -402,7 +408,7 @@ export function armarPlanUnificacion(
       let cambia = false;
 
       const combos = (v.attribute_combinations ?? []).map((a) => {
-        if (a.id === atributoId && !coincide(a)) {
+        if (a.id === atributoId && toca(a)) {
           cambia = true;
           return objetivo;
         }
@@ -410,14 +416,14 @@ export function armarPlanUnificacion(
       });
 
       const attrs = (v.attributes ?? []).map((a) => {
-        if (a.id === atributoId && !coincide(a)) {
+        if (a.id === atributoId && toca(a)) {
           cambia = true;
           return objetivo;
         }
         return pasarAtributo(a);
       });
       // Una hermana sin el atributo también parte el picker: se le agrega.
-      if (enAtributosVar && !(v.attributes ?? []).some((a) => a.id === atributoId)) {
+      if (viejo == null && enAtributosVar && !(v.attributes ?? []).some((a) => a.id === atributoId)) {
         attrs.push(objetivo);
         cambia = true;
       }
@@ -439,7 +445,7 @@ export function armarPlanUnificacion(
   }
 
   const attrItem = (item.attributes ?? []).find((a) => a.id === atributoId);
-  if (attrItem ? !coincide(attrItem) : !enCombos && !enAtributosVar) {
+  if (attrItem ? toca(attrItem) : viejo == null && !enCombos && !enAtributosVar) {
     cuerpo.attributes = [objetivo];
     niveles.push("publicacion");
   }
@@ -604,6 +610,7 @@ export async function unificarAtributo(
   itemIds: string[],
   atributoId: string,
   valor: string,
+  desde?: string,
 ): Promise<ResultadoUnificacion[]> {
   const { items } = await traerItemsCrudos(cliente, itemIds);
   const resultados: ResultadoUnificacion[] = [];
@@ -622,7 +629,7 @@ export async function unificarAtributo(
       continue;
     }
 
-    const plan = armarPlanUnificacion(item, atributoId, valor);
+    const plan = armarPlanUnificacion(item, atributoId, valor, desde);
     if (!plan.cuerpo) {
       resultados.push({ itemId, estado: "sin_cambio", niveles: [], detalle: null });
       continue;
@@ -641,7 +648,7 @@ export async function unificarAtributo(
     // silencio (GT251, 13-oct-2026: «actualizado» en 7 publicaciones y la
     // relectura seguía «sin dato»). Por eso se relee y solo cuenta lo que
     // MELI de verdad trae.
-    resultados.push(await verificarOEscribirEnUserProduct(cliente, item, plan, atributoId, valor));
+    resultados.push(await verificarOEscribirEnUserProduct(cliente, item, plan, atributoId, valor, desde));
   }
 
   return resultados;
@@ -664,6 +671,7 @@ async function verificarOEscribirEnUserProduct(
   plan: PlanUnificacion,
   atributoId: string,
   valor: string,
+  desde?: string,
 ): Promise<ResultadoUnificacion> {
   const itemId = item.id;
   const releido = await releerItem(cliente, itemId);
@@ -675,7 +683,7 @@ async function verificarOEscribirEnUserProduct(
       detalle: "MELI aceptó el cambio pero no se pudo releer la publicación para confirmarlo.",
     };
   }
-  if (!armarPlanUnificacion(releido, atributoId, valor).cuerpo) {
+  if (!armarPlanUnificacion(releido, atributoId, valor, desde).cuerpo) {
     return { itemId, estado: "actualizado", niveles: plan.niveles, detalle: null };
   }
 
@@ -703,7 +711,7 @@ async function verificarOEscribirEnUserProduct(
   }
 
   const final = await releerItem(cliente, itemId);
-  if (final && !armarPlanUnificacion(final, atributoId, valor).cuerpo) {
+  if (final && !armarPlanUnificacion(final, atributoId, valor, desde).cuerpo) {
     return { itemId, estado: "actualizado", niveles: ["user_product"], detalle: null };
   }
   return {
