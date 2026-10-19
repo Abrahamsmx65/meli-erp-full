@@ -244,6 +244,14 @@ export function precioDeNivel(niveles: { live: number; normal: number; campana: 
 export const HORAS_MAX_CICLICA = 72;
 /** Cuántas ventanas (la que corre o la que sigue) puede tener un modelo: UNA, por la regla de TikTok de arriba. */
 export const VENTANAS_ADELANTE = 1;
+/**
+ * Minutos entre que termina una relámpago cíclica y arranca la siguiente
+ * (dueño, 19-oct-2026: «en el tiempo más temprano posible cuando se vence
+ * la última, y el espacio entre una y otra de 2 minutos»). TikTok exige un
+ * inicio en el futuro; si rechaza uno tan cercano, el servicio reintenta
+ * con `MINUTOS_DE_ARRANQUE`.
+ */
+export const MINUTOS_ARRANQUE_CICLICA = 2;
 
 /**
  * El error de TikTok en palabras para la pantalla (dueño, 19-oct-2026: «está
@@ -294,10 +302,11 @@ export function ventanasQueFaltan(
   horas: number,
   ahora: Date = new Date(),
   ventanasAdelante: number = VENTANAS_ADELANTE,
+  minutosDeArranque: number = MINUTOS_ARRANQUE_CICLICA,
 ): VentanaProgramada[] {
   const h = horasDeCiclica(horas);
   const vivas = programadas.filter((v) => v.fin.getTime() > ahora.getTime());
-  const arranque = new Date(ahora.getTime() + MINUTOS_DE_ARRANQUE * 60_000);
+  const arranque = new Date(ahora.getTime() + minutosDeArranque * 60_000);
   let base = vivas.reduce((max, v) => (v.fin.getTime() > max.getTime() ? v.fin : max), arranque);
   if (base.getTime() < arranque.getTime()) base = arranque;
   const faltan: VentanaProgramada[] = [];
@@ -307,6 +316,20 @@ export function ventanasQueFaltan(
     base = fin;
   }
   return faltan;
+}
+
+/**
+ * Cuándo termina la relámpago viva de un modelo (la que corre o la
+ * programada que termina más tarde), o null si no tiene ninguna. El fondo
+ * lo usa para esperar ese momento y crear la siguiente pegada.
+ */
+export function finDeLaViva(programadas: VentanaProgramada[], ahora: Date = new Date()): Date | null {
+  let fin: Date | null = null;
+  for (const v of programadas) {
+    if (v.fin.getTime() <= ahora.getTime()) continue;
+    if (!fin || v.fin.getTime() > fin.getTime()) fin = v.fin;
+  }
+  return fin;
 }
 
 // ---------------------------------------------------------------------------

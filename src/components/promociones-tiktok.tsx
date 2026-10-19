@@ -9,6 +9,7 @@ import { Aviso, Seccion, Tabla } from "./ui/pagina";
 import {
   HORAS_MAX_CICLICA,
   HORAS_POR_OMISION,
+  MINUTOS_ARRANQUE_CICLICA,
   MINUTOS_DE_ARRANQUE,
   nombreDeEstado,
   precioDeNivel,
@@ -219,8 +220,8 @@ export function PromocionesTikTok({
     if (
       !window.confirm(
         `¿Volver cíclico el ${modelo} a ${dinero(precio)}? Desde ahora tendrá siempre una relámpago viva en TikTok, ` +
-          `de ${horas} horas; cuando termine una, el sistema crea la siguiente. La primera empieza en ${MINUTOS_DE_ARRANQUE} minutos ` +
-          `(o cuando termine la que ya tenga).`,
+          `de ${horas} horas; cuando termine una, el sistema crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después. ` +
+          `La primera empieza en ${MINUTOS_ARRANQUE_CICLICA} minutos (o cuando termine la que ya tenga).`,
       )
     )
       return;
@@ -292,7 +293,7 @@ export function PromocionesTikTok({
     );
     if (!j) return;
     const partes = [`${j.guardadas} modelos ya son cíclicos; ${j.programacion?.creadas ?? 0} relámpagos creadas en TikTok ahora mismo.`];
-    if (j.programacion?.sinTiempo) partes.push("Se acabó el tiempo: el fondo termina de crear las demás en los siguientes 10 minutos.");
+    if (j.programacion?.sinTiempo) partes.push("Se acabó el tiempo: el fondo termina de crear las demás en los siguientes minutos.");
     if (j.errores?.length) partes.push(`No entraron: ${j.errores.join(" · ")}`);
     if (j.programacion?.errores?.length) partes.push(`TikTok: ${j.programacion.errores.join(" · ")}`);
     setAviso({ tono: j.errores?.length || j.programacion?.errores?.length ? "alerta" : "bien", texto: partes.join(" ") });
@@ -329,7 +330,7 @@ export function PromocionesTikTok({
     if (!j) return;
     setAviso({
       tono: j.errores?.length ? "alerta" : "bien",
-      texto: `${j.revisadas} cíclicas revisadas, ${j.creadas} relámpagos creadas${j.limpiadas ? `, ${j.limpiadas} actividades vacías desactivadas` : ""}.${j.sinTiempo ? " Se acabó el tiempo: el fondo sigue en 10 minutos." : ""}${j.errores?.length ? ` ${j.errores.join(" · ")}` : ""}`,
+      texto: `${j.revisadas} cíclicas revisadas, ${j.creadas} relámpagos creadas${j.limpiadas ? `, ${j.limpiadas} actividades vacías desactivadas` : ""}.${j.sinTiempo ? " Se acabó el tiempo: el fondo sigue en un minuto." : ""}${j.errores?.length ? ` ${j.errores.join(" · ")}` : ""}`,
     });
     router.refresh();
   }
@@ -366,7 +367,7 @@ export function PromocionesTikTok({
     }
     if (viva && !viva.aMano) return { tono: "bien", texto: "Al día" };
     if (viva?.aMano) return { tono: "alerta", texto: `Entra cuando termine la relámpago a mano (${cuandoCorto(viva.hasta)})` };
-    return { tono: "tenue", texto: "Por programar: el fondo la crea en menos de 10 minutos" };
+    return { tono: "tenue", texto: "Por programar: el fondo la crea en el siguiente minuto" };
   };
   const tonoPastilla = (tono: "bien" | "alerta" | "critico" | "tenue"): { background: string; color: string } => {
     if (tono === "bien") return { background: "var(--bien-suave)", color: "var(--exito-texto)" };
@@ -379,7 +380,7 @@ export function PromocionesTikTok({
     <>
       <Seccion
         titulo="Volver cíclico un modelo"
-        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente (TikTok no deja dos a la vez). El precio viene precargado con el de su última relámpago.`}
+        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después (TikTok no deja dos a la vez). El precio viene precargado con el de su última relámpago.`}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -486,7 +487,7 @@ export function PromocionesTikTok({
       </Seccion>
       <Seccion
         titulo="Modelos cíclicos"
-        descripcion="Cada uno con su relámpago en TikTok. El fondo revisa cada 10 minutos y crea la siguiente en cuanto termina la que corre."
+        descripcion="Cada uno con su relámpago en TikTok. El fondo revisa cada minuto y crea la siguiente 2 minutos después de que termina la que corre."
         acciones={
           <button onClick={programarCiclicas} disabled={ocupado !== null || !ciclicasActivas.length} className="boton boton-borde boton-chico">
             {ocupado === "ciclica-programar" ? <Loader2 size={14} className="girando" /> : <RefreshCw size={14} />} Reponer ahora

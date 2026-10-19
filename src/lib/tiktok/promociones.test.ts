@@ -17,6 +17,8 @@ import {
   ventanasQueFaltan,
   explicarErrorDeCiclica,
   VENTANAS_ADELANTE,
+  MINUTOS_ARRANQUE_CICLICA,
+  finDeLaViva,
   ventanasVivasDeRelampagos,
 } from "./promociones";
 
@@ -131,11 +133,13 @@ describe("relámpagos cíclicos", () => {
   const ahora = new Date("2026-10-15T18:00:00Z");
   const h = 3_600_000;
 
-  it("sin nada vivo arma UNA ventana de 72 h desde ahora + 15 min (TikTok no deja dos a la vez)", () => {
+  it("sin nada vivo arma UNA ventana de 72 h desde ahora + 2 min (TikTok no deja dos a la vez)", () => {
     expect(VENTANAS_ADELANTE).toBe(1);
+    expect(MINUTOS_ARRANQUE_CICLICA).toBe(2);
     const v = ventanasQueFaltan([], 72, ahora);
     expect(v).toHaveLength(1);
-    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
+    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:02:00.000Z");
+    expect(ventanasQueFaltan([], 72, ahora, 1, 15)[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
     expect(v[0].fin.getTime() - v[0].inicio.getTime()).toBe(72 * h);
   });
 
@@ -150,7 +154,10 @@ describe("relámpagos cíclicos", () => {
     const vieja = { inicio: new Date(ahora.getTime() - 100 * h), fin: new Date(ahora.getTime() - 28 * h) };
     const v = ventanasQueFaltan([vieja], 72, ahora);
     expect(v).toHaveLength(1);
-    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
+    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:02:00.000Z");
+    expect(finDeLaViva([vieja], ahora)).toBeNull();
+    const corriendo = { inicio: new Date(ahora.getTime() - 71 * h), fin: new Date(ahora.getTime() + 1 * h) };
+    expect(finDeLaViva([vieja, corriendo], ahora)?.getTime()).toBe(corriendo.fin.getTime());
   });
 
   it("las horas se topan a 72 y por omisión son 72; con más ventanas pedidas se encadenan desde el fin de la última", () => {
