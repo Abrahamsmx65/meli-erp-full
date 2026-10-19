@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
+import { normalizarCategoria } from "@/lib/categoria";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,7 @@ export async function POST(req: NextRequest) {
   const color = "";
   if (!modelo) return NextResponse.json({ error: "Falta el modelo." }, { status: 400 });
 
-  const categoria =
-    typeof body?.categoria === "string" && body.categoria.trim() ? body.categoria.trim() : null;
+  const categoria = typeof body?.categoria === "string" ? normalizarCategoria(body.categoria) : null;
   const costoCrudo = Number(body?.costoMxn);
   const costoMxn = Number.isFinite(costoCrudo) && costoCrudo > 0 ? costoCrudo : null;
 

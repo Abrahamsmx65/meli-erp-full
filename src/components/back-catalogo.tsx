@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Aviso } from "@/components/ui/pagina";
 import type { ProductoCatalogo } from "@/lib/tienda/catalogo-amazon";
+import { normalizarCategoria, SIN_CATEGORIA_CATALOGO } from "@/lib/categoria";
 
 const n = (x: number) => Math.round(x).toLocaleString("es-MX");
 const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -45,13 +46,14 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
     setError(null);
     const antes = renglones;
     setRenglones((rs) =>
-      rs.map((p) => (p.modelo === modelo ? { ...p, ...(cambio.oculto != null ? { oculto: cambio.oculto } : {}), ...(cambio.categoria != null ? { categoria: cambio.categoria.trim() || "Otros" } : {}) } : p)),
+      rs.map((p) => (p.modelo === modelo ? { ...p, ...(cambio.oculto != null ? { oculto: cambio.oculto } : {}), ...(cambio.categoria != null ? { categoria: normalizarCategoria(cambio.categoria) || SIN_CATEGORIA_CATALOGO } : {}) } : p)),
     );
     try {
       const r = await fetch("/api/tiktok/catalogo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelo, ...cambio }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.error ?? `Error ${r.status}`);
-      if (cambio.categoria?.trim() && !opciones.includes(cambio.categoria.trim())) setOpciones((o) => [...o, cambio.categoria!.trim()].sort((a, b) => a.localeCompare(b, "es")));
+      const nueva = normalizarCategoria(cambio.categoria);
+      if (nueva && !opciones.includes(nueva)) setOpciones((o) => [...o, nueva].sort((a, b) => a.localeCompare(b, "es")));
     } catch (e) {
       setRenglones(antes);
       setError(`${modelo}: ${(e as Error).message}`);
