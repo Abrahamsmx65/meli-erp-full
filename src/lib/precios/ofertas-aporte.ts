@@ -48,7 +48,7 @@ export interface ItemDeOferta {
   end_date?: string | null;
 }
 
-export type DecisionOferta = "aceptar" | "aceptada" | "no_cumple" | "sin_precio" | "sin_datos" | "no_es_de_aqui";
+export type DecisionOferta = "aceptar" | "aceptada" | "no_cumple" | "sin_aporte" | "sin_precio" | "sin_datos" | "no_es_de_aqui";
 
 export interface RenglonOferta {
   itemId: string;
@@ -144,7 +144,13 @@ export function decidirOferta(
   if (!modelo) return conMotivo("sin_datos", "La publicación no es de un modelo de calzado conocido");
   if (objetivo?.pvNormal == null) return conMotivo("sin_precio", `${modelo} sin PV normal en Números`);
   if (precio == null || precio <= 0) return conMotivo("sin_datos", "MELI no mandó el precio de la oferta");
-  if (aporte == null || aporte <= 0) return conMotivo("sin_datos", "MELI no mandó su aporte");
+  if (aporte == null) return conMotivo("sin_datos", "MELI no mandó su aporte");
+  // «Acelera tus ventas de Full» (UNHEALTHY_STOCK) llegó el 19-oct-2026 con
+  // meli_percentage 0: todo el descuento lo pone el vendedor. No es de aquí.
+  if (aporte <= 0) {
+    const tuyo = num(item.seller_percentage);
+    return conMotivo("sin_aporte", `MELI no pone nada${tuyo != null ? `: el ${tuyo} % de descuento es tuyo` : ""}`);
+  }
   if (TIPOS_CON_OFERTA.has(tipo) && !item.offer_id) return conMotivo("sin_datos", "MELI no mandó el folio de la oferta");
 
   const pv = objetivo.pvNormal;
@@ -166,7 +172,7 @@ export function cuerpoParaAceptar(r: RenglonOferta): Record<string, string> {
   return cuerpo;
 }
 
-const ORDEN: Record<DecisionOferta, number> = { aceptar: 0, no_cumple: 1, sin_precio: 2, sin_datos: 3, aceptada: 4, no_es_de_aqui: 5 };
+const ORDEN: Record<DecisionOferta, number> = { aceptar: 0, no_cumple: 1, sin_precio: 2, sin_datos: 3, aceptada: 4, sin_aporte: 5, no_es_de_aqui: 6 };
 
 export function ordenarOfertas(r: RenglonOferta[]): RenglonOferta[] {
   return [...r].sort(
