@@ -51,7 +51,8 @@ function listosDe(c: CorteResumen): number | null {
 }
 
 /**
- * Los tres cortes, ahora como modo de UN botón «Revisar corte». «Todo» es
+ * Los tres cortes, como modo de UN botón «Hacer corte» que corta al primer
+ * clic (dueño, 19-oct-2026: revisar primero tomaba más tiempo). «Todo» es
  * el «Hacer corte» de siempre (sin `modo` en el cuerpo).
  */
 const MODOS_CORTE: { id: ModoCorte; texto: string; corto: string; ayuda: string }[] = [
@@ -107,9 +108,8 @@ export function DespachoTikTok({
   const [error, setError] = useState<string | null>(null);
   const [simulacion, setSimulacion] = useState<any>(null);
   const [simulando, setSimulando] = useState(false);
-  // El corte se REVISA antes de confirmarse: se elige el modo, «Revisar
-  // corte» corre la simulación de siempre y el resultado se confirma ahí
-  // mismo. Si la simulación falla, se puede confirmar sin revisar.
+  // Se elige el modo y «Hacer corte» corta al primer clic; «Simular» es
+  // opcional y solo enseña lo que entraría.
   const [modo, setModo] = useState<ModoCorte>("todo");
   const [errorRevision, setErrorRevision] = useState<string | null>(null);
   // La línea de cierre del último corte hecho desde esta pantalla.
@@ -351,21 +351,21 @@ export function DespachoTikTok({
       if (!r.ok) throw new Error(j.error ?? "No se pudo simular.");
       setSimulacion(j);
     } catch (e) {
-      // Se dice en el panel del corte, que deja confirmar sin revisar.
+      // Se dice en el panel de la simulación; el corte no depende de ella.
       setErrorRevision((e as Error).message);
     } finally {
       setSimulando(false);
     }
   }
 
-  /** Cambia el filtro de modelos: la revisión hecha con el filtro anterior ya no vale. */
+  /** Cambia el filtro de modelos: la simulación hecha con el filtro anterior ya no vale. */
   function cambiarModelos(cambio: (s: string[]) => string[]) {
     setSoloModelos(cambio);
     setSimulacion(null);
     setErrorRevision(null);
   }
 
-  /** Cierra la revisión sin cortar nada. */
+  /** Cierra la simulación sin cortar nada. */
   function volverDeRevision() {
     setSimulacion(null);
     setErrorRevision(null);
@@ -577,8 +577,8 @@ export function DespachoTikTok({
           </>
         }
       >
-        {/* Barra del corte: el modo, «Revisar corte» y el filtro por modelo
-            juntos; la revisión y la confirmación salen aquí mismo. */}
+        {/* Barra del corte: el modo, «Hacer corte» (corta al primer clic),
+            «Simular» opcional y el filtro por modelo juntos. */}
         <div className="rounded-lg border" style={{ borderColor: "var(--grid)" }}>
           <div className="flex flex-wrap items-center gap-2 p-3">
             <span className="texto-2 mr-1 text-xs font-semibold" id="modo-corte">
@@ -603,12 +603,14 @@ export function DespachoTikTok({
                 );
               })}
             </div>
-            {simulacion || errorRevision ? null : (
-              <button onClick={simular} disabled={ocupado || simulando || !pendientes} className="boton boton-primario" aria-busy={simulando || undefined}>
-                <Eye size={14} />
-                {simulando ? "Revisando…" : "Revisar corte"}
-              </button>
-            )}
+            <button onClick={confirmarCorte} disabled={ocupado || !pendientes} className="boton boton-primario" aria-busy={ocupado || undefined}>
+              <Scissors size={14} />
+              {ocupado ? "Confirmando en TikTok…" : "Hacer corte"}
+            </button>
+            <button onClick={simular} disabled={ocupado || simulando || !pendientes} className="boton boton-borde boton-chico" aria-busy={simulando || undefined}>
+              <Eye size={14} />
+              {simulando ? "Simulando…" : "Simular"}
+            </button>
             <span className="texto-2 text-xs">{MODOS_CORTE.find((m) => m.id === modo)?.corto}</span>
           </div>
 
@@ -698,14 +700,9 @@ export function DespachoTikTok({
                             </div>
                           </details>
                         ) : null}
-                        <p className="mt-3 text-xs font-semibold texto-2">No cierres esta pestaña mientras corre: la pantalla encadena las rondas del corte.</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button onClick={confirmarCorte} disabled={ocupado || rev.entran === 0} className="boton boton-primario" aria-busy={ocupado || undefined}>
-                            <Scissors size={14} />
-                            {ocupado ? "Confirmando en TikTok…" : `Confirmar corte (${rev.entran} ${rev.entran === 1 ? "pedido" : "pedidos"})`}
-                          </button>
-                          <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma">
-                            Volver
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma boton-chico">
+                            Cerrar
                           </button>
                           {rev.entran === 0 ? <span className="text-xs texto-2">Con este modo no entra ningún pedido.</span> : null}
                         </div>
@@ -714,19 +711,14 @@ export function DespachoTikTok({
                   })()
                 : (
                   <>
-                    <Aviso tono="critico">No se pudo revisar el corte: {errorRevision}</Aviso>
-                    <p className="mt-3 text-xs font-semibold texto-2">No cierres esta pestaña mientras corre: la pantalla encadena las rondas del corte.</p>
+                    <Aviso tono="critico">No se pudo simular el corte: {errorRevision}</Aviso>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button onClick={simular} disabled={ocupado || simulando} className="boton boton-borde">
+                      <button onClick={simular} disabled={ocupado || simulando} className="boton boton-borde boton-chico">
                         <RefreshCw size={14} className={simulando ? "animate-spin" : undefined} />
-                        {simulando ? "Revisando…" : "Revisar otra vez"}
+                        {simulando ? "Simulando…" : "Simular otra vez"}
                       </button>
-                      <button onClick={confirmarCorte} disabled={ocupado || simulando} className="boton boton-borde" aria-busy={ocupado || undefined}>
-                        <Scissors size={14} />
-                        {ocupado ? "Confirmando en TikTok…" : "Confirmar sin revisar"}
-                      </button>
-                      <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma">
-                        Volver
+                      <button onClick={volverDeRevision} disabled={ocupado} className="boton boton-fantasma boton-chico">
+                        Cerrar
                       </button>
                     </div>
                   </>
