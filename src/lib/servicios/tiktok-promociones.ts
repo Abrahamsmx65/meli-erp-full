@@ -20,6 +20,7 @@ import { conCacheApp, invalidarApp } from "./cache-app";
 import { clienteDeCuenta } from "./tiktok";
 import { actividad, actualizarProductosDeActividad, buscarActividades, crearActividad, desactivarActividad } from "../tiktok/api";
 import {
+  finDeLaViva,
   explicarErrorDeCiclica,
   cuerpoDeActividad,
   HORAS_POR_OMISION,
@@ -59,16 +60,25 @@ export interface ModeloParaOferta extends ProductoParaOferta {
 }
 
 /** Los modelos activos en TikTok con su producto, sus variantes y los precios de la estrategia. */
-export async function modelosParaOferta(admin: DB, accountId: string): Promise<{ modelos: ModeloParaOferta[]; avisos: string[] }> {
+export async function modelosParaOferta(
+  admin: DB,
+  accountId: string,
+  opciones: { sinPrecios?: boolean } = {},
+): Promise<{ modelos: ModeloParaOferta[]; avisos: string[] }> {
   const avisos: string[] = [];
   const [skus, relampago, objetivos] = await Promise.all([
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, seller_sku, sku_interno, estado, precio, titulo", (q) =>
       q.eq("account_id", accountId).eq("activo", true).eq("estado", "ACTIVATE"),
     ),
-    admin
-      .rpc("meli_neto_relampago_por_modelo", { p_account: accountId, p_desde: fechaMx(29) })
-      .then((r: any) => (r?.error ? null : ((r?.data ?? []) as any[]))),
-    traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", accountId)).catch(() => [] as any[]),
+    // El fondo de los cíclicos (cada minuto) no necesita la estrategia de precios.
+    opciones.sinPrecios
+      ? Promise.resolve([] as any[])
+      : admin
+          .rpc("meli_neto_relampago_por_modelo", { p_account: accountId, p_desde: fechaMx(29) })
+          .then((r: any) => (r?.error ? null : ((r?.data ?? []) as any[]))),
+    opciones.sinPrecios
+      ? Promise.resolve([] as any[])
+      : traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", accountId)).catch(() => [] as any[]),
   ]);
   if (!relampago) avisos.push("Sin el relámpago de MELI: solo hay precio sugerido en los modelos con «Mi precio».");
   const precios = preciosTikTokPorModelo(relampago ?? [], objetivos ?? []);
@@ -599,7 +609,7 @@ export async function guardarCiclicas(
   }
   const programacion = ids.length
     ? await programarCiclicas(admin, accountId, { soloIds: ids, presupuestoMs: Math.max(10_000, presupuestoMs - (Date.now() - arranque)) })
-    : { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0 };
+    : { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0, esperas: 0 };
   return { guardadas: ids.length, errores, programacion };
 }
 
@@ -645,14 +655,32 @@ export interface ResultadoProgramacion {
   sinTiempo: boolean;
   /** actividades vacías (sin productos) que se desactivaron en TikTok para que no estorben */
   limpiadas: number;
+  /** cuántas veces el fondo esperó a que terminara una relámpago para pegar la siguiente */
+  esperas: number;
+}
+
+/** Si la relámpago viva termina dentro de este rato, el fondo se queda esperando a que termine en vez de volver al minuto. */
+const MARGEN_ESPERA_MS = 75_000;
+/** Un respiro después del fin para que TikTok ya la tenga como vencida. */
+const RESPIRO_TRAS_FIN_MS = 5_000;
+
+function dormir(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
  * Repone a cada cíclica activa su relámpago cuando le falta: UNA viva o
  * programada por modelo (`ventanasQueFaltan`; TikTok no deja dos a la vez,
  * ver `tiktok/promociones.ts`), contando también las que el producto tiene
- * a mano. Con presupuesto de tiempo: lo que no alcance lo recoge la
- * siguiente corrida del cron (cada 10 min). Un modelo que ya no tiene
+ * a mano. Corre CADA MINUTO y la primera revisión es barata (dos lecturas
+ * de la base): si todas las cíclicas tienen su ventana propia viva y lejos
+ * de terminar, no hace nada más. Cuando la viva de un modelo termina dentro
+ * de `MARGEN_ESPERA_MS`, el fondo ESPERA a que termine y crea la siguiente
+ * arrancando `MINUTOS_ARRANQUE_CICLICA` después (dueño, 19-oct-2026: «en el
+ * tiempo más temprano posible cuando se vence la última, y el espacio entre
+ * una y otra de 2 minutos»); si TikTok rechaza un inicio tan cercano, se
+ * reintenta con `MINUTOS_DE_ARRANQUE`. Con presupuesto de tiempo: lo que
+ * no alcance lo recoge la siguiente corrida. Un modelo que ya no tiene
  * producto activo en TikTok se anota y se salta; un error de TikTok queda
  * en `ultimo_error` sin frenar a los demás.
  *
@@ -668,7 +696,7 @@ export async function programarCiclicas(
 ): Promise<ResultadoProgramacion> {
   const arranque = Date.now();
   const presupuesto = opciones.presupuestoMs ?? 240_000;
-  const salida: ResultadoProgramacion = { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0 };
+  const salida: ResultadoProgramacion = { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0, esperas: 0 };
   let consulta = admin
     .from("tiktok_promociones_ciclicas")
     .select("id, modelo, precio, horas, tope_por_talla, tope_por_comprador")
@@ -680,10 +708,20 @@ export async function programarCiclicas(
   if (error) throw new Error(error.message);
   if (!ciclicas?.length) return salida;
   const ids = ciclicas.map((c: any) => Number(c.id));
-  salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
-  const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
-  const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
   const vivas = await ventanasVivasDeCiclicas(admin, accountId, ids);
+
+  // Revisión barata: con ventana propia viva y lejos de terminar, nada que hacer.
+  const umbral = Date.now() + MARGEN_ESPERA_MS;
+  const conTrabajo = ciclicas.filter((c: any) => {
+    const propias = vivas.get(Number(c.id)) ?? [];
+    const fin = finDeLaViva(propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })));
+    return !fin || fin.getTime() <= umbral;
+  });
+  if (!conTrabajo.length) return salida;
+
+  salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
+  const { modelos: catalogo } = await modelosParaOferta(admin, accountId, { sinPrecios: true });
+  const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
   // Lo que el producto YA tiene en TikTok (una relámpago a mano, como la del
   // GT148 hasta el 22-oct) cuenta como ventana viva: la cíclica arranca
   // cuando termine, nunca encimada (dueño, 15-oct-2026).
@@ -697,7 +735,7 @@ export async function programarCiclicas(
   const estadoEnTikTok = new Map<string, string>();
   for (const lista of Object.values(enTikTok.porProducto)) for (const r of lista) estadoEnTikTok.set(r.activityId, r.estado);
 
-  for (const c of ciclicas) {
+  for (const c of conTrabajo) {
     if (Date.now() - arranque > presupuesto) {
       salida.sinTiempo = true;
       break;
@@ -725,6 +763,17 @@ export async function programarCiclicas(
     const propiasIds = new Set(propias.map((v) => v.activityId).filter(Boolean));
     const ajenas = (enTikTok.porProducto[porModelo.get(modelo)!.productId] ?? []).filter((r) => !propiasIds.has(r.activityId));
     const programadas = [...propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })), ...ventanasVivasDeRelampagos(ajenas)];
+
+    // La viva está por terminar: se espera a que termine para pegar la siguiente.
+    const fin = finDeLaViva(programadas);
+    if (fin) {
+      const espera = fin.getTime() + RESPIRO_TRAS_FIN_MS - Date.now();
+      if (espera > MARGEN_ESPERA_MS + RESPIRO_TRAS_FIN_MS || Date.now() - arranque + espera > presupuesto) continue;
+      if (espera > 0) {
+        salida.esperas++;
+        await dormir(espera);
+      }
+    }
     const faltan = ventanasQueFaltan(programadas, Number(c.horas));
     let errorDeEsta: string | null = null;
     for (const v of faltan) {
@@ -732,10 +781,10 @@ export async function programarCiclicas(
         salida.sinTiempo = true;
         break;
       }
-      const pedido = (titulo: string): PedidoDeOferta => ({
+      const pedido = (titulo: string, inicio: Date): PedidoDeOferta => ({
         ciclicoId: id,
         titulo,
-        inicio: v.inicio.toISOString(),
+        inicio: inicio.toISOString(),
         horas: Math.round((v.fin.getTime() - v.inicio.getTime()) / 3_600_000),
         nivel: "normal",
         topePorTalla: Number(c.tope_por_talla),
@@ -746,12 +795,17 @@ export async function programarCiclicas(
       try {
         let r: ResultadoOferta;
         try {
-          r = await crearOferta(admin, accountId, pedido(titulo), null);
+          r = await crearOferta(admin, accountId, pedido(titulo, v.inicio), null);
         } catch (err) {
-          // El título ya existe en TikTok (una actividad vacía de antes): se
-          // intenta UNA vez con otro nombre en vez de fallar cada corrida.
-          if (!esTituloRepetido(err)) throw err;
-          r = await crearOferta(admin, accountId, pedido(`${titulo} ·2`), null);
+          if (esTituloRepetido(err)) {
+            // El título ya existe en TikTok (una actividad vacía de antes): se
+            // intenta UNA vez con otro nombre en vez de fallar cada corrida.
+            r = await crearOferta(admin, accountId, pedido(`${titulo} ·2`, v.inicio), null);
+          } else if (esErrorDeInicio(err)) {
+            // TikTok no aceptó un inicio tan cercano: con el arranque de siempre.
+            const inicio = new Date(Date.now() + MINUTOS_DE_ARRANQUE * 60_000);
+            r = await crearOferta(admin, accountId, pedido(tituloDeCiclica(modelo, inicio), inicio), null);
+          } else throw err;
         }
         if (r.errores.length) {
           errorDeEsta = explicarErrorDeCiclica(modelo, r.errores.join(" | "));
@@ -767,6 +821,12 @@ export async function programarCiclicas(
     await anotar(errorDeEsta);
   }
   return salida;
+}
+
+/** TikTok rechazó la HORA DE INICIO (muy cercana o en el pasado). */
+function esErrorDeInicio(err: unknown): boolean {
+  const m = String((err as Error)?.message ?? "");
+  return /begin[_ ]?time|start[_ ]?time|hora de inicio/i.test(m);
 }
 
 function esTituloRepetido(err: unknown): boolean {

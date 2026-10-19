@@ -44,7 +44,7 @@ export default async function Promociones() {
             no permite y sigue en el Seller Center: la relámpago de LIVE, las existencias reservadas para el creador y la
             inscripción a campañas de la plataforma. Un modelo CÍCLICO lleva su precio y el sistema le mantiene siempre
             una relámpago viva (de hasta 72 h): TikTok no deja tener dos vivas o programadas del mismo producto, así que
-            en cuanto termina una, el fondo (cada 10 minutos) crea la siguiente, que arranca a los 15 minutos. Cambiar el
+            en cuanto termina una, el fondo (que revisa cada minuto) crea la siguiente, que arranca 2 minutos después. Cambiar el
             precio lo lleva a la que todavía no empieza; quitarlo desactiva esa y deja terminar la que corre. La lista de
             todos los modelos activos sirve para volver cíclicos muchos de un jalón, con el precio de su última relámpago.
           </p>

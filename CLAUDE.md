@@ -1610,8 +1610,16 @@ guárdala numerada.
   y cada una dura máximo 72 horas»): por modelo, precio, horas (≤ 72) y
   topes; el fondo mantiene SIEMPRE UNA ventana viva o programada por
   modelo, una actividad FLASHSALE por ventana («Cíclica GT148 15/10 20:30»):
-  cuando la que corre termina, la siguiente se crea en la siguiente corrida
-  (cron cada 10 min) arrancando a los 15 min; una que ya terminó no cuenta.
+  cuando la que corre termina, la siguiente arranca 2 MINUTOS después
+  (`MINUTOS_ARRANQUE_CICLICA`; dueño, 19-oct-2026: «en el tiempo más
+  temprano posible cuando se vence la última, y el espacio entre una y otra
+  de 2 minutos»): el cron corre CADA MINUTO con una revisión barata (dos
+  lecturas; si todas tienen ventana propia viva y lejos de terminar no hace
+  más), y cuando la viva de un modelo termina dentro de `MARGEN_ESPERA_MS`
+  (75 s) ESPERA a que termine (`finDeLaViva`, más 5 s de respiro) y crea
+  la siguiente pegada; si TikTok rechazara un inicio tan cercano
+  (`esErrorDeInicio`) reintenta con los 15 min de siempre. Una que ya
+  terminó no cuenta.
   **TikTok NO deja adelantar** (19-oct-2026, dueño: «me salió esto en la
   cíclica de GT135 pero no hay ninguna»): un producto solo puede estar en
   UNA actividad ONGOING o NOT_START (17029022 «Resource Conflict»), así que
