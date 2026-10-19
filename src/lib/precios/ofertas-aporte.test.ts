@@ -45,10 +45,22 @@ describe("ofertas con aporte de MELI", () => {
   });
 
   it("sin datos o sin precio en Números no se acepta nada", () => {
-    expect(decidirOferta(item({ meli_percentage: 0 }), smart, "GT148", { pvNormal: 200, envio: 0 }).decision).toBe("sin_datos");
+    expect(decidirOferta(item({ meli_percentage: null }), smart, "GT148", { pvNormal: 200, envio: 0 }).decision).toBe("sin_datos");
     expect(decidirOferta(item({ offer_id: null }), smart, "GT148", { pvNormal: 200, envio: 0 }).decision).toBe("sin_datos");
     expect(decidirOferta(item(), smart, null, null).decision).toBe("sin_datos");
     expect(decidirOferta(item(), smart, "GT148", { pvNormal: null, envio: 0 }).decision).toBe("sin_precio");
+  });
+
+  it("con aporte 0 % (Acelera tus ventas de Full, 19-oct-2026) va a «sin aporte»", () => {
+    const full = { id: "P-MLM17023038", type: "UNHEALTHY_STOCK", name: "Acelera tus ventas de Full" };
+    const r = decidirOferta(
+      item({ price: 199.6, original_price: 499, meli_percentage: 0, seller_percentage: 60, offer_id: "CANDIDATE-MLM1-1" }),
+      full,
+      "GT148",
+      { pvNormal: 189.99, envio: 0 },
+    );
+    expect(r.decision).toBe("sin_aporte");
+    expect(r.motivo).toContain("60 %");
   });
 
   it("relámpago, Buen Fin y lo ya inscrito no se tocan aquí", () => {

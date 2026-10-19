@@ -73,6 +73,7 @@ export default async function OfertasMeli() {
   const noCumplen = de(["no_cumple"]);
   const faltan = de(["sin_precio", "sin_datos"]);
   const aceptadas = de(["aceptada"]);
+  const sinAporte = de(["sin_aporte"]);
   const ultima = revision?.ultimaAceptacion ?? null;
 
   return (
@@ -115,6 +116,7 @@ export default async function OfertasMeli() {
             { id: "aceptar", titulo: "Por aceptar", cuenta: cumplen.length, alerta: cumplen.length > 0, contenido: <TablaOfertas renglones={cumplen} /> },
             { id: "no", titulo: "No cumplen", cuenta: noCumplen.length, contenido: <TablaOfertas renglones={noCumplen} /> },
             { id: "faltan", titulo: "Sin precio o sin datos", cuenta: faltan.length, contenido: <TablaOfertas renglones={faltan} /> },
+            { id: "sin-aporte", titulo: "Sin aporte de MELI", cuenta: sinAporte.length, contenido: <TablaOfertas renglones={sinAporte} /> },
             { id: "aceptadas", titulo: "Aceptadas", cuenta: aceptadas.length, contenido: <TablaOfertas renglones={aceptadas} /> },
             {
               id: "promos",
@@ -124,7 +126,7 @@ export default async function OfertasMeli() {
                 <Tabla vacia={!revision?.promociones.length} textoVacio="MELI no tiene promociones con aporte para la cuenta.">
                   <table className="datos">
                     <thead>
-                      <tr><th>Promoción</th><th>Tipo</th><th>Estado</th><th>Vence</th><th className="num">Publicaciones de calzado</th><th>Error</th></tr>
+                      <tr><th>Promoción</th><th>Tipo</th><th>Estado</th><th>Vence</th><th className="num">Publicaciones de calzado</th><th className="num">Con aporte</th><th>Error</th></tr>
                     </thead>
                     <tbody>
                       {(revision?.promociones ?? []).map((p) => (
@@ -134,6 +136,7 @@ export default async function OfertasMeli() {
                           <td>{p.estado}</td>
                           <td>{fecha(p.fin)}</td>
                           <td className="num cifra">{p.invitadas}</td>
+                          <td className="num cifra">{(revision?.renglones ?? []).filter((r) => r.promoId === p.id && r.decision !== "sin_aporte").length}</td>
                           <td className="text-xs">{p.error ?? ""}</td>
                         </tr>
                       ))}
