@@ -1618,8 +1618,13 @@ guárdala numerada.
   más), y cuando la viva de un modelo termina dentro de `MARGEN_ESPERA_MS`
   (75 s) ESPERA a que termine (`finDeLaViva`, más 5 s de respiro) y crea
   la siguiente pegada; si TikTok rechazara un inicio tan cercano
-  (`esErrorDeInicio`) reintenta con los 15 min de siempre. Una que ya
-  terminó no cuenta.
+  (`esErrorDeInicio`) reintenta con los 15 min de siempre. Verificado en
+  vivo el 19-oct-2026 a las 19:06 México: GT114, GT125, GT130, GT134,
+  GT142 y GT150 arrancaron a las 19:08. La corrida lleva candado
+  (`tiktok-ciclicos`, 300 s): la del minuto siguiente se encimaba con la
+  que estaba esperando y dejaba «Ya se está creando una oferta» como
+  aviso; ese mensaje ya no se anota y un aviso viejo se borra en cuanto
+  la cíclica tiene su ventana viva. Una que ya terminó no cuenta.
   **TikTok NO deja adelantar** (19-oct-2026, dueño: «me salió esto en la
   cíclica de GT135 pero no hay ninguna»): un producto solo puede estar en
   UNA actividad ONGOING o NOT_START (17029022 «Resource Conflict»), así que
