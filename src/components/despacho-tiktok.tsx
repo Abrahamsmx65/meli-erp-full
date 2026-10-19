@@ -494,22 +494,39 @@ export function DespachoTikTok({
         const limiteEspera = Date.now() + 20 * 60_000;
         let j: any;
         let r: Response | null = null;
+        // Si la conexión se perdió, el servidor pudo terminar el corte sin
+        // que la pantalla se enterara (corte #79, 19-oct-2026: Safari soltó
+        // la conexión, el corte de 1,457 pedidos se guardó completo y el
+        // reintento contestó «No hay pedidos…» en rojo).
+        let seReintento = false;
         for (;;) {
           try {
             r = await fetch("/api/tiktok/cortes", { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpo });
             j = await r.json();
           } catch (e) {
             if (Date.now() > limiteEspera) throw new Error(`Se perdió la conexión con el servidor (${(e as Error).message}). Revisa la lista de cortes: el corte pudo haberse guardado; vuelve a darle al botón para seguir con lo que falte.`);
+            seReintento = true;
             setRonda(`Se perdió la conexión con el servidor; el corte sigue trabajando por atrás. Reintentando en 15 s… no cierres esta pestaña.`);
             await new Promise((res) => setTimeout(res, 15_000));
             continue;
           }
           if (r.status === 409) {
             if (Date.now() > limiteEspera) throw new Error(j.error ?? "Hay un corte en curso.");
+            seReintento = true;
             setRonda(`Hay un corte en curso en el servidor; se espera a que termine para seguir con lo que falte… no cierres esta pestaña.`);
             await new Promise((res) => setTimeout(res, 15_000));
             continue;
           }
+          break;
+        }
+        // Tras perder la conexión (o en una ronda que sigue a otra), «no hay
+        // pedidos» quiere decir que el corte ya se hizo, no que falló.
+        if (r && !r.ok && (seReintento || n > 1) && /^No hay pedidos/.test(String(j?.error ?? ""))) {
+          resumenes.push(
+            seReintento
+              ? "El corte se terminó en el servidor mientras se recuperaba la conexión: ya está en la lista de cortes."
+              : "Ya no quedaron pedidos por cortar.",
+          );
           break;
         }
         if (!r || !r.ok) throw new Error(j?.error ?? "No se pudo hacer el corte.");

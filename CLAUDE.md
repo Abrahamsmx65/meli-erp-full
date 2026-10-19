@@ -796,6 +796,11 @@ guárdala numerada.
   del corte; se reintenta cada 15 s, un 409 (corte en curso) también se
   espera, hasta 10 min, y la siguiente ronda toma lo que quedó y se une al
   mismo corte. Solo después de esos 10 min se enseña el error.
+  Y si tras perder la conexión el servidor contesta «No hay pedidos…», el
+  corte YA se hizo: se da por terminado y se recarga la lista, no se pinta
+  en rojo (19-oct-2026: el corte #79 «solo GT114» guardó sus 1,457 pedidos
+  y el reintento de Safari enseñaba «No hay pedidos por despachar que sean
+  solo de GT114»).
   **Las consultas del corte van por TANDAS de ids** (`porTandas`,
   `TANDA_IDS` 300, en `renglonesConDefensa`, la marca del corte y la
   relectura): el lunes 28-sep-2026 había 1,400 pedidos pendientes y un
