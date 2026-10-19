@@ -64,7 +64,12 @@ const RE_POR_CAJA = [
   /\b(?:CTNS?|CARTONS?|CAJAS?|BOX(?:ES)?)\s*(?:OF|DE|CON|X)\s*(\d{1,3})\b(?:\s*(?:PRS|PARES|PAIRS))?/,
   /\b(\d{1,3})\s*(?:PRS|PARES|PAIRS|PR)\s*(?:\/|POR|PER|X)\s*(?:CTNS?|CAJAS?|CARTONS?|BOX)\b/,
   /\b(?:PER\s*CTN|PRS\s*\/\s*CTN|PARES\s*POR\s*CAJA)\s*[:=]?\s*(\d{1,3})\b/,
+  // «SOLID SIZE 16 PRS» (cajas de una sola talla con 16 pares; GT180 y
+  // GT181, 19-oct-2026: la lista no se reconocía).
+  /\bSOLID\s*SIZE\s*(?:OF\s*)?(\d{1,3})\s*(?:PRS|PARES|PAIRS|PR)?\b/,
 ];
+/** «16 PRS» suelto: pares por caja SOLO si en la línea no hay otro número. */
+const RE_PARES_SUELTOS = /\b(\d{1,3})\s*(?:PRS|PARES|PAIRS)\b/;
 const RE_CAJAS_FINAL = /\s*(?:X|×|\*|=)\s*(\d{1,4})\s*(?:CTNS?|CAJAS?|CARTONS?)?\s*$/;
 
 function esTalla(n: number): boolean {
@@ -85,6 +90,11 @@ function sacarPorCaja(l: string): { porCaja: number | null; resto: string } {
     const m = l.match(re);
     if (m) return { porCaja: Number(m[1]), resto: (l.slice(0, m.index) + " " + l.slice(m.index! + m[0].length)).replace(/\s+/g, " ").trim() };
   }
+  const m = l.match(RE_PARES_SUELTOS);
+  if (m) {
+    const resto = (l.slice(0, m.index) + " " + l.slice(m.index! + m[0].length)).replace(/\s+/g, " ").trim();
+    if (!/\d/.test(resto)) return { porCaja: Number(m[1]), resto };
+  }
   return { porCaja: null, resto: l };
 }
 
@@ -101,6 +111,7 @@ function esLineaDeNumeros(l: string): boolean {
 function limpiarColor(s: string): string {
   return s
     .replace(/^COLOU?R\s*[:=-]?\s*/, "")
+    .replace(/\bSOLID\s*SIZES?\b/g, " ")
     .replace(/[,;:]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
