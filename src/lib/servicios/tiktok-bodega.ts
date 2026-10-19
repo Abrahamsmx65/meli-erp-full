@@ -42,7 +42,7 @@ export interface ResultadoBodegaTikTok {
 export async function paresEnBodegaTikTok(
   db: DB,
   accountId: string,
-): Promise<{ almacen: string | null; fechaFoto: string | null; pares: Map<string, number> }> {
+): Promise<{ almacen: string | null; fechaFoto: string | null; pares: Map<string, number>; apartadas: Map<string, number> }> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const existRaw = await traerTodo<any>(
     db,
@@ -51,7 +51,7 @@ export async function paresEnBodegaTikTok(
     eq,
   );
   const filas = (existRaw ?? []).filter((e: any) => esAlmacenTikTok(e.almacen));
-  if (!filas.length) return { almacen: null, fechaFoto: null, pares: new Map() };
+  if (!filas.length) return { almacen: null, fechaFoto: null, pares: new Map(), apartadas: new Map() };
   const almacen: string = filas[0].almacen;
   const fechaFoto = filas.map((e: any) => String(e.importado_en)).sort().at(-1) as string;
   const [skus, corridasRaw, mapeoRaw, ttSkus] = await Promise.all([
@@ -72,12 +72,16 @@ export async function paresEnBodegaTikTok(
     almacenes: [almacen],
     incluirTikTok: true,
   });
+  const alias = aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })));
   return {
     almacen,
     fechaFoto,
     // Solo lo DISPONIBLE: lo apartado por el 3PL ya está vendido (o
     // reservado) y no se ofrece ni tapa el kardex.
-    pares: paresDisponiblesPorSkuDesdeCajas(r.cajas, aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })))),
+    pares: paresDisponiblesPorSkuDesdeCajas(r.cajas, alias),
+    // Lo APARTADO por Industher se conoce aparte: un SKU con físico pero
+    // todo apartado no está «en duda», está dado de baja a propósito.
+    apartadas: paresApartadosPorSkuDesdeCajas(r.cajas, alias),
   };
 }
 
@@ -92,6 +96,8 @@ export interface EstanteTikTok {
    * lo que se publica, ni la defensa los recorta, ni la alarma los juzga.
    */
   sinEstante: Set<string>;
+  /** pares FÍSICOS que Industher tiene APARTADOS por SKU (no disponibles); falta en lecturas viejas */
+  apartadas?: Map<string, number>;
 }
 
 /**
@@ -102,6 +108,12 @@ export interface EstanteTikTok {
 export function estanteDeSku(estante: EstanteTikTok, sku: string): number | null {
   if (!estante.pares || estante.sinEstante.has(sku)) return null;
   return estante.pares.get(sku) ?? 0;
+}
+
+/** Pares que Industher tiene apartados de UN SKU (físicos, no disponibles); 0 sin dato. */
+export function apartadoBodegaDeSku(estante: EstanteTikTok, sku: string): number {
+  if (!estante.pares || estante.sinEstante.has(sku)) return 0;
+  return estante.apartadas?.get(sku) ?? 0;
 }
 
 /**
@@ -127,7 +139,7 @@ export async function leerEstanteTikTok(db: DB, accountId: string): Promise<Esta
       ).catch(() => []);
       contadosDespues = new Set((ajustes ?? []).map((a: any) => String(a.sku)));
     }
-    return { pares: bodega.pares, contadosDespues, sinEstante };
+    return { pares: bodega.pares, contadosDespues, sinEstante, apartadas: bodega.apartadas ?? new Map() };
   } catch {
     return vacio;
   }

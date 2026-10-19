@@ -48,7 +48,7 @@ import { autoBloqueos, decidirPedido, esBloqueoAutomatico, type RenglonBloqueabl
 import type { Cancelacion } from "../tiktok/api";
 import { avisarParcialesSinCancelar, destinatarioFaltantes, type PedidoParcialSinCancelar } from "./tiktok-faltantes-correo";
 import { estadoSalidas3pl } from "./tiktok-3pl";
-import { estanteDeSku, leerEstanteTikTok, type EstanteTikTok } from "./tiktok-bodega";
+import { apartadoBodegaDeSku, estanteDeSku, leerEstanteTikTok, type EstanteTikTok } from "./tiktok-bodega";
 import {
   agruparPorModelo,
   clavePaquete,
@@ -102,6 +102,7 @@ async function stockFisicoDeCuenta(admin: any, accountId: string): Promise<Map<s
       estante: estanteDeSku(estante, sku),
       salidasPendientes: salidas.pendientes.get(sku) ?? 0,
       contadoDespues: estante.contadosDespues.has(sku),
+      apartadoBodega: apartadoBodegaDeSku(estante, sku),
     });
   }
   return stock;

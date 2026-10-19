@@ -614,7 +614,18 @@ guárdala numerada.
   horas) para que alguien confirme con un conteo o Industher lo regrese;
   hasta entonces el corte no surte esos pedidos. Una baja PARCIAL sigue
   siendo merma (el 3PL corrigió a propósito) y un SKU sin nada apartado
-  también.
+  también. **Y solo se detiene si Industher ya NO TIENE el SKU** (19-oct-2026,
+  dueño: «yo los quité de stock para que no se vendan […] que cuando
+  quitamos, aunque esté en el kardex, se den de baja»): el GT148-M BROWN-26
+  seguía en la foto con 9 pares físicos y los 9 APARTADOS por la bodega
+  (disponible 0), el ERP solo lee lo disponible, la baja se detuvo y 6
+  pedidos (8 pares) se quedaron «en duda» fuera del corte #81. Lo
+  que Industher tiene apartado por su cuenta (`apartadasBodega`, más allá de
+  las salidas pendientes) no se va a despachar: es baja a propósito, se
+  escribe como merma «Apartado en Industher: N pares reservados…» y la
+  defensa del corte cancela lo que ya no alcanza (`StockFisico.apartadoBodega`,
+  `apartadoBodegaDeSku`, `EstanteTikTok.apartadas`; `stockEnDuda` ya no lo
+  marca). Si Industher lo vuelve a soltar, entra otra vez.
   **La guardia corre en el fondo, no en una pantalla** (`tiktok/alarma.ts` +
   `tiktok-alarma.ts`, migración 0087, en el cron de TikTok): el cruce de los
   tres números ya existía en `/tiktok/desfases` pero era una pantalla que

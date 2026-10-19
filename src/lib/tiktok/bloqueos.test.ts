@@ -159,6 +159,16 @@ describe("stock en duda (la bodega dejó de reportar el SKU y el kardex aún tie
     expect(stockEnDuda({ sku: "x", saldo: 21, estante: 2, salidasPendientes: 0, contadoDespues: false })).toBe(false);
     expect(stockEnDuda({ sku: "x", saldo: 21, estante: null, salidasPendientes: 0, contadoDespues: false })).toBe(false);
   });
+  it("con pares físicos APARTADOS por Industher no es duda: la bodega lo tiene y no lo va a despachar (GT148-M BROWN-26, 19-oct-2026)", () => {
+    expect(stockEnDuda({ sku: "x", saldo: 13, estante: 0, salidasPendientes: 0, contadoDespues: false, apartadoBodega: 9 })).toBe(false);
+    expect(stockEnDuda({ sku: "x", saldo: 13, estante: 0, salidasPendientes: 0, contadoDespues: false, apartadoBodega: 0 })).toBe(true);
+    const stock = new Map([["GT148-M BROWN-26-MX", { sku: "GT148-M BROWN-26-MX", saldo: 13, estante: 0, salidasPendientes: 0, contadoDespues: false, apartadoBodega: 9 }]]);
+    const g = (lineItemId: string, orderId: string, creadoEn: string) => ({ ...r(lineItemId, orderId, creadoEn), sku: "GT148-M BROWN-26-MX" });
+    const salida = autoBloqueos([g("a", "1", "2026-10-16T00:00:00Z"), g("b", "2", "2026-10-17T00:00:00Z")], stock);
+    expect(salida.map((a) => a.lineItemId)).toEqual(["a", "b"]);
+    expect(salida.every((a) => !a.enDuda)).toBe(true);
+    expect(salida[0].motivo).toContain("sin stock");
+  });
   it("marca TODOS los renglones del SKU como en duda, sin bloquearlos para cancelar", () => {
     const stock = new Map([["MY2304-BROWN-29", { sku: "MY2304-BROWN-29", saldo: 21, estante: 0, salidasPendientes: 0, contadoDespues: false }]]);
     const salida = autoBloqueos([r("a", "1", "2026-09-18T00:00:00Z"), r("b", "2", "2026-09-19T00:00:00Z")], stock);
