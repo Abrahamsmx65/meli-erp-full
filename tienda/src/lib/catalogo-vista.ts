@@ -42,3 +42,21 @@ export function categoriaVisible(c: string | null | undefined): string | null {
   const limpia = String(c ?? "").replace(/\s+/g, " ").trim();
   return limpia ? limpia.toLocaleUpperCase("es-MX") : null;
 }
+
+/**
+ * La foto de Amazon al TAMAÑO que se enseña (dueño, 19-oct-2026: «se tardan
+ * mucho las imágenes en cargar»): el catálogo guarda la original, de 2560 px
+ * y ~550 KB, y la tarjeta mide ~300 px. Amazon entrega la misma foto
+ * reducida si se le pide en el nombre (`ID._AC_SL600_.jpg`, el lado más
+ * largo): 600 px ≈ 90 KB, 100 px ≈ 4 KB. Lo que no es de Amazon se queda igual.
+ */
+export function fotoAmazon(url: string, lado: number): string {
+  const m = /^(https:\/\/m\.media-amazon\.com\/images\/I\/[^./]+)(?:\.[^/]*)?\.(jpe?g|png|webp)$/i.exec(String(url ?? ""));
+  return m ? `${m[1]}._AC_SL${Math.round(lado)}_.${m[2]}` : url;
+}
+
+/** `srcset` de la foto principal: el navegador elige según el ancho de la tarjeta y la pantalla. */
+export function srcSetAmazon(url: string, lados: number[] = [400, 700, 1000]): string | undefined {
+  if (fotoAmazon(url, lados[0]) === url) return undefined;
+  return lados.map((l) => `${fotoAmazon(url, l)} ${l}w`).join(", ");
+}

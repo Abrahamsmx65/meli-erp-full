@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoriaVisible, rangoTallas, tituloCorto } from "./catalogo-vista";
+import { categoriaVisible, fotoAmazon, rangoTallas, srcSetAmazon, tituloCorto } from "./catalogo-vista";
 
 describe("tituloCorto", () => {
   it("quita la marca y suaviza lo gritado, conserva las siglas", () => {
@@ -27,5 +27,24 @@ describe("categoriaVisible", () => {
   it("junta las que solo cambian de mayúsculas", () => {
     expect(categoriaVisible("Botas lluvia")).toBe(categoriaVisible("BOTAS  LLUVIA"));
     expect(categoriaVisible(" ")).toBeNull();
+  });
+});
+
+describe("fotoAmazon", () => {
+  it("pide el tamaño en el nombre", () => {
+    expect(fotoAmazon("https://m.media-amazon.com/images/I/91mhxy2EEaL.jpg", 600)).toBe("https://m.media-amazon.com/images/I/91mhxy2EEaL._AC_SL600_.jpg");
+    expect(fotoAmazon("https://m.media-amazon.com/images/I/81+LZ-NOWiL.jpg", 100)).toBe("https://m.media-amazon.com/images/I/81+LZ-NOWiL._AC_SL100_.jpg");
+    // ya traía un tamaño: se reemplaza
+    expect(fotoAmazon("https://m.media-amazon.com/images/I/91mhxy2EEaL._AC_SX679_.jpg", 400)).toBe("https://m.media-amazon.com/images/I/91mhxy2EEaL._AC_SL400_.jpg");
+  });
+  it("lo que no es de Amazon no se toca", () => {
+    const tiktok = "https://p16-oec-va.ibyteimg.com/tos-maliva-i-o3syd03w52-us/abc~tplv-o3syd03w52-origin-jpeg.jpeg";
+    expect(fotoAmazon(tiktok, 400)).toBe(tiktok);
+    expect(srcSetAmazon(tiktok)).toBeUndefined();
+  });
+  it("srcset con anchos", () => {
+    expect(srcSetAmazon("https://m.media-amazon.com/images/I/X1.jpg", [400, 700])).toBe(
+      "https://m.media-amazon.com/images/I/X1._AC_SL400_.jpg 400w, https://m.media-amazon.com/images/I/X1._AC_SL700_.jpg 700w",
+    );
   });
 });

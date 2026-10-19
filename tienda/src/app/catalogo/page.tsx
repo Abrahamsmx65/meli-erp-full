@@ -18,6 +18,7 @@ export default async function CatalogoCompleto() {
   const whatsapp = (process.env.INFLUENCERS_WHATSAPP ?? "").replace(/\D/g, "") || null;
   return (
     <div className="contenedor">
+      <link rel="preconnect" href="https://m.media-amazon.com" />
       <PortadaCatalogo ceja="Calzado GETAC" titulo="Catálogo completo" texto="Todos nuestros modelos por categoría, con las existencias de hoy." productos={productos} />
       {productos.length ? (
         <CatalogoInfluencers productos={productos} whatsapp={whatsapp} porCategoria mostrarExistencia={false} llave="getac:catalogo:seleccion" />

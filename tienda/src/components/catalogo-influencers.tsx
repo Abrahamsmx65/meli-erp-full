@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { mensajeDeSeleccion, type Eleccion, type ProductoInfluencer } from "@/lib/influencers";
 import { pesos } from "@/lib/tienda";
-import { categoriaVisible, rangoTallas, tituloCorto } from "@/lib/catalogo-vista";
+import { categoriaVisible, fotoAmazon, rangoTallas, srcSetAmazon, tituloCorto } from "@/lib/catalogo-vista";
 
 const LLAVE = "getac:creadores:seleccion";
 
@@ -22,6 +22,7 @@ function Tarjeta({
   cambiarTalla,
   mostrarExistencia,
   mostrarCategoria,
+  prioridad = false,
 }: {
   p: ProductoInfluencer;
   elegidos: Map<string, Eleccion>;
@@ -30,6 +31,8 @@ function Tarjeta({
   mostrarExistencia: boolean;
   /** la categoría en la tarjeta: sobra cuando ya va en el título de la sección */
   mostrarCategoria: boolean;
+  /** de las primeras a la vista: la foto se pide sin esperar */
+  prioridad?: boolean;
 }) {
   const [color, setColor] = useState(0);
   const [foto, setFoto] = useState(0);
@@ -44,7 +47,17 @@ function Tarjeta({
     <article className={`tarjeta creador ${elegido ? "creador-elegido" : ""}`}>
       <div className="creador-foto">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {c.fotos[foto] && <img src={c.fotos[foto]} alt={`${p.modelo ?? ""} ${titulo} ${c.color}`.trim()} loading="lazy" />}
+        {c.fotos[foto] && (
+          <img
+            src={fotoAmazon(c.fotos[foto], 700)}
+            srcSet={srcSetAmazon(c.fotos[foto])}
+            sizes="(min-width: 1100px) 290px, (min-width: 768px) 31vw, 48vw"
+            alt={`${p.modelo ?? ""} ${titulo} ${c.color}`.trim()}
+            loading={prioridad ? "eager" : "lazy"}
+            fetchPriority={prioridad ? "high" : "auto"}
+            decoding="async"
+          />
+        )}
         {p.total != null ? (
           <span className={`creador-stock ${p.total > 0 ? "" : "creador-stock-sin"}`}>
             {p.total > 0 ? `${p.total.toLocaleString("es-MX")} pares` : "Sin stock"}
@@ -56,7 +69,7 @@ function Tarjeta({
             {c.fotos.map((f, i) => (
               <button key={f} type="button" onClick={() => setFoto(i)} aria-current={i === foto} aria-label={`Foto ${i + 1}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={f} alt="" loading="lazy" />
+                <img src={fotoAmazon(f, 100)} alt="" loading="lazy" decoding="async" />
               </button>
             ))}
           </div>
@@ -190,6 +203,10 @@ export function CatalogoInfluencers({
     return palabras.every((w) => texto.includes(w));
   });
 
+  // Las primeras tarjetas a la vista piden su foto de inmediato; las demás, al acercarse.
+  const primeros = new Set(
+    (porCategoria ? [...visibles].sort((a, b) => categorias.indexOf(cat(a)) - categorias.indexOf(cat(b))) : visibles).slice(0, 4).map((p) => p.productId),
+  );
   const lista = [...elegidos.values()];
   const url = typeof window !== "undefined" ? window.location.href.split("?")[0] : "";
   const mensaje = mensajeDeSeleccion(quien, lista, url);
@@ -267,7 +284,7 @@ export function CatalogoInfluencers({
                 </header>
                 <div className="rejilla creador-rejilla">
                   {suyos.map((p) => (
-                    <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria={false} />
+                    <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria={false} prioridad={primeros.has(p.productId)} />
                   ))}
                 </div>
               </section>
@@ -276,7 +293,7 @@ export function CatalogoInfluencers({
         ) : (
           <div className="rejilla creador-rejilla">
             {visibles.map((p) => (
-              <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria />
+              <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria prioridad={primeros.has(p.productId)} />
             ))}
           </div>
         )

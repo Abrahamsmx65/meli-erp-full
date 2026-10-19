@@ -19,6 +19,7 @@ export default async function Influencers() {
   const whatsapp = (process.env.INFLUENCERS_WHATSAPP ?? "").replace(/\D/g, "") || null;
   return (
     <div className="contenedor">
+      <link rel="preconnect" href="https://m.media-amazon.com" />
       <PortadaCatalogo
         ceja="TikTok Shop"
         titulo="Catálogo para creadores"

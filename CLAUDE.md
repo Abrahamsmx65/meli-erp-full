@@ -1995,6 +1995,13 @@ guárdala numerada.
   GT282–GT303 ese día: en MELI tienen una foto de relleno). El dominio
   `getac-tienda.vercel.app` (el de `TIENDA_URL`) se ligó al proyecto
   `getac-tienda` el 13-oct-2026: antes daba DEPLOYMENT_NOT_FOUND.
+  **Las fotos se piden al TAMAÑO de la tarjeta** (`fotoAmazon`,
+  `srcSetAmazon`; dueño, 19-oct-2026: «se tardan mucho las imágenes en
+  cargar»): el catálogo guarda la foto original de Amazon (2560 px, ~507 KB)
+  y Amazon la entrega reducida con `ID._AC_SL{lado}_.jpg`: la principal con
+  `srcset` 400/700/1000 (~72 KB a 700) y las miniaturas a 100 px (~2 KB). La
+  página completa pasó de ~420 MB a ~10 MB; las 4 primeras tarjetas piden su
+  foto sin esperar y hay `preconnect` a m.media-amazon.com.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean
