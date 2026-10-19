@@ -657,6 +657,8 @@ export interface ResultadoProgramacion {
   limpiadas: number;
   /** cuántas veces el fondo esperó a que terminara una relámpago para pegar la siguiente */
   esperas: number;
+  /** otra corrida tenía el candado: esta no hizo nada */
+  ocupado?: boolean;
 }
 
 /** Si la relámpago viva termina dentro de este rato, el fondo se queda esperando a que termine en vez de volver al minuto. */
@@ -689,7 +691,28 @@ function dormir(ms: number): Promise<void> {
  * —si no, se queda ahí vacía con su título ocupado— y las constancias
  * repetidas de «name already in use» del cron viejo se borran.
  */
+const RECURSO_CICLICOS = "tiktok-ciclicos";
+
 export async function programarCiclicas(
+  admin: any,
+  accountId: string,
+  opciones: { soloIds?: number[]; presupuestoMs?: number } = {},
+): Promise<ResultadoProgramacion> {
+  // UNA corrida a la vez: el cron de cada minuto puede quedarse esperando a
+  // que termine una relámpago (hasta 80 s) y la del minuto siguiente se le
+  // encimaba (19-oct-2026: tres modelos con «Ya se está creando una oferta»
+  // aunque su relámpago sí se creó). La encimada simplemente no hace nada.
+  try {
+    return await conCandado(admin, accountId, RECURSO_CICLICOS, 300, () => programarCiclicasSinCandado(admin, accountId, opciones));
+  } catch (err) {
+    if (err instanceof RecursoOcupadoError) {
+      return { revisadas: 0, creadas: 0, errores: [], sinTiempo: false, limpiadas: 0, esperas: 0, ocupado: true };
+    }
+    throw err;
+  }
+}
+
+async function programarCiclicasSinCandado(
   admin: any,
   accountId: string,
   opciones: { soloIds?: number[]; presupuestoMs?: number } = {},
@@ -717,6 +740,16 @@ export async function programarCiclicas(
     const fin = finDeLaViva(propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })));
     return !fin || fin.getTime() <= umbral;
   });
+  // Un aviso viejo en una cíclica que ya tiene su relámpago viva sobra.
+  const alDia = ciclicas.filter((c: any) => !conTrabajo.includes(c)).map((c: any) => Number(c.id));
+  if (alDia.length) {
+    await admin
+      .from("tiktok_promociones_ciclicas")
+      .update({ ultimo_error: null })
+      .in("id", alDia)
+      .not("ultimo_error", "is", null)
+      .then(() => undefined, () => undefined);
+  }
   if (!conTrabajo.length) return salida;
 
   salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
@@ -813,6 +846,11 @@ export async function programarCiclicas(
         }
         salida.creadas++;
       } catch (err) {
+        if (/Ya se está creando una oferta/.test((err as Error).message)) {
+          // Otra creación tiene el candado de ofertas: el siguiente minuto lo reintenta sin dejar aviso.
+          salida.sinTiempo = true;
+          break;
+        }
         errorDeEsta = explicarErrorDeCiclica(modelo, (err as Error).message);
         break;
       }
