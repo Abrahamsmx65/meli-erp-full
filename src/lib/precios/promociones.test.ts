@@ -24,6 +24,13 @@ describe("clasificarPromo", () => {
 });
 
 describe("planDePromo", () => {
+  it("una relámpago guarda el folio de SU fecha (todas comparten LGH-MLM1000)", () => {
+    const o = { modelo: "GT183", relampago: 199.99, normal: 249.99, pvpDeal: null };
+    const a = planDePromo("MLM2771343295", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", offer_id: "LGH-A" }, o);
+    const b = planDePromo("MLM2771343295", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", offer_id: "LGH-B" }, o);
+    expect([a.offerId, b.offerId]).toEqual(["LGH-A", "LGH-B"]);
+    expect(planDePromo("MLM1", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate" }, o).offerId).toBeNull();
+  });
   it("cambia una inscrita con otro precio y deja igual la que ya cuadra", () => {
     expect(planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "started", price: 600 }, obj).accion).toBe("cambiar");
     expect(planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "started", price: 585.99 }, obj).accion).toBe("igual");
