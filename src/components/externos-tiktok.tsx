@@ -9,6 +9,7 @@ import { Pestanas } from "./ui/pestanas";
 import { Aviso, Seccion, Tabla } from "./ui/pagina";
 import { coincidePublicacion, type PublicacionParaLigar } from "@/lib/tiktok/externos";
 import type { RenglonStockExterno } from "@/lib/servicios/tiktok-externos";
+import { confirmar } from "@/components/ui/confirmar";
 
 const ESTADOS: Record<string, string> = {
   ACTIVATE: "activa",
@@ -78,7 +79,7 @@ export function ExternosTikTok({
   }
 
   async function desligar(p: PublicacionParaLigar) {
-    if (!window.confirm(`¿Quitar «${p.titulo}» de ${nombre}? Vuelve a ser del dueño: Industher, el 3PL y las ventas la vuelven a contar.`)) return;
+    if (!(await confirmar({ titulo: `¿Quitar «${p.titulo}» de ${nombre}?`, mensaje: "Vuelve a ser del dueño: Industher, el 3PL y las ventas la vuelven a contar.", confirmar: "Quitar", peligro: true }))) return;
     const j = await llamar({ accion: "desligar", productId: p.productId }, `desligar:${p.productId}`);
     if (!j) return;
     setAviso({ tono: "bien", texto: `«${p.titulo}» volvió a ser del dueño.` });
@@ -88,7 +89,7 @@ export function ExternosTikTok({
   async function guardarStock() {
     const renglones = capturados.map(([sku, v]) => ({ sku, pares: Math.max(0, Math.round(Number(v) || 0)) }));
     if (!renglones.length) return;
-    if (!window.confirm(`¿Guardar el stock de ${renglones.length} SKU? El kardex queda con ese número y se le escribe a TikTok ahora mismo.`)) return;
+    if (!(await confirmar({ titulo: `¿Guardar el stock de ${renglones.length} SKU?`, mensaje: "El kardex queda con ese número y se le escribe a TikTok ahora mismo.", confirmar: "Guardar stock" }))) return;
     const j = await llamar({ accion: "stock", renglones }, "stock");
     if (!j) return;
     const pub = j.publicacion;

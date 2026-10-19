@@ -151,8 +151,8 @@ export default async function AnioDelNegocio({ searchParams }: { searchParams: P
                             <Link href={`/cortes?mes=${m.periodo}`} className="enlace">
                               {nombreDelPeriodo(m.periodo)}
                             </Link>
-                            {m.enCurso ? <span className="chip ml-2 text-[10px]">en curso</span> : null}
-                            {!m.sinDatos && !m.enCurso && !m.exacto ? <span className="chip ml-2 text-[10px]">preliminar</span> : null}
+                            {m.enCurso ? <span className="chip ml-2 text-[11px]">en curso</span> : null}
+                            {!m.sinDatos && !m.enCurso && !m.exacto ? <span className="chip ml-2 text-[11px]">preliminar</span> : null}
                           </td>
                           {m.sinDatos ? (
                             <td colSpan={10} className="texto-tenue">
@@ -234,7 +234,7 @@ export default async function AnioDelNegocio({ searchParams }: { searchParams: P
                           <td>
                             {k.nombre}
                             {k.mesesSinCalcular.length ? (
-                              <span className="chip aviso-critico ml-2 text-[10px]">
+                              <span className="chip aviso-critico ml-2 text-[11px]">
                                 sin calcular: {k.mesesSinCalcular.map(nombreDelPeriodo).join(", ")}
                               </span>
                             ) : null}
@@ -291,7 +291,7 @@ export default async function AnioDelNegocio({ searchParams }: { searchParams: P
                         <tr key={f.categoria}>
                           <td>
                             {f.categoria}
-                            {f.parcial ? <span className="chip ml-2 text-[10px]">sin costo algún mes</span> : null}
+                            {f.parcial ? <span className="chip ml-2 text-[11px]">sin costo algún mes</span> : null}
                           </td>
                           <td className="num cifra">{n(f.unidades)}</td>
                           <td className="num cifra">{redondo(f.importe)}</td>
@@ -337,7 +337,7 @@ export default async function AnioDelNegocio({ searchParams }: { searchParams: P
                         <tr key={f.modelo}>
                           <td>
                             {f.modelo}
-                            {f.parcial ? <span className="chip ml-2 text-[10px]">sin costo algún mes</span> : null}
+                            {f.parcial ? <span className="chip ml-2 text-[11px]">sin costo algún mes</span> : null}
                           </td>
                           <td>{f.categoria}</td>
                           <td className="num cifra">{n(f.unidades)}</td>

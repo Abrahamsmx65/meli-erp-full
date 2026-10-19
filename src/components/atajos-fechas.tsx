@@ -56,8 +56,10 @@ export function AtajosFechas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, claves, precargar]);
 
+  // Un solo renglón que se desplaza de lado en el teléfono: «Este mes» no
+  // se va solo al renglón de abajo.
   return (
-    <>
+    <div className="atajos-fechas">
       {atajos.map((a) => {
         const esActivo = a.href === activo;
         return (
@@ -65,7 +67,7 @@ export function AtajosFechas({
             key={a.texto}
             href={a.href}
             prefetch={precargar ? false : undefined}
-            className="rounded-full border px-3 py-1 text-xs font-medium"
+            className="shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap"
             style={
               esActivo
                 ? { background: "var(--acento)", color: "#fff", borderColor: "var(--acento)" }
@@ -76,6 +78,6 @@ export function AtajosFechas({
           </Link>
         );
       })}
-    </>
+    </div>
   );
 }

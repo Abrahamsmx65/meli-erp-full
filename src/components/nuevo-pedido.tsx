@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Borrador, AjustesPedidos, OpcionFabrica } from "@/lib/servicios/pedidos-borradores";
 import type { LineaBorrador } from "@/lib/pedidos-china/armar";
 import { totalesDeBorrador } from "@/lib/pedidos-china/armar";
+import { confirmar } from "@/components/ui/confirmar";
 
 type Moneda = "USD" | "RMB";
 
@@ -417,7 +418,7 @@ function TarjetaBorrador({
                         onChange={(e) => cambiarLinea(i, { precio: numero(e.target.value), precioDe: null })}
                       />
                     )}
-                    {l.precioDe ? <div className="texto-tenue text-[10px]">de {l.precioDe}</div> : null}
+                    {l.precioDe ? <div className="texto-tenue text-[11px]">de {l.precioDe}</div> : null}
                   </td>
                   <td className="num cifra">{dinero(t.importe, null)}</td>
                   <td>
@@ -465,8 +466,9 @@ function TarjetaBorrador({
         <button
           className="boton boton-peligro"
           disabled={Boolean(trabajando)}
-          onClick={() => {
-            if (confirm(`¿Descartar el borrador ${b.pedido} (${b.modelo})?`)) hacer("descartar", { accion: "descartar" }, () => alQuitar());
+          onClick={async () => {
+            if (await confirmar({ titulo: `¿Descartar el borrador ${b.pedido} (${b.modelo})?`, confirmar: "Descartar", peligro: true }))
+              hacer("descartar", { accion: "descartar" }, () => alQuitar());
           }}
         >
           Descartar

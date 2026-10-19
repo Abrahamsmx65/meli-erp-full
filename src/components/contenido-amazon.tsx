@@ -10,6 +10,7 @@ import type {
 } from "@/lib/servicios/contenido-amazon";
 import { Aviso } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import { confirmar } from "@/components/ui/confirmar";
 
 type Estado = "guardando" | "ok" | "error";
 
@@ -276,7 +277,7 @@ export function ContenidoAmazonPanel({
 
   /** Genera un link nuevo y deja muerto el anterior. */
   async function regenerarLink() {
-    if (!confirm("El link de ahora dejará de funcionar y habrá que mandar el nuevo. ¿Seguimos?")) {
+    if (!(await confirmar({ titulo: "¿Generar un link nuevo?", mensaje: "El link de ahora dejará de funcionar y habrá que mandar el nuevo.", confirmar: "Generar link nuevo", peligro: true }))) {
       return;
     }
     setRotando(true);
@@ -536,7 +537,7 @@ export function ContenidoAmazonPanel({
                           <td>
                             <div className="flex items-center gap-2">
                               <span
-                                className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                                className="rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase"
                                 style={{
                                   background: m.activo
                                     ? "color-mix(in oklab, var(--estado-bien) 18%, transparent)"
@@ -550,7 +551,7 @@ export function ContenidoAmazonPanel({
                               </span>
                               {m.nuevo ? (
                                 <span
-                                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                                  className="rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase"
                                   style={{
                                     background: "color-mix(in oklab, var(--acento) 18%, transparent)",
                                     color: "var(--acento)",

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Fraunces } from "next/font/google";
 import "./globals.css";
 import { Armazon } from "@/components/armazon";
@@ -22,6 +22,9 @@ export const metadata: Metadata = {
   description:
     "Inventario, envíos a Mercado Envíos Full, pedidos a China y corridas, en un solo lugar.",
 };
+
+// La barra del navegador del teléfono toma la crema del menú (`--sidebar`).
+export const viewport: Viewport = { themeColor: "#fbf8f3" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // El rol sale del JWT de la cookie, sin viaje a Supabase: el menú de

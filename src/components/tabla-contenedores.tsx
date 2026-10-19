@@ -7,6 +7,7 @@ import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colo
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 import { FotoProducto } from "./ui/foto-producto";
 import { cotejarConBl } from "@/lib/importar/bl";
+import { confirmar as preguntar } from "@/components/ui/confirmar";
 
 /** Miniaturas por renglón del contenedor; el resto se cuenta como «+N». */
 const FOTOS_POR_CONTENEDOR = 6;
@@ -164,7 +165,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
 
   /** Solo borradores: un contenedor que llegó de Drive por error (duplicado, proforma). */
   async function borrar(c: Contenedor) {
-    if (!window.confirm(`¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)? Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.`)) return;
+    if (!(await preguntar({ titulo: `¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)?`, mensaje: "Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.", confirmar: "Borrar", peligro: true }))) return;
     setOcupado(c.id);
     setError(null);
     try {
@@ -180,11 +181,11 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   }
 
   async function confirmarLlegada(c: Contenedor) {
-    const seguro = window.confirm(
-      `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)? ` +
-        "No se suma inventario: las existencias llegan del API de Industher. " +
-        "Solo deja de contar como en camino.",
-    );
+    const seguro = await preguntar({
+      titulo: `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)?`,
+      mensaje: "No se suma inventario: las existencias llegan del API de Industher. Solo deja de contar como en camino.",
+      confirmar: "Confirmar llegada",
+    });
     if (!seguro) return;
     await mandar({ accion: "confirmarLlegada" }, c.id);
   }

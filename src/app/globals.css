@@ -25,24 +25,27 @@
   /* tinta */
   --ink-1: #2a2019;
   --ink-2: #5e5146;
-  --ink-muted: #998a7b;
+  /* tenue: 5.1:1 sobre blanco y 4.6:1 sobre la crema de fondo (AA) */
+  --ink-muted: #7a6b5d;
 
   /* líneas */
   --grid: #f2ece4;
   --axis: #dacfc2;
   --borde: #e9e1d6;
 
-  /* estados */
-  --estado-bien: #00a650;
+  /* estados: los mismos tonos tierra de las gráficas (verde de utilidad,
+     terracota de gastos). El rojo lleva texto blanco encima (insignia,
+     botón de peligro): 5.0:1. */
+  --estado-bien: #2f9c63;
   --estado-alerta: #e0a100;
   --estado-serio: #ff7733;
-  --estado-critico: #f23d4f;
+  --estado-critico: #b5523b;
 
   /* acción */
   --acento: #8b6640;
   --acento-hover: #72522f;
   --acento-suave: #f5ede3;
-  --exito-texto: #00854a;
+  --exito-texto: #1f7346;
 
   /* gráficas del estado de resultados: a dónde se va cada peso de venta,
      en los tonos tierra de la marca (arena, café, mostaza, terracota, verde) */
@@ -52,41 +55,49 @@
   --graf-gastos: #b5523b;
   --graf-utilidad: #2f9c63;
 
-  /* marca: la barra superior, azul marino profundo con un degradado sutil */
+  /* marca: café muy oscuro (franjas oscuras y la píldora «Actualizando») */
   --marca: #2b2119;
   --marca-2: #3a2c21;
   --marca-texto: #ffffff;
   --marca-suave: rgba(255, 255, 255, 0.12);
   --marca-suave-2: rgba(255, 255, 255, 0.2);
-  /* resalte de renglones (antes ámbar): azul muy claro */
+  /* resalte de renglones (antes ámbar): el café de acción */
   --ambar: #8b6640;
-  /* menú lateral: el riel azul marino de la marca */
+  /* menú lateral: el riel crema de la marca */
   --sidebar: #fbf8f3;
   --sidebar-acento: #a77d52;
   --sidebar-borde: #ece4d9;
   --sidebar-texto: #4d4035;
-  --sidebar-tenue: #9c8b7a;
+  --sidebar-tenue: #776656; /* 5.2:1 sobre --sidebar */
   --sidebar-activo: #f1e6d8;
   --sidebar-hover: #f5eee5;
 
   --sombra-panel: 0 1px 2px rgba(16, 24, 40, 0.04);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
 
+  /* curvas de movimiento: salida fuerte para todo lo que entra o responde
+     a un toque, y la de cajón (iOS) para lo que se desliza */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* renglón de tabla bajo el puntero */
+  --fila-hover: #f7f2ea;
+
   --radio: 8px;
   --radio-grande: 10px;
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
      los armaba a mano con color-mix (25 copias del recuadro ámbar). */
-  --info-suave: #f7f1e9;
-  --info-borde: #e5d5c1;
-  --bien-suave: #e9f7ef;
-  --bien-borde: #b9e4cb;
+  --info-suave: #f4efe8;
+  --info-borde: #e2d8cb;
+  --bien-suave: #eaf4ee;
+  --bien-borde: #c3e0cf;
   --alerta-suave: #fdf6e3;
   --alerta-borde: #f0dca0;
   --alerta-texto: #8a6100;
-  --critico-suave: #fdeef0;
-  --critico-borde: #f6c4ca;
-  --critico-texto: #c4182b;
+  --critico-suave: #f9ece8;
+  --critico-borde: #ecc7bd;
+  --critico-texto: #a3402b;
 
   --fuente-sans: var(--font-texto), -apple-system, "Segoe UI", Roboto, sans-serif;
   --fuente-titulo: var(--font-titulo), Georgia, serif;
@@ -106,6 +117,18 @@
     font-feature-settings: "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* En el teléfono: sin el destello gris al tocar y sin la espera de
+     doble toque (el zoom) en lo que se pica. */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a,
+  [role="button"],
+  summary {
+    touch-action: manipulation;
   }
 
   ::selection {
@@ -140,10 +163,14 @@
     color: var(--ink-muted);
   }
 
-  input:hover,
-  select:hover,
-  textarea:hover {
-    border-color: #c9c9c9;
+  /* Los :hover solo con puntero de verdad: en el teléfono se quedan
+     «pegados» después del toque. */
+  @media (hover: hover) and (pointer: fine) {
+    input:hover,
+    select:hover,
+    textarea:hover {
+      border-color: var(--axis);
+    }
   }
 
   input:focus,
@@ -169,15 +196,16 @@
       color 0.15s ease,
       border-color 0.15s ease,
       box-shadow 0.15s ease,
-      transform 0.1s ease;
+      transform 120ms var(--ease-out);
   }
 
   button:disabled {
     cursor: not-allowed;
   }
 
+  /* Al picar, el botón se hunde tantito: la app «oyó» el toque. */
   button:not(:disabled):active {
-    transform: translateY(1px);
+    transform: scale(0.97);
   }
 
   button:focus-visible,
@@ -188,7 +216,7 @@
     border-radius: var(--radio);
   }
 
-  /* Enlaces subrayados dentro del contenido: azul de acción, como en MELI. */
+  /* Enlaces subrayados dentro del contenido: el café de acción. */
   a.underline {
     text-decoration-thickness: 1px;
     text-underline-offset: 2px;
@@ -362,7 +390,7 @@
   .aviso-info {
     background: var(--info-suave);
     border-color: var(--info-borde);
-    color: #3730a3;
+    color: var(--ink-2);
   }
   .aviso-bien {
     background: var(--bien-suave);
@@ -381,6 +409,24 @@
   }
   .aviso strong {
     font-weight: 600;
+  }
+
+  /* Atajos de fechas: un renglón que se desplaza de lado, sin barra. */
+  .atajos-fechas {
+    /* base de 14 rem: en el teléfono cabe junto a «Periodo» y se desplaza;
+       en escritorio crece hasta enseñar todos */
+    flex: 1 1 14rem;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .atajos-fechas::-webkit-scrollbar {
+    display: none;
   }
 
   /* Frescura: píldora discreta junto a las acciones. */
@@ -408,9 +454,11 @@
     border-radius: 6px 6px 0 0;
     transition: color 120ms ease, background-color 120ms ease;
   }
-  .pestana:hover {
-    color: var(--ink-1);
-    background: color-mix(in srgb, var(--acento) 5%, transparent);
+  @media (hover: hover) and (pointer: fine) {
+    .pestana:hover {
+      color: var(--ink-1);
+      background: color-mix(in srgb, var(--acento) 5%, transparent);
+    }
   }
   .pestana[aria-selected="true"] {
     color: var(--acento);
@@ -481,15 +529,76 @@
     }
   }
 
-  /* Rejilla de cifras: 2 en teléfono, 4 en escritorio (o las que se pidan). */
+  /* Ficha de cifra suelta (fuera de <Cifras>): tarjeta propia. */
+  .ficha {
+    background: var(--surface-1);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-grande);
+    box-shadow: var(--sombra-panel);
+    padding: 1rem 1.125rem;
+    container-type: inline-size;
+    min-width: 0;
+  }
+  .ficha-titulo {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  /* Punto de estado: solo en alerta y crítico, junto con el color de la
+     cifra (el color nunca va solo: el punto también es forma). */
+  .ficha-punto {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+  }
+  .ficha-nota {
+    margin-top: 0.375rem;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink-muted);
+  }
+
+  /* Cifras: UNA banda con divisiones finas por dentro, no N tarjetas.
+     2 columnas en teléfono, las que se pidan en escritorio. Las divisiones
+     son la sombra de 1 px de cada celda a la derecha y abajo; la banda
+     recorta las que caen en su borde, así funciona con cualquier número de
+     celdas y con un último renglón incompleto. */
   .cifras {
     display: grid;
-    gap: 0.75rem;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    background: var(--surface-1);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-grande);
+    box-shadow: var(--sombra-panel);
+    overflow: hidden;
   }
   @media (min-width: 768px) {
     .cifras {
       grid-template-columns: repeat(var(--cifras-col, 4), minmax(0, 1fr));
+    }
+  }
+  /* Todo hijo (Ficha u otra cosa que una pantalla meta) es una celda. */
+  .cifras > * {
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow:
+      1px 0 0 var(--grid),
+      0 1px 0 var(--grid);
+  }
+  .cifras > .ficha,
+  .cifras > .tarjeta {
+    padding: 1rem 1.125rem;
+  }
+  /* En el teléfono, una cifra sola en el último renglón toma el ancho. */
+  @media (max-width: 767px) {
+    .cifras > :last-child:nth-child(odd) {
+      grid-column: 1 / -1;
     }
   }
 
@@ -500,22 +609,67 @@
     text-decoration-thickness: 1px;
     text-underline-offset: 2px;
   }
-  .enlace:hover {
-    color: var(--acento-hover);
+  @media (hover: hover) and (pointer: fine) {
+    .enlace:hover {
+      color: var(--acento-hover);
+    }
+
+    /* Filas de «Para hoy» en Inicio. */
+    .fila-inicio:hover {
+      background: var(--surface-2);
+    }
   }
 
   /* Contenedor de tabla con desplazamiento propio. */
   .tabla-caja {
     overflow-x: auto;
+    overscroll-behavior-x: contain;
   }
   .tabla-caja.alta {
     max-height: 70vh;
     overflow-y: auto;
   }
 
-  /* Filas de «Para hoy» en Inicio. */
-  .fila-inicio:hover {
-    background: var(--surface-2);
+  /* Primera columna fija al desplazar de lado (en el teléfono casi toda
+     tabla se desplaza): el modelo o el SKU no se pierde de vista. El fondo
+     lo hereda del renglón (blanco, el tono que el renglón traiga o el del
+     hover). La esquina va sobre todo. Una celda con colspan (encabezados
+     agrupados) no se fija. */
+  .tabla-caja table.datos tbody tr {
+    background: var(--surface-1);
+  }
+  .tabla-caja table.datos th:first-child:not([colspan]),
+  .tabla-caja table.datos td:first-child:not([colspan]) {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  .tabla-caja table.datos td:first-child:not([colspan]) {
+    background: inherit;
+  }
+  .tabla-caja table.datos thead th:first-child:not([colspan]) {
+    z-index: 3;
+  }
+  /* La sombra del borde derecho solo sale cuando ya se desplazó: la
+     dibuja una animación atada al desplazamiento de la caja. Donde el
+     navegador no la sabe, no hay sombra (y nada se rompe). */
+  @supports (animation-timeline: scroll()) {
+    .tabla-caja table.datos th:first-child:not([colspan]),
+    .tabla-caja table.datos td:first-child:not([colspan]) {
+      animation: columna-fija-sombra linear both;
+      animation-timeline: scroll(nearest inline);
+      animation-range: 0 24px;
+    }
+  }
+  @keyframes columna-fija-sombra {
+    from {
+      box-shadow: inset -1px 0 0 transparent;
+    }
+    to {
+      box-shadow:
+        inset -1px 0 0 var(--borde),
+        6px 0 10px -6px rgb(42 32 25 / 0.16);
+    }
   }
 
   /* Estado vacío. */
@@ -529,6 +683,11 @@
   /* Botones. Los componentes viejos arman los suyos con utilidades e inline
      styles; estas clases son para los nuevos y para los del armazón. */
   .boton {
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease,
+      transform 120ms var(--ease-out);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -541,28 +700,24 @@
     white-space: nowrap;
   }
 
+  /* Un enlace con forma de botón también se hunde al picarlo. */
+  .boton:not(:disabled):active {
+    transform: scale(0.97);
+  }
+
   .boton-primario {
     background: var(--acento);
     color: #fff;
-  }
-  .boton-primario:not(:disabled):hover {
-    background: var(--acento-hover);
   }
 
   .boton-secundario {
     background: var(--acento-suave);
     color: var(--acento);
   }
-  .boton-secundario:not(:disabled):hover {
-    background: #d6e3fd;
-  }
 
   .boton-fantasma {
     background: transparent;
     color: var(--acento);
-  }
-  .boton-fantasma:not(:disabled):hover {
-    background: var(--acento-suave);
   }
 
   /* Secundario neutro: el "botón de borde" que 71 variantes artesanales
@@ -572,10 +727,6 @@
     border: 1px solid var(--borde);
     color: var(--ink-1);
   }
-  .boton-borde:not(:disabled):hover {
-    border-color: var(--acento);
-    color: var(--acento);
-  }
 
   /* Familia de PELIGRO: las acciones destructivas se ven distintas SIEMPRE. */
   .boton-peligro {
@@ -583,15 +734,9 @@
     border: 1px solid color-mix(in oklab, var(--estado-critico) 45%, var(--borde));
     color: var(--estado-critico);
   }
-  .boton-peligro:not(:disabled):hover {
-    background: color-mix(in oklab, var(--estado-critico) 10%, transparent);
-  }
   .boton-peligro-lleno {
     background: var(--estado-critico);
     color: #fff;
-  }
-  .boton-peligro-lleno:not(:disabled):hover {
-    filter: brightness(0.92);
   }
 
   /* Tamaño compacto para barras de herramientas y filas de tabla. */
@@ -604,25 +749,45 @@
     opacity: 0.55;
   }
 
-  /* Los botones viejos: azul lleno (text-white + background acento) y de
-     borde. Se les da el hover de MELI sin tocar cada componente. */
-  button.text-white:not(:disabled):hover {
-    filter: brightness(0.92);
-  }
-
+  /* Los botones viejos: café lleno (text-white + background acento) y de
+     borde. */
   button.border {
     background: var(--surface-1);
     color: var(--acento);
     border-color: var(--borde);
   }
-  button.border:not(:disabled):hover {
-    background: var(--acento-suave);
-    border-color: var(--acento-suave);
-  }
 
-  /* Enlaces que se pintan como botón azul (Link con text-white). */
-  a.text-white:hover {
-    filter: brightness(0.92);
+  /* Todos los :hover de botones, solo con puntero de verdad: en el
+     teléfono se quedaban pegados después del toque. */
+  @media (hover: hover) and (pointer: fine) {
+    .boton-primario:not(:disabled):hover {
+      background: var(--acento-hover);
+    }
+    .boton-secundario:not(:disabled):hover {
+      background: #eadccb;
+    }
+    .boton-fantasma:not(:disabled):hover {
+      background: var(--acento-suave);
+    }
+    .boton-borde:not(:disabled):hover {
+      border-color: var(--acento);
+      color: var(--acento);
+    }
+    .boton-peligro:not(:disabled):hover {
+      background: color-mix(in oklab, var(--estado-critico) 10%, transparent);
+    }
+    .boton-peligro-lleno:not(:disabled):hover {
+      filter: brightness(0.92);
+    }
+    /* Los botones y enlaces viejos con text-white (café lleno). */
+    button.text-white:not(:disabled):hover,
+    a.text-white:hover {
+      filter: brightness(0.92);
+    }
+    button.border:not(:disabled):hover {
+      background: var(--acento-suave);
+      border-color: var(--acento-suave);
+    }
   }
 
   /* Barra de cobertura: extremo de dato redondeado 4px, anclado a la base. */
@@ -632,8 +797,7 @@
   }
 
   /* Tablas de datos, al estilo de los listados de vendedor: encabezado
-     gris en caja alta chica, renglones separados por líneas finas, hover
-     azul muy claro. */
+     gris chico, renglones separados por líneas finas, hover crema. */
   table.datos {
     border-collapse: separate;
     border-spacing: 0;
@@ -666,8 +830,10 @@
     border-bottom: none;
   }
 
-  table.datos tbody tr:hover {
-    background: #f5f8fd;
+  @media (hover: hover) and (pointer: fine) {
+    table.datos tbody tr:hover {
+      background: var(--fila-hover);
+    }
   }
 
   .num,
@@ -688,18 +854,20 @@
     white-space: nowrap;
   }
 
-  .entrada-menu:hover {
-    background: var(--sidebar-hover);
-    color: var(--ink-1);
-  }
+  @media (hover: hover) and (pointer: fine) {
+    .entrada-menu:hover {
+      background: var(--sidebar-hover);
+      color: var(--ink-1);
+    }
 
-  .seccion-menu:hover {
-    color: var(--ink-1);
-  }
+    .seccion-menu:hover {
+      color: var(--ink-1);
+    }
 
-  .salir:hover {
-    background: var(--surface-2);
-    color: var(--ink-1);
+    .salir:hover {
+      background: var(--surface-2);
+      color: var(--ink-1);
+    }
   }
 
   /* El riel del menú lleva su propio anillo de foco y barra fina. */
@@ -727,7 +895,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Circulito de carga: anillo azul que gira. Tamaño por font-size. */
+  /* Circulito de carga: anillo café que gira. Tamaño por font-size. */
   .girando {
     display: inline-block;
     width: 1em;
@@ -744,32 +912,83 @@
     }
   }
 
-  /* Aparición suave del contenido al navegar. */
-  .aparece {
-    animation: aparecer 0.25s ease-out both;
-  }
-
-  @keyframes aparecer {
-    from {
+  /* Avisos (toasts): entran subiendo 8 px y salen igual, más rápido. */
+  .toast {
+    transition:
+      opacity 200ms var(--ease-out),
+      transform 200ms var(--ease-out);
+    @starting-style {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(8px);
     }
-    to {
-      opacity: 1;
-      transform: none;
+  }
+  .toast[data-saliendo="true"] {
+    opacity: 0;
+    transform: translateY(8px);
+    transition-duration: 150ms;
+  }
+
+  /* Diálogos nativos (DialogoConfirmar): crecen tantito desde el 97 % y el
+     velo se aclara. Al cerrar, <dialog> desaparece sin salida (es lo
+     esperado: cerrar debe sentirse inmediato). */
+  dialog.dialogo[open] {
+    transition:
+      opacity 180ms var(--ease-out),
+      transform 180ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  dialog.dialogo[open]::backdrop {
+    transition: opacity 180ms var(--ease-out);
+    @starting-style {
+      opacity: 0;
     }
   }
 
+  /* Movimiento reducido: nada se hunde, nada late; el anillo de carga
+     gira lento (sin él no se sabría que algo trabaja). */
   @media (prefers-reduced-motion: reduce) {
-    .aparece {
-      animation: none;
-    }
     .girando {
       animation-duration: 1.6s;
     }
-    button {
+    button,
+    .boton {
       transition: none;
     }
+    button:not(:disabled):active,
+    .boton:not(:disabled):active {
+      transform: none;
+    }
+    .frescura[data-refrescando="true"]::before {
+      animation: none;
+    }
+    /* avisos y diálogos: solo se desvanecen, sin moverse */
+    .toast,
+    .toast[data-saliendo="true"],
+    dialog.dialogo[open] {
+      transform: none;
+      @starting-style {
+        transform: none;
+      }
+    }
+    /* la utilidad de Tailwind vive en una capa posterior: hace falta
+       !important para ganarle */
+    .animate-pulse {
+      animation: none !important;
+    }
+  }
+}
+
+/* iOS hace zoom a la página al enfocar un campo de menos de 16 px. Va fuera
+   de las capas para ganarle a las utilidades (text-xs, text-sm) que traen
+   muchos campos. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 

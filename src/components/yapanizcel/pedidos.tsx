@@ -6,6 +6,7 @@ import type { LineaPedido } from "@/lib/yapanizcel/pedidos";
 import type { PedidoResumen } from "@/lib/yapanizcel/pedidos";
 import { claveCanonica, desglosar } from "@/lib/yapanizcel/sku";
 import { estiloInput } from "./comunes";
+import { confirmar as preguntar } from "@/components/ui/confirmar";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -298,7 +299,7 @@ export function ListaPedidos({ pedidos }: { pedidos: PedidoResumen[] }) {
   }
 
   async function borrar(id: string, folio: string) {
-    if (!confirm(`¿Borrar el pedido ${folio}? Sus líneas dejan de contar como en camino.`)) return;
+    if (!(await preguntar({ titulo: `¿Borrar el pedido ${folio}?`, mensaje: "Sus líneas dejan de contar como en camino.", confirmar: "Borrar", peligro: true }))) return;
     setOcupado(id);
     try {
       const r = await fetch(`/api/yapanizcel/pedidos?id=${encodeURIComponent(id)}`, { method: "DELETE" });

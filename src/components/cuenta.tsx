@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MovimientoCuenta, Retiro, Socio } from "@/lib/finanzas/cuenta";
+import { confirmar } from "@/components/ui/confirmar";
 
 const pesos = (x: number | null | undefined, dec = 2) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -137,7 +138,7 @@ export function MovimientosCuenta({ movimientos, shein = false }: { movimientos:
                   <button
                     className="boton boton-fantasma boton-chico"
                     disabled={ocupado}
-                    onClick={() => window.confirm("¿Borrar este movimiento?") && correr(() => post({ accion: "borrar-movimiento", id: m.id }))}
+                    onClick={async () => (await confirmar({ titulo: "¿Borrar este movimiento?", confirmar: "Borrar", peligro: true })) && correr(() => post({ accion: "borrar-movimiento", id: m.id }))}
                   >
                     Borrar
                   </button>
@@ -218,7 +219,7 @@ export function RetirosSocios({ socios, retiros }: { socios: Socio[]; retiros: R
                   <button
                     className="boton boton-fantasma boton-chico"
                     disabled={ocupado}
-                    onClick={() => window.confirm("¿Borrar este retiro?") && correr(() => post({ accion: "borrar-retiro", id: r.id }))}
+                    onClick={async () => (await confirmar({ titulo: "¿Borrar este retiro?", confirmar: "Borrar", peligro: true })) && correr(() => post({ accion: "borrar-retiro", id: r.id }))}
                   >
                     Borrar
                   </button>

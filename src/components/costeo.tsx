@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ContenedorVista, CostoModeloVista } from "@/lib/servicios/costeo";
+import { confirmar } from "@/components/ui/confirmar";
 
 function pesos(x: number | null | undefined, dec = 2): string {
   if (x == null || !Number.isFinite(x)) return "—";
@@ -114,7 +115,7 @@ export function CostosPorModelo({ modelos }: { modelos: CostoModeloVista[] }) {
 
   async function aplicar(lista: string[] | null) {
     const n = lista ? lista.length : porAplicar.length;
-    if (!window.confirm(`¿Usar el costo real en Catálogo y costos para ${n} modelo${n === 1 ? "" : "s"}? Los cortes que se recalculen desde ahora lo usarán.`)) return;
+    if (!(await confirmar({ titulo: `¿Usar el costo real en Catálogo y costos para ${n} modelo${n === 1 ? "" : "s"}?`, mensaje: "Los cortes que se recalculen desde ahora lo usarán.", confirmar: "Usar costo real" }))) return;
     setOcupado(lista?.[0] ?? "todos");
     setError("");
     try {
@@ -321,7 +322,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
                   <button
                     className="boton boton-fantasma boton-chico"
                     disabled={ocupado}
-                    onClick={() => window.confirm("¿Borrar este pago?") && correr(() => post({ accion: "borrar-pago", id: p.id }))}
+                    onClick={async () => (await confirmar({ titulo: "¿Borrar este pago?", confirmar: "Borrar", peligro: true })) && correr(() => post({ accion: "borrar-pago", id: p.id }))}
                   >
                     Borrar
                   </button>

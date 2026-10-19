@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { Aviso } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 interface Contenedor {
   numero: string;
@@ -86,10 +87,12 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   });
 
   async function eliminar(p: Pedido) {
-    const seguro = window.confirm(
-      `¿Borrar el pedido ${p.pedido} (${n(p.cajas)} cajas, ${n(p.pares)} pares)? ` +
-        "Se quitan sus renglones y deja de contar como en camino. Las corridas se quedan.",
-    );
+    const seguro = await confirmar({
+      titulo: `¿Borrar el pedido ${p.pedido} (${n(p.cajas)} cajas, ${n(p.pares)} pares)?`,
+      mensaje: "Se quitan sus renglones y deja de contar como en camino. Las corridas se quedan.",
+      confirmar: "Borrar",
+      peligro: true,
+    });
     if (!seguro) return;
     setBorrando(p.id);
     try {

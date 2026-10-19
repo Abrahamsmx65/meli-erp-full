@@ -314,7 +314,7 @@ export function PrepararTikTok({
           className="mt-4 rounded-lg p-4"
           style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
+          <div className="text-[11px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
             {estado.paso === "lote" || (estado.paso === "listo" && estado.lote) ? "Lote" : estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: colorPaso }}>

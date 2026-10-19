@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GastoManual } from "@/lib/servicios/corte-meli";
 import { Aviso } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 /**
  * Lo interactivo del corte: hacer el corte, revisar devoluciones, leer la
@@ -147,7 +148,7 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
   }
 
   async function borrar(id: number) {
-    if (!confirm("¿Borrar este gasto?")) return;
+    if (!(await confirmar({ titulo: "¿Borrar este gasto?", confirmar: "Borrar", peligro: true }))) return;
     setOcupado(true);
     setError(null);
     try {

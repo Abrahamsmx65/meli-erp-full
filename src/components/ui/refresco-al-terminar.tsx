@@ -48,7 +48,7 @@ export function RefrescoAlTerminar() {
       className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-medium shadow-lg"
       style={{ background: "var(--marca)", color: "#fff" }}
     >
-      <span aria-hidden="true" className="inline-block size-2 animate-pulse rounded-full" style={{ background: "#d9b98f" }} />
+      <span aria-hidden="true" className="inline-block size-2 rounded-full motion-safe:animate-pulse" style={{ background: "#d9b98f" }} />
       Actualizando datos…
     </div>
   );

@@ -11,6 +11,8 @@ import { Ficha } from "@/components/tiles";
 import { AccionesCorte, GastosDelMes } from "@/components/cortes-meli";
 import { Ayuda, Cifras, Encabezado, Pagina, Seccion, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import { ModeloConFoto } from "@/components/ui/foto-producto";
+import { fotoDeProducto, type MapaFotos } from "@/lib/fotos/producto";
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,6 +45,7 @@ export function CorteVista({
   hoy,
   e,
   cortes,
+  fotos,
 }: {
   titulo: string;
   intro: string;
@@ -59,6 +62,8 @@ export function CorteVista({
   hoy: string;
   e: EstadoResultados;
   cortes: CorteGuardado[];
+  /** Fotos de producto (`fotos-producto`) para la tabla por modelo; solo calzado. */
+  fotos?: MapaFotos | null;
 }) {
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   return (
@@ -229,15 +234,14 @@ export function CorteVista({
             contenido: (
               <>
                 {/* ---- Por modelo y por categoría ---------------------------------- */}
-                <Seccion titulo="Por modelo" sinRelleno>
-                  <div className="px-4 pt-3">
-                    <Ayuda>
-                      <p>
-                        Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y
-                        los gastos de Full no se reparten por modelo.
-                      </p>
-                    </Ayuda>
-                  </div>
+                {/* La pestaña ya dice «Por modelo» y cuántos son: la sección no lo repite. */}
+                <Seccion sinRelleno>
+                  <Ayuda>
+                    <p>
+                      Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y
+                      los gastos de Full no se reparten por modelo.
+                    </p>
+                  </Ayuda>
                   <Tabla alta>
                     <table className="datos">
                       <thead>
@@ -260,7 +264,9 @@ export function CorteVista({
                       <tbody>
                         {e.porModelo.map((m) => (
                           <tr key={m.modelo}>
-                            <td className="font-medium">{m.modelo}</td>
+                            <td className="font-medium">
+                              {fotos ? <ModeloConFoto modelo={m.modelo} url={fotoDeProducto(fotos, m.modelo)} /> : m.modelo}
+                            </td>
                             <td className="texto-2">{m.categoria ?? "—"}</td>
                             <td className="num cifra">{n(m.unidades)}</td>
                             <td className="num cifra">{pesos(m.importe)}</td>
@@ -290,7 +296,7 @@ export function CorteVista({
             cuenta: e.porCategoria.length,
             contenido: (
               <>
-                <Seccion titulo="Por categoría" sinRelleno>
+                <Seccion sinRelleno>
                   <Tabla>
                     <table className="datos">
                       <thead>

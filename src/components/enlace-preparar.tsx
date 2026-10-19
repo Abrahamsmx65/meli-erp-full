@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
 import { Seccion } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 /** El link sin contraseña para los empleados, con el botón para renovarlo si se filtra. */
 export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string | null; origen: string }) {
@@ -12,7 +13,7 @@ export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string 
   const url = token ? `${origen}/preparar/${token}` : null;
 
   async function rotar() {
-    if (!confirm("El link anterior dejará de funcionar. ¿Generar uno nuevo?")) return;
+    if (!(await confirmar({ titulo: "¿Generar un link nuevo?", mensaje: "El link anterior dejará de funcionar.", confirmar: "Generar link nuevo", peligro: true }))) return;
     setOcupado(true);
     try {
       const r = await fetch("/api/tiktok/acceso", { method: "POST" });

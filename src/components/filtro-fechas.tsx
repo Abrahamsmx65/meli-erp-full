@@ -38,34 +38,34 @@ export function FiltroFechas({
 
   return (
     <div className="tarjeta flex flex-wrap items-center gap-x-4 gap-y-2 p-3 text-sm">
-      <span className="texto-2">Periodo</span>
+      <span className="texto-2 shrink-0">Periodo</span>
       <AtajosFechas
         atajos={atajos.map((a) => ({ texto: a.texto, href: `${base}?desde=${a.desde}&hasta=${a.hasta}` }))}
         activo={activo ? `${base}?desde=${activo.desde}&hasta=${activo.hasta}` : null}
         precargar={precargar}
       />
 
-      <form method="get" action={base} className="ml-auto flex flex-wrap items-center gap-2">
+      <form method="get" action={base} className="ml-auto flex w-full items-center gap-2 sm:w-auto">
         <input
           type="date"
           name="desde"
           defaultValue={desde}
           max={hoy}
-          className="rounded-lg border px-2 py-1 text-xs"
+          className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs sm:flex-none"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Desde"
         />
-        <span className="texto-tenue">→</span>
+        <span className="texto-tenue shrink-0">→</span>
         <input
           type="date"
           name="hasta"
           defaultValue={hasta}
           max={hoy}
-          className="rounded-lg border px-2 py-1 text-xs"
+          className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs sm:flex-none"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Hasta"
         />
-        <button type="submit" className="boton boton-borde boton-chico">
+        <button type="submit" className="boton boton-borde boton-chico shrink-0">
           Aplicar
         </button>
       </form>

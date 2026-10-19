@@ -5,6 +5,7 @@ import { Loader2, Upload } from "lucide-react";
 import { Ayuda, Seccion } from "@/components/ui/pagina";
 import type { PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { PublicacionMeliParaTikTok } from "@/lib/tiktok/publicar";
+import { confirmar } from "@/components/ui/confirmar";
 
 /**
  * Publicaciones de MELI que juntan VARIOS modelos (GT117…GT122 en una sola
@@ -42,9 +43,11 @@ export function PublicacionesMeliTikTok({
     if (!(precio > 0)) return;
     const titulo = (titulos[p.itemId] ?? p.titulo).trim();
     if (
-      !window.confirm(
-        `¿Publicar en TikTok${borrador ? " como borrador" : ""} la publicación ${p.itemId} (${p.modelos.join(", ")}) como UN producto con ${p.variantes - p.enTikTok.length} variantes a ${precio} ${moneda}?`,
-      )
+      !(await confirmar({
+        titulo: `¿Publicar en TikTok${borrador ? " como borrador" : ""} la publicación ${p.itemId}?`,
+        mensaje: `${p.modelos.join(", ")} como UN producto con ${p.variantes - p.enTikTok.length} variantes a ${precio} ${moneda}.`,
+        confirmar: "Publicar",
+      }))
     )
       return;
     setEnviando(p.itemId);

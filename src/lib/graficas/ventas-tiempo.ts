@@ -3,7 +3,9 @@
  * servidor: lo usa el componente del navegador y lo prueban las pruebas).
  */
 
-export type CanalTiempo = "meli_calzado" | "meli_fundas" | "amazon" | "tiktok";
+import { COLOR_CANAL, type CanalVenta } from "./canales";
+
+export type CanalTiempo = CanalVenta;
 
 /** Un día: unidades, órdenes y facturación (venta al precio público). */
 export interface DiaVenta {
@@ -24,12 +26,12 @@ export interface VentasTiempo {
   horas: HoraVenta[];
 }
 
-/** Nombre y color de cada canal: el orden y los tonos de la página de inicio. */
+/** Nombre y color de cada canal (colores de `canales.ts`, la única fuente). */
 export const CANALES_TIEMPO: { canal: CanalTiempo; nombre: string; color: string }[] = [
-  { canal: "meli_calzado", nombre: "Calzado · MELI", color: "#a35f1c" },
-  { canal: "amazon", nombre: "Amazon", color: "#3a72b8" },
-  { canal: "meli_fundas", nombre: "Fundas · MELI", color: "#2f9c63" },
-  { canal: "tiktok", nombre: "TikTok", color: "#d3a52e" },
+  { canal: "meli_calzado", nombre: "Calzado · MELI", color: COLOR_CANAL.meli_calzado },
+  { canal: "amazon", nombre: "Amazon", color: COLOR_CANAL.amazon },
+  { canal: "meli_fundas", nombre: "Fundas · MELI", color: COLOR_CANAL.meli_fundas },
+  { canal: "tiktok", nombre: "TikTok", color: COLOR_CANAL.tiktok },
 ];
 
 export type Medida = "importe" | "unidades";
