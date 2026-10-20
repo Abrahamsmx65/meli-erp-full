@@ -3035,6 +3035,16 @@ login, la base y el deploy.
   `yz_fijar_publicado`) no se juzga solo; un diseño con puras variantes
   nuevas/sin fecha es lanzamiento y no se retira; y sin 180 días de
   historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
+  **Los diseños ELEGIDOS en Pedidos a China se guardan por cuenta**
+  (`yz_parametros.pedidos_disenos`, migración 0150; `leerDisenosElegidos`
+  / `guardarDisenosElegidos`, `POST /api/yapanizcel/pedidos/seleccion`;
+  dueño, 20-oct-2026: «que no se desliguen solos, se quedan guardados»):
+  hasta ese día vivían en localStorage y en la URL, y al cargar la
+  pantalla se recortaban contra los diseños del resumen del momento y se
+  volvían a guardar recortados. Ahora la URL (`?disenos=`) manda sobre lo
+  guardado, lo guardado sobre el navegador, cada cambio se guarda medio
+  segundo después del último clic y la elección NUNCA se recorta contra el
+  catálogo: un diseño que el resumen no trae sigue elegido y reaparece.
   **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
   (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
   diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`

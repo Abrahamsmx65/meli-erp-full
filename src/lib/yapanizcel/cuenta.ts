@@ -152,3 +152,21 @@ export async function leerParametros(db: DB, accountId: string): Promise<Paramet
       data.dias_caducidad_envio ?? PARAMETROS_POR_OMISION.diasCaducidadEnvio,
   };
 }
+
+/**
+ * Los diseños elegidos en Pedidos a China (`yz_parametros.pedidos_disenos`,
+ * migración 0150). Se guardan por cuenta y se conservan tal cual —NO se
+ * recortan contra el catálogo del momento— hasta que el dueño los quite.
+ */
+export async function leerDisenosElegidos(db: DB, accountId: string): Promise<string[]> {
+  const { data } = await db.from("yz_parametros").select("pedidos_disenos").eq("account_id", accountId).maybeSingle();
+  const lista = (data as { pedidos_disenos?: unknown } | null)?.pedidos_disenos;
+  return Array.isArray(lista) ? lista.map((d) => String(d)) : [];
+}
+
+export async function guardarDisenosElegidos(db: DB, accountId: string, disenos: string[]): Promise<void> {
+  const { error } = await db
+    .from("yz_parametros")
+    .upsert({ account_id: accountId, pedidos_disenos: disenos, actualizado_en: new Date().toISOString() }, { onConflict: "account_id" });
+  if (error) throw new Error(error.message);
+}

@@ -1,5 +1,5 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
+import { cuentaActiva, leerDisenosElegidos } from "@/lib/yapanizcel/cuenta";
 import { DIAS_OBJETIVO_PEDIDO, obtenerResumenCompras } from "@/lib/yapanizcel/compras";
 import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
@@ -21,7 +21,11 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   // El servidor solo pinta el resumen (unos KB, ya masticado en yz_cache) y
   // la lista de pedidos. Abrir un diseño, filtrar y elegir pasa en el
   // navegador: la página no se vuelve a construir en cada clic.
-  const [resumen, pedidos] = await Promise.all([obtenerResumenCompras(supabase, cuenta.id), listarPedidos(supabase, cuenta.id)]);
+  const [resumen, pedidos, disenosGuardados] = await Promise.all([
+    obtenerResumenCompras(supabase, cuenta.id),
+    listarPedidos(supabase, cuenta.id),
+    leerDisenosElegidos(supabase, cuenta.id),
+  ]);
   const totalPedir = resumen.disenos.reduce((a, d) => a + d.sugerido, 0);
   const disenosIniciales = (sp.disenos ?? "")
     .split(",")
@@ -73,7 +77,13 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
             titulo: "Qué pedir",
             cuenta: resumen.disenos.length,
             contenido: (
-              <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
+              <PedidosChina
+                disenos={resumen.disenos}
+                diasObjetivo={DIAS_OBJETIVO_PEDIDO}
+                abrirInicial={abrirInicial}
+                disenosIniciales={disenosIniciales}
+                disenosGuardados={disenosGuardados}
+              />
             ),
           },
           {
