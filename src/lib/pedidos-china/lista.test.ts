@@ -142,3 +142,56 @@ BROWN
     expect(modelos[0].colores[0].renglones).toMatchObject([{ unitalla: "26", cajas: 22, paresPorCaja: 12 }]);
   });
 });
+
+describe("la hoja del dueño con tabulador: «RED 20 CTNS\tASSORTMENT» y «BLK\tSOLID SIZE CTNS OF 48» (GT142, 20-oct-2026)", () => {
+  const texto = [
+    "GT142\t",
+    "RED 20 CTNS\tASSORTMENT",
+    "23\t10",
+    "24\t6",
+    "25\t8",
+    "26\t13",
+    "27\t11",
+    "\t",
+    "PINK 20 CTNS\tASSORTMENT",
+    "23\t8",
+    "24\t11",
+    "25\t20",
+    "26\t3",
+    "27\t6",
+    "\t",
+    "\t",
+    "BLK\tSOLID SIZE CTNS OF 48",
+    "25\t7",
+    "27\t7",
+    "30\t11",
+  ].join("\n");
+
+  it("dos colores de corrida con 20 cajas y uno de cajas de una talla de 48", () => {
+    const r = leerLista(texto);
+    expect(r.sinEntender).toEqual([]);
+    expect(r.modelos).toHaveLength(1);
+    const m = r.modelos[0];
+    expect(m.modelo).toBe("GT142");
+    expect(m.avisos).toEqual([]);
+    expect(m.colores.map((c) => c.color)).toEqual(["RED", "PINK", "BLK"]);
+    expect(m.colores[0].renglones).toHaveLength(1);
+    expect(m.colores[0].renglones[0]).toMatchObject({
+      unitalla: null,
+      cajas: 20,
+      paresPorCaja: 48,
+      corrida: { "23": 10, "24": 6, "25": 8, "26": 13, "27": 11 },
+    });
+    expect(m.colores[1].renglones[0]).toMatchObject({
+      unitalla: null,
+      cajas: 20,
+      paresPorCaja: 48,
+      corrida: { "23": 8, "24": 11, "25": 20, "26": 3, "27": 6 },
+    });
+    expect(m.colores[2].renglones.map((x) => [x.unitalla, x.cajas, x.paresPorCaja])).toEqual([
+      ["25", 7, 48],
+      ["27", 7, 48],
+      ["30", 11, 48],
+    ]);
+  });
+});

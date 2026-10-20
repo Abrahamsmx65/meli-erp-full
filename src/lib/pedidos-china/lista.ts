@@ -80,6 +80,12 @@ const RE_PARES_SUELTOS = /\b(\d{1,3})\s*(?:PRS|PARES|PAIRS)\b/;
 const RE_COLOR_CAJAS = /^(.*?[A-Z]{2,}.*?)\s*[:=X×-]?\s*(\d{1,4})\s*(?:CTNS?|CARTONS?|CAJAS?)$/;
 /** «ASSORTMENT»: las líneas que siguen son la corrida de UNA caja. */
 const RE_SURTIDO = /^(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO|CORRIDA)\s*[:.]?$/;
+// «RED 20 CTNS ASSORTMENT» en UNA línea (el dueño pega la hoja con tabulador,
+// 20-oct-2026, GT142): el letrero al final abre el surtido del color.
+const RE_SURTIDO_AL_FINAL = /\s+(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO)\s*[:.]?$/;
+// «BLK SOLID SIZE CTNS OF 48»: «solid size» solo dice que la caja es de UNA
+// talla (lo normal de «talla cajas»); se quita para leer el color y la caja.
+const RE_SOLID_SIZE = /\bSOLID\s+SIZES?\b/g;
 const RE_CAJAS_FINAL = /\s*(?:X|×|\*|=)\s*(\d{1,4})\s*(?:CTNS?|CAJAS?|CARTONS?)?\s*$/;
 
 function esTalla(n: number): boolean {
@@ -91,6 +97,8 @@ function limpiar(linea: string): string {
     .toUpperCase()
     .replace(/[\t ]+/g, " ")
     .replace(/[：]/g, ":")
+    .replace(RE_SOLID_SIZE, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -190,12 +198,19 @@ export function leerLista(texto: string): ListaLeida {
 
   lineas.forEach((cruda, i) => {
     const num = i + 1;
-    const l = limpiar(cruda);
+    let l = limpiar(cruda);
     if (!l) {
       cerrarSurtido();
       return;
     }
     if (/^(TOTAL|TTL)\b/.test(l)) return;
+    // «RED 20 CTNS ASSORTMENT» en una sola línea: se lee el color con sus
+    // cajas y se abre el surtido en el mismo paso.
+    const surtidoAlFinal = RE_SURTIDO_AL_FINAL.test(l) && !RE_SURTIDO.test(l);
+    if (surtidoAlFinal) l = l.replace(RE_SURTIDO_AL_FINAL, "").trim();
+    const abrirSurtido = () => {
+      if (surtidoAlFinal) surtido = { corrida: {}, linea: cruda.trim(), num };
+    };
 
     // ---- Dentro de un surtido: "23 3" = talla y pares de la caja ------------
     if (surtido && esLineaDeNumeros(l)) {
@@ -227,6 +242,7 @@ export function leerLista(texto: string): ListaLeida {
           color = { color: nombre, renglones: [] };
           modelo.colores.push(color);
           cajasColor = { cajas: Number(cc[2]), linea: cruda.trim() };
+          abrirSurtido();
           return;
         }
       }
@@ -275,6 +291,7 @@ export function leerLista(texto: string): ListaLeida {
         porCajaColor = null;
         tallasCorrida = null;
         cajasColor = { cajas: Number(cc[2]), linea: cruda.trim() };
+        abrirSurtido();
         return;
       }
     }

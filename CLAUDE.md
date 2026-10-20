@@ -214,7 +214,12 @@ guárdala numerada.
   cada fábrica», «el último ha sido IN10183»). Se pega la lista tal cual
   («GT179 CTNS OF 12 / BROWN / 26 22…»: talla y CAJAS de una sola talla;
   corridas con «23 24 25 / 5 10 11 X 20», «23:5 24:10 X 20» o «misma
-  corrida x 20») y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
+  corrida x 20»; y la HOJA del dueño pegada con tabulador, 20-oct-2026,
+  GT142: «RED 20 CTNS ⇥ ASSORTMENT» en UNA línea abre el surtido de 20
+  cajas y los «talla ⇥ pares» de abajo son la corrida de la caja,
+  «BLK ⇥ SOLID SIZE CTNS OF 48» es color + caja de una talla —«solid
+  size» se quita, `RE_SOLID_SIZE`— y los «talla ⇥ cajas» de abajo son
+  cajas por talla) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
   (`siguienteIn`: el mayor entre pedidos, borradores vivos y
   `pedidos_ajustes.ultimo_in`). Hasta el 20-oct-2026 salía un borrador por
   modelo; ese día el dueño pegó GT180 y GT181 juntos («cuando pego un texto
