@@ -274,8 +274,13 @@ guárdala numerada.
   crea corrida y toma cada caja color por separado», «así se suben: IN10121
   GT114 TABACO BROWN-25, no cada talla como otro pedido»; la primera versión
   las guardó como `IN10172-24` y se corrigieron por SQL; hasta ese día
-  quedaban fuera; el sheet viejo también trae «IN10057-24» y «GT114-23», por
-  eso `numeroDePedido` toma el PRIMER número) y
+  quedaban fuera; el sheet viejo las traía de TRES formas —«IN10057-24 ·
+  GT114 · BLK», «IN10121 · GT114-23 · BEIGE» (que se leía como OTRO modelo)
+  y «TABACO BROWN-25»— y `normalizarCorridaUnitalla` en `importarCorridas`
+  las deja todas en color-talla al leer el sheet (las guardadas se
+  convirtieron por SQL el 20-oct-2026; el sheet se ACUMULA, no borra); la
+  pantalla de Corridas cuelga la caja de una talla de la bodega de su
+  corrida color-talla; `numeroDePedido` toma el PRIMER número) y
   correo a `pedidos_ajustes.destinatarios` **EN INGLÉS** (`correoDeBorrador`;
   dueño, 20-oct-2026: «que los correos se hagan en inglés»: lo leen la
   fábrica y el agente; «Purchase order IN10187 · GT142 · …», Cartons /
