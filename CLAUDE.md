@@ -222,13 +222,22 @@ guárdala numerada.
   caja, la corrida «misma» y el PRECIO por color y talla SOLO de pedidos a
   ESA fábrica (cambiar de fábrica en el borrador lo vuelve a armar sin
   precios); medidas de la caja del packing list de un contenedor anterior
-  con los mismos pares. Un modelo NUEVO queda pidiendo fábrica, precio y
-  descripción; no se confirma con nada en blanco (`faltantesDeBorrador`).
-  Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
+  con los mismos pares. **Fábrica, moneda y precio NO son obligatorios**
+  (dueño, 20-oct-2026: «si un producto no tiene fábrica, etc., solo mándame
+  un Excel sencillo»): sin fábrica el pedido sale en el formato sencillo
+  (`SIN_FABRICA`, encabezado «PURCHASE ORDER») y lo que no tiene precio va
+  en blanco; `faltantesDeBorrador` solo exige renglones, cajas y pares por
+  caja. Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
   con `origen = 'sistema'` (cuenta como en camino, da de alta corridas) y
-  correo con el Excel adjunto a `pedidos_ajustes.destinatarios` (se edita
-  en la pantalla; un correo que no sale no deshace el pedido, se
-  reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  correo a `pedidos_ajustes.destinatarios` con el Excel y **el ZIP de
+  etiquetas del pedido** (`zipEtiquetasDePedido` en
+  `servicios/etiquetas-pedido.ts`, el mismo de Órdenes de compra: PDF de
+  2 etiquetas por talla, BOX LABEL y Excel de códigos; dueño, 20-oct-2026:
+  «en el correo también se me comparta el PDF de etiquetas»). Un producto
+  nuevo aún no tiene código Full ni FNSKU: esas variantes van en
+  FALTANTES.txt. Si el ZIP no se arma el correo sale con el Excel y el motivo
+  queda en `correo.etiquetas` (se edita en la pantalla; un correo que no
+  sale no deshace el pedido, se reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
   renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
   la talla, precio por talla en fila de continuación), MINGTAI (RMB),
   JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y

@@ -136,6 +136,24 @@ export const FABRICAS: PerfilFabrica[] = [
   },
 ];
 
+/**
+ * Sin fábrica elegida (producto nuevo, o una que no se sabe): el pedido sale
+ * en el formato sencillo, sin encabezado de fábrica ni moneda (dueño,
+ * 20-oct-2026: «si un producto no tiene fábrica, etc., solo mándame un Excel
+ * sencillo»).
+ */
+export const SIN_FABRICA: PerfilFabrica = {
+  clave: "",
+  nombre: "",
+  reconoce: /$^/,
+  formato: "sencillo",
+  moneda: null,
+  direccion: [],
+  pago: "",
+  entrega: "FOB",
+  notas: [],
+};
+
 /** Limpia el nombre que el lector sacó de la proforma ("SELLERS:WENZHOU …  S/C NO.: …"). */
 export function nombreLimpio(proveedor: string): string {
   return proveedor
