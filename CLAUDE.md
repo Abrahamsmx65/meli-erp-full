@@ -268,11 +268,14 @@ guárdala numerada.
   caja. Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
   con `origen = 'sistema'` (cuenta como en camino, da de alta corridas:
   **también las cajas de UNA talla**, una corrida por color y talla con el
-  pedido `IN10172-24` y `{ "24": 48 }`, calcada del sheet de corridas
+  MISMO pedido y la talla pegada al color: `IN10121 · GT114 · TABACO
+  BROWN-25 · { "25": 24 }`, calcada del sheet de corridas
   (`corridasDeProforma`; dueño, 20-oct-2026: «los que son de una talla igual
-  crea corrida y toma cada caja color por separado»; hasta ese día quedaban
-  fuera; `numeroDePedido` toma el PRIMER número para que «IN10057-24» no le
-  gane a IN10121) y
+  crea corrida y toma cada caja color por separado», «así se suben: IN10121
+  GT114 TABACO BROWN-25, no cada talla como otro pedido»; la primera versión
+  las guardó como `IN10172-24` y se corrigieron por SQL; hasta ese día
+  quedaban fuera; el sheet viejo también trae «IN10057-24» y «GT114-23», por
+  eso `numeroDePedido` toma el PRIMER número) y
   correo a `pedidos_ajustes.destinatarios` **EN INGLÉS** (`correoDeBorrador`;
   dueño, 20-oct-2026: «que los correos se hagan en inglés»: lo leen la
   fábrica y el agente; «Purchase order IN10187 · GT142 · …», Cartons /
