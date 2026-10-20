@@ -350,11 +350,41 @@ export async function confirmarRelampagosPendientes(
       .filter((r) => r.tipo.toUpperCase() === "LIGHTNING" && ["pending", "started", "active", "programmed"].includes(r.estado.toLowerCase()))
       .map((r) => r.itemId),
   );
+  // Las propuestas de `/seller-promotions/items` no traen fecha: se leen del
+  // listado de la promoción para inscribir PRIMERO la más próxima (así la
+  // corrida de las 00:30 encadena la del día en cuanto termina la de ayer).
+  const candidatas = revision.meli.filter(
+    (r) => r.tipo.toUpperCase() === "LIGHTNING" && r.estado.toLowerCase() === "candidate" && r.accion === "inscribir" && r.nuevo != null,
+  );
+  const fechaDe = new Map<string, string>();
+  const itemsSinFecha = [...new Set(candidatas.filter((r) => !conProgramada.has(r.itemId)).map((r) => r.itemId))];
+  await enLotes(itemsSinFecha, 5, async (itemId) => {
+    const promo = candidatas.find((r) => r.itemId === itemId)?.promoId ?? "LGH-MLM1000";
+    try {
+      const lista = await cliente.get<{ results?: { id?: string; ref_id?: string; status?: string; start_date?: string }[] }>(
+        `/seller-promotions/promotions/${promo}/items`,
+        { app_version: "v2", promotion_type: "LIGHTNING", item_id: itemId, limit: 50 },
+        { reintentos: 1 },
+      );
+      for (const x of lista?.results ?? []) {
+        if (x.id && x.id !== itemId) continue;
+        const estado = (x.status ?? "").toLowerCase();
+        if (["pending", "started", "active", "programmed"].includes(estado)) conProgramada.add(itemId);
+        if (x.ref_id && x.start_date) fechaDe.set(`${itemId}|${x.ref_id}`, x.start_date);
+      }
+    } catch {
+      // sin fechas se queda el orden de MELI
+    }
+  });
+  const fecha = (r: RenglonPromo) => r.inicio ?? (r.offerId ? fechaDe.get(`${r.itemId}|${r.offerId}`) : undefined) ?? "9999";
+  const enOrden = [...revision.meli].sort((a, b) => a.itemId.localeCompare(b.itemId) || fecha(a).localeCompare(fecha(b)));
+
   const yaAvisadas = new Set<string>();
   const intentadas = new Set<string>();
-  for (const r of revision.meli) {
+  for (const r of enOrden) {
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
-    const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
+    const dia = fecha(r) === "9999" ? null : fecha(r).slice(0, 10);
+    const donde = `${r.itemId} · ${r.nombre}${dia ? ` · ${dia}` : ""}`;
     if (r.accion !== "inscribir" || r.nuevo == null) continue;
     if (conProgramada.has(r.itemId) || intentadas.has(r.itemId)) {
       if (!yaAvisadas.has(r.itemId)) {
