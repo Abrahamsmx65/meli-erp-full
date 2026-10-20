@@ -586,8 +586,14 @@ function compararCorrida(
 
 
 /** "IN10160" → 10160, para comparar pedidos por número y no por texto. */
+/**
+ * El número del pedido para saber cuál es más nuevo: el PRIMER grupo de
+ * dígitos («IN10160» → 10160). Una corrida de caja de una talla se guarda
+ * como «IN10057-24» (pedido-talla, como en el sheet): con todos los dígitos
+ * pegados salía 1005724 y le ganaba a cualquier pedido posterior.
+ */
 export function numeroDePedido(pedido: string): number {
-  const n = Number(pedido.replace(/\D+/g, ""));
+  const n = Number(pedido.match(/\d+/)?.[0] ?? "");
   return Number.isFinite(n) ? n : 0;
 }
 
