@@ -81,3 +81,64 @@ describe("SOLID SIZE 16 PRS (GT180 y GT181, 19-oct-2026)", () => {
     expect([...a.avisos, ...b.avisos]).toEqual([]);
   });
 });
+
+describe("COLOR N CTNS + ASSORTMENT (GT252 y GT259, 20-oct-2026)", () => {
+  const corrida = { "23": 3, "24": 8, "25": 8, "26": 5 };
+
+  it("lee el surtido debajo del color como UNA corrida por caja", () => {
+    const { modelos, sinEntender } = leerLista(`GT252
+BROWN 50 CTNS
+ASSORTMENT
+23 3
+24 8
+25 8
+26 5
+
+GT259
+BLACK 30 CTNS
+ASSORTMENT
+23 3
+24 8
+25 8
+26 5
+
+BROWN 30 CTNS
+ASSORTMENT
+23 3
+24 8
+25 8
+26 5`);
+    expect(sinEntender).toEqual([]);
+    expect(modelos.map((m) => m.modelo)).toEqual(["GT252", "GT259"]);
+    for (const m of modelos) expect(m.avisos).toEqual([]);
+    expect(modelos[0].colores).toHaveLength(1);
+    expect(modelos[0].colores[0].color).toBe("BROWN");
+    expect(modelos[0].colores[0].renglones).toMatchObject([{ unitalla: null, cajas: 50, paresPorCaja: 24, corrida }]);
+    expect(modelos[1].colores.map((c) => c.color)).toEqual(["BLACK", "BROWN"]);
+    for (const c of modelos[1].colores) {
+      expect(c.renglones).toMatchObject([{ unitalla: null, cajas: 30, paresPorCaja: 24, corrida }]);
+    }
+  });
+
+  it("sin línea en blanco y con el color en la línea del modelo", () => {
+    const { modelos } = leerLista(`GT259 BLACK 30 CTNS
+ASSORTMENT
+23 3
+24 8
+BROWN 10 CTNS
+ASSORTMENT
+23 4
+24 4`);
+    expect(modelos[0].colores).toMatchObject([
+      { color: "BLACK", renglones: [{ cajas: 30, paresPorCaja: 11, corrida: { "23": 3, "24": 8 } }] },
+      { color: "BROWN", renglones: [{ cajas: 10, paresPorCaja: 8, corrida: { "23": 4, "24": 4 } }] },
+    ]);
+  });
+
+  it("sin ASSORTMENT las líneas siguen siendo talla y cajas", () => {
+    const { modelos } = leerLista(`GT179 CTNS OF 12
+BROWN
+26 22`);
+    expect(modelos[0].colores[0].renglones).toMatchObject([{ unitalla: "26", cajas: 22, paresPorCaja: 12 }]);
+  });
+});
