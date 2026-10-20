@@ -103,8 +103,11 @@ Pedido tiene que cuadrar con el Detalle SKU).
   **Sin receta de ese color, la caja se supone** (`cajaDeRespaldo`; dueño,
   18-oct-2026: «¿para qué necesitas la proforma para poder calcular qué
   hay que pedir?»): primero la receta más reciente del MISMO MODELO en otro
-  color, si no la caja ESTÁNDAR de la fábrica (la más frecuente entre todas
-  las recetas de la cuenta). La corrida se propone por venta, como siempre,
+  color, luego la caja de UNA SOLA TALLA con que se ha pedido ese modelo
+  (`cajasUnitallaDePedidos`; GT180 y GT181 solo se piden «SOLID SIZE 16
+  PRS» y una caja así no es corrida, pero sí dice cuántos pares caben;
+  dueño, 20-oct-2026), si no la caja ESTÁNDAR de la fábrica (la más
+  frecuente entre todas las recetas de la cuenta). La corrida se propone por venta, como siempre,
   y el renglón dice qué caja se supuso. Solo sin NINGUNA receta en la
   cuenta queda sin cajas.
 - **Unitalla**: una talla se separa en cajas de una sola talla cuando ella
