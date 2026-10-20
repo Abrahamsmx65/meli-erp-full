@@ -84,7 +84,12 @@ export async function cargarCorridas(db: DB, accountId: string): Promise<Resumen
     const cajas = e.cajas_disponibles ?? 0;
     if (cajas <= 0) continue;
 
-    const clave = k(e.pedido ?? "", e.modelo ?? "", e.color ?? "");
+    // Una caja de UNA talla cuelga de la corrida que lleva la talla pegada
+    // al color («TABACO BROWN-25», como en el sheet); si no la hay, de la
+    // del color a secas.
+    const esUnitalla = Boolean(e.talla) && !/CORRIDA/i.test(String(e.talla));
+    const claveTalla = esUnitalla ? k(e.pedido ?? "", e.modelo ?? "", `${e.color ?? ""}-${e.talla}`) : null;
+    const clave = claveTalla && existeCorrida.has(claveTalla) ? claveTalla : k(e.pedido ?? "", e.modelo ?? "", e.color ?? "");
 
     if (existeCorrida.has(clave)) {
       const u = uso.get(clave) ?? { cajas: 0, pares: 0, almacenes: new Set<string>() };
