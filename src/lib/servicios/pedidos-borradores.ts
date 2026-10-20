@@ -4,9 +4,13 @@
  * confirmo y se manda a mi correo, al de mi papá y al de Joanne; después de
  * que se confirma me lo sumas a pedidos pendientes»).
  *
- *   1. Se pega la lista → un BORRADOR por modelo («cada modelo se pide en
- *      diferente Excel siempre») con su IN consecutivo (el último fuera del
- *      ERP fue IN10183: `pedidos_ajustes.ultimo_in`).
+ *   1. Se pega la lista → UN BORRADOR con todo lo pegado y su IN consecutivo
+ *      (el último fuera del ERP fue IN10183: `pedidos_ajustes.ultimo_in`).
+ *      Hasta el 20-oct-2026 salía uno por modelo («cada modelo se pide en
+ *      diferente Excel siempre»); ese día el dueño pegó GT180 y GT181 juntos
+ *      («es un solo pedido y el sistema me lo generó en dos»): lo que se pega
+ *      junto es un pedido. Para dos pedidos, se pegan dos veces. El IN se
+ *      puede corregir a mano en el borrador.
  *   2. Fábrica, moneda, precios por talla, pares por caja y medidas salen
  *      del último pedido del modelo (`pedidos-china/armar.ts`); lo que falte
  *      se captura en el borrador. Mientras es borrador NO cuenta para nada.
@@ -20,7 +24,7 @@ import { canonizar } from "../importar/sku";
 import type { LineaProforma, Moneda, Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, totalesDeBorrador, type BorradorArmado, type LineaBorrador, type LineaHistoria } from "../pedidos-china/armar";
-import { agruparPorFamilia } from "../pedidos-china/familias";
+import { familiaDe, nombreDeFamilia, type MapaFamilias } from "../pedidos-china/familias";
 import { cargarFamilias } from "./familias-modelos";
 import { excelDePedido, nombreArchivoPedido, type PedidoPI } from "../pedidos-china/excel";
 import { FABRICAS, perfilDeClave, perfilDeProveedor } from "../pedidos-china/fabricas";
@@ -270,9 +274,23 @@ function armarGrupo(nombre: string, familia: string | null, listas: ModeloLista[
 }
 
 /**
- * Pega la lista y arma un borrador por modelo, cada uno con su IN. Los
- * modelos de una misma FAMILIA (`modelos_familias`: GT117…GT122) salen en
- * UN solo borrador.
+ * Con qué nombre se enseña un borrador de varios modelos: el de la familia
+ * si todos son de la misma; si no, los modelos separados por coma.
+ */
+export function nombreDeBorrador(modelos: string[], familias: MapaFamilias | null): string {
+  const unicos = [...new Set(modelos.map((m) => m.toUpperCase()))];
+  if (unicos.length === 1) return unicos[0];
+  const fams = new Set(unicos.map((m) => familiaDe(familias, m)));
+  if (fams.size === 1 && !fams.has(null)) return [...fams][0] as string;
+  return unicos.length <= 6 ? unicos.join(", ") : nombreDeFamilia(unicos);
+}
+
+/**
+ * Pega la lista y arma UN borrador con todo lo pegado, con su IN (dueño,
+ * 20-oct-2026: «cuando pego un texto junto es porque es un solo pedido y el
+ * sistema me lo generó en dos»; hasta ese día salía un borrador por
+ * modelo). Un pedido de varios modelos lleva el modelo en cada renglón y
+ * sale en UN Excel.
  */
 export async function crearBorradores(
   db: DB,
@@ -290,7 +308,9 @@ export async function crearBorradores(
   let numero = await siguienteIn(db, accountId);
 
   const creados: Borrador[] = [];
-  for (const g of agruparPorFamilia(lista.modelos, familias)) {
+  const nombre = nombreDeBorrador(lista.modelos.map((m) => m.modelo), familias);
+  const grupos = [{ nombre, familia: lista.modelos.length > 1 ? nombre : null, elementos: lista.modelos }];
+  for (const g of grupos) {
     const armado = armarGrupo(g.nombre, g.familia, g.elementos, historia);
     armado.moneda = await monedaConocida(db, accountId, armado);
     const fila = {
@@ -301,7 +321,7 @@ export async function crearBorradores(
       moneda: armado.moneda,
       descripcion: armado.descripcion,
       lineas: armado.lineas,
-      texto: g.elementos.map((m) => m.texto).join("\n\n"),
+      texto: texto.trim(),
       avisos: armado.avisos,
     };
     // El IN es único entre los vivos: si otro clic lo tomó, el siguiente.
@@ -362,11 +382,33 @@ export async function actualizarBorrador(
   db: DB,
   accountId: string,
   id: string,
-  cambios: { fabrica?: string | null; moneda?: Moneda | null; descripcion?: string; lineas?: unknown; proveedor?: string },
+  cambios: { fabrica?: string | null; moneda?: Moneda | null; descripcion?: string; lineas?: unknown; proveedor?: string; pedido?: string },
 ): Promise<Borrador> {
   const b = await leerBorrador(db, accountId, id);
   if (b.estado !== "borrador") throw new Error("Ese pedido ya no es borrador.");
   const fila: Record<string, unknown> = { actualizado_en: new Date().toISOString() };
+
+  // El número de pedido se puede corregir a mano (dueño, 20-oct-2026):
+  // forma IN + número y que no lo tenga ya un pedido cargado ni otro
+  // borrador vivo (el índice único lo cuida; aquí se contesta con palabras).
+  if (cambios.pedido !== undefined) {
+    const nuevo = String(cambios.pedido).trim().toUpperCase().replace(/\s+/g, "");
+    if (!/^IN\d{4,6}$/.test(nuevo)) throw new Error("El número de pedido va como IN10186.");
+    if (nuevo !== b.pedido) {
+      const { data: existente } = await db.from("pedidos").select("id").eq("account_id", accountId).ilike("pedido", nuevo).limit(1);
+      if (existente?.length) throw new Error(`El ${nuevo} ya está cargado en Órdenes de compra.`);
+      const { data: vivo } = await db
+        .from("pedidos_borradores")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("pedido", nuevo)
+        .neq("estado", "descartado")
+        .neq("id", id)
+        .limit(1);
+      if (vivo?.length) throw new Error(`Ya hay otro borrador con el ${nuevo}.`);
+      fila.pedido = nuevo;
+    }
+  }
 
   if (cambios.fabrica !== undefined && cambios.fabrica !== b.fabrica) {
     const listas = leerLista(b.texto).modelos;
@@ -393,6 +435,7 @@ export async function actualizarBorrador(
   if (cambios.descripcion !== undefined) fila.descripcion = String(cambios.descripcion).trim().slice(0, 200);
 
   const { data, error } = await db.from("pedidos_borradores").update(fila).eq("account_id", accountId).eq("id", id).select(COLUMNAS).single();
+  if (error?.code === "23505") throw new Error(`Ya hay otro borrador con el ${fila.pedido}.`);
   if (error || !data) throw new Error(`No se pudo guardar: ${error?.message ?? "sin detalle"}`);
   return aBorrador(data);
 }
