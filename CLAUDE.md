@@ -198,11 +198,11 @@ guárdala numerada.
   publicación en MELI, un solo IN de Mingtai). La familia se da de alta en
   la pantalla (modelos + nombre, «GT117-GT122» por omisión); el cálculo
   sigue por modelo + color, pero `RenglonCompra.familia` hace que la tabla
-  los enseñe como UN modelo (cada número es un color más), el «Excel del
-  pedido» de la familia traiga todos sus modelos y, en Nuevo pedido, los
-  bloques de la lista de la misma familia salgan en UN borrador
-  (`armarBorradorFamilia`: cada renglón con su `modelo`, la fábrica del
-  primero que la tenga y los demás armados con esa). Al guardar una familia
+  los enseñe como UN modelo (cada número es un color más) y el «Excel del
+  pedido» de la familia traiga todos sus modelos; en Nuevo pedido todo lo
+  pegado ya es un solo borrador (`armarBorradorFamilia`: cada renglón con
+  su `modelo`, la fábrica del primero que la tenga y los demás armados con
+  esa) y la familia solo le da el nombre. Al guardar una familia
   se tumba `compras-china` (hoy `v5`) y se rehace por atrás.
 - **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
   `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
@@ -214,9 +214,18 @@ guárdala numerada.
   cada fábrica», «el último ha sido IN10183»). Se pega la lista tal cual
   («GT179 CTNS OF 12 / BROWN / 26 22…»: talla y CAJAS de una sola talla;
   corridas con «23 24 25 / 5 10 11 X 20», «23:5 24:10 X 20» o «misma
-  corrida x 20») y sale UN BORRADOR POR MODELO con su IN consecutivo
+  corrida x 20») y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
   (`siguienteIn`: el mayor entre pedidos, borradores vivos y
-  `pedidos_ajustes.ultimo_in`). Lo que la lista no dice sale del último
+  `pedidos_ajustes.ultimo_in`). Hasta el 20-oct-2026 salía un borrador por
+  modelo; ese día el dueño pegó GT180 y GT181 juntos («cuando pego un texto
+  junto es porque es un solo pedido y el sistema me lo generó en dos»): lo
+  que se pega junto es UN pedido (`nombreDeBorrador`: el nombre de la
+  familia si todos son de una, si no los modelos con coma; cada renglón
+  lleva su `modelo`), para dos pedidos se pega dos veces, y el IN se
+  CORRIGE a mano en el borrador (`actualizarBorrador({ pedido })`: forma
+  IN + número, ni cargado en Órdenes de compra ni en otro borrador vivo).
+  El campo de precio guarda lo TECLEADO mientras se escribe (`tecleado` en
+  `nuevo-pedido.tsx`): antes el punto decimal desaparecía al teclearlo. Lo que la lista no dice sale del último
   pedido del modelo: fábrica (cada modelo siempre ha sido de una), moneda,
   descripción, el color como lo escribe la fábrica (BLK → BLACK), pares por
   caja, la corrida «misma» y el PRECIO por color y talla SOLO de pedidos a

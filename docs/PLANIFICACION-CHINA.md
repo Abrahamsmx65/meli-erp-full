@@ -18,10 +18,11 @@ mismo zapato en seis colores (una sola publicación en MELI, un solo IN de
 Mingtai). El cálculo sigue siendo por modelo + color (cada número tiene su
 propia receta y su propia venta), pero el renglón lleva `familia` y la
 tabla «Pedido por modelo» los enseña como UN modelo con cada número como un
-color más; el «Excel del pedido» de la familia trae todos sus modelos; y en
-Nuevo pedido los bloques de la lista que caen en la misma familia salen en
-UN solo borrador (un IN, un Excel con el modelo en cada renglón). Se dan de
-alta en la propia pantalla («Modelos que se piden juntos»).
+color más; el «Excel del pedido» de la familia trae todos sus modelos. En
+Nuevo pedido todo lo que se pega junto ya es UN borrador (un IN, un Excel
+con el modelo en cada renglón; dueño, 20-oct-2026) y la familia solo le da
+el nombre. Se dan de alta en la propia pantalla («Modelos que se piden
+juntos»).
 
 ## 2. El inventario que cuenta es TODO el que existe
 
