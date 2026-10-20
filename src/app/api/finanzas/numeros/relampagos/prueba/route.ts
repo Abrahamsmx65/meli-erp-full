@@ -22,7 +22,7 @@ export const maxDuration = 300;
  *
  * `?item=MLM…&precio=229.99&ref=CANDIDATE-…`; sin `item` toma la primera
  * publicación de la última corrida que sigue con una relámpago propuesta, y
- * sin `precio` el de la relámpago que ya tiene programada. Desde el 20-oct
+ * sin `precio` el precio relámpago de Números de su modelo. Desde el 20-oct
  * prueba mandando las FECHAS de la propuesta (las del listado de la
  * promoción): sin ellas MELI editaba la relámpago ya programada.
  */
@@ -118,9 +118,31 @@ export async function GET(req: Request) {
   const antes = await fechas().catch(() => [] as Fecha[]);
   const slot = antes.find((x) => x.ref_id === ref);
   const programadasAntes = antes.filter((x) => x.status !== "candidate").length;
-  // Sin precio: el de la relámpago ya programada (es el de Números).
-  precio = precio ?? antes.find((x) => x.status !== "candidate" && x.price)?.price ?? null;
-  if (!precio) return NextResponse.json({ error: "No sé a qué precio probar: pásame &precio=…" }, { status: 400 });
+  // Sin precio: el precio relámpago de Números del modelo de la publicación
+  // (dueño, 20-oct-2026: «el precio de nuestro sistema, si no, no jala»).
+  let modelo: string | null = null;
+  if (!precio) {
+    const { data: sku } = await admin
+      .from("skus")
+      .select("modelo")
+      .eq("account_id", cuenta.id)
+      .eq("item_id", itemId)
+      .not("modelo", "is", null)
+      .limit(1)
+      .maybeSingle();
+    modelo = ((sku as { modelo?: string } | null)?.modelo ?? "").toUpperCase() || null;
+    if (modelo) {
+      const { data: n } = await admin
+        .from("numeros_modelos")
+        .select("precio_relampago")
+        .eq("account_id", cuenta.id)
+        .eq("modelo", modelo)
+        .maybeSingle();
+      const p = Number((n as { precio_relampago?: unknown } | null)?.precio_relampago);
+      precio = Number.isFinite(p) && p > 0 ? p : null;
+    }
+  }
+  if (!precio) return NextResponse.json({ error: `${modelo ?? itemId} no tiene precio relámpago en Números: pásame &precio=…` }, { status: 400 });
   const inicio = slot?.start_date ?? null;
   const fin = slot?.finish_date ?? null;
   const conZona = (x: string | null) => (x && !/[zZ]|[+-]\d\d:\d\d$/.test(x) ? `${x}-06:00` : x);
@@ -164,6 +186,7 @@ export async function GET(req: Request) {
 
   const resultado = {
     itemId,
+    modelo,
     precio,
     ref,
     funciono,
