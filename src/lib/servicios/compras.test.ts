@@ -297,6 +297,16 @@ describe("sin receta de ese color, la caja se supone (18-oct-2026)", () => {
     expect(cajaDeRespaldo(corridas, "GT104-2")).toEqual({ paresPorCaja: 48, origen: "modelo" });
   });
 
+  it("un modelo pedido solo en cajas de UNA talla toma esa caja (la del pedido más reciente)", () => {
+    const unitallas = [
+      { pedido: "IN10150", modelo: "GT180", color: "BLK", paresPorCaja: 12 },
+      { pedido: "IN10185", modelo: "GT180", color: "BROWN", paresPorCaja: 16 },
+    ];
+    expect(cajaDeRespaldo(corridas, "GT180", unitallas)).toEqual({ paresPorCaja: 16, origen: "unitalla" });
+    // La corrida del mismo modelo sigue mandando sobre la caja unitalla.
+    expect(cajaDeRespaldo(corridas, "GT104-2", [{ pedido: "IN10190", modelo: "GT104-2", color: "BLK", paresPorCaja: 16 }])).toEqual({ paresPorCaja: 48, origen: "modelo" });
+  });
+
   it("un modelo nunca pedido toma la caja estándar de la cuenta (la más frecuente; en empate la grande)", () => {
     expect(cajaDeRespaldo(corridas, "GT999")).toEqual({ paresPorCaja: 48, origen: "estandar" });
   });

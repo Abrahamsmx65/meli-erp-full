@@ -157,7 +157,8 @@ export default async function Pedidos() {
       {compra.totales.conCajaSupuesta > 0 ? (
         <Aviso tono="info">
           {compra.totales.conCajaSupuesta} modelos sin receta propia: se les supuso la caja del mismo modelo en
-          otro color (o la estándar de tus pedidos) y la corrida va propuesta por venta. El renglón lo dice.
+          otro color, la de una sola talla con que se ha pedido, o la estándar de tus pedidos, y la corrida va
+          propuesta por venta. El renglón lo dice.
         </Aviso>
       ) : null}
 
