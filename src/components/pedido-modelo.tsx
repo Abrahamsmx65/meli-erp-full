@@ -100,15 +100,17 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         .filter((m) => m.cajas > 0)
         .map((m) => ({
           ...m,
-          // Los colores con cajas primero; los demás abajo, de referencia.
+          // Los colores con más pares primero; los sin cajas abajo, de referencia.
           colores: [...m.colores].sort(
             (a, b) =>
-              b.cajasSugeridas - a.cajasSugeridas ||
+              b.paresSugeridos - a.paresSugeridos ||
               a.modelo.localeCompare(b.modelo, "en", { numeric: true }) ||
               a.color.localeCompare(b.color),
           ),
         }))
-        .sort((a, b) => b.cajas - a.cajas)
+        // De más a menos PARES por pedir (dueño, 20-oct-2026); a pares
+        // iguales, más cajas primero.
+        .sort((a, b) => b.pares - a.pares || b.cajas - a.cajas)
     );
   }, [renglones]);
 
