@@ -49,6 +49,8 @@ export interface RenglonLista {
 export interface ColorLista {
   color: string;
   renglones: RenglonLista[];
+  /** la lista lo trae como «NEW COLOR»: no existe todavía en MELI */
+  nuevo?: boolean;
 }
 
 export interface ModeloLista {
@@ -73,7 +75,13 @@ const RE_POR_CAJA = [
   // «SOLID SIZE 16 PRS» (cajas de una sola talla con 16 pares; GT180 y
   // GT181, 19-oct-2026: la lista no se reconocía).
   /\bSOLID\s*SIZE\s*(?:OF\s*)?(\d{1,3})\s*(?:PRS|PARES|PAIRS|PR)?\b/,
+  // «CTNS 48» sin «OF» (GT128, 20-oct-2026: «PINK SOLID SIZE CTNS 48»).
+  /\b(?:CTNS?|CARTONS?|CAJAS?)\s*[:=]?\s*(\d{1,3})\s*(?:PRS|PARES|PAIRS)?\b/,
 ];
+// «LT BROWN NEW COLOR»: el color todavía no existe en MELI; se lee el color
+// y se marca NUEVO (GT128, 20-oct-2026: «voy a aumentar colores nuevos […]
+// que me lo pongas en el Excel marcados como nuevos»).
+const RE_COLOR_NUEVO = /\s*(?:\(|\[)?\b(?:NEW\s+COLOU?R|COLOU?R\s+NUEVO|NUEVO|NEW)\b(?:\)|\])?\s*$/;
 /** «16 PRS» suelto: pares por caja SOLO si en la línea no hay otro número. */
 const RE_PARES_SUELTOS = /\b(\d{1,3})\s*(?:PRS|PARES|PAIRS)\b/;
 /** «BROWN 50 CTNS»: color y cajas en la misma línea (sin «OF»). */
@@ -208,6 +216,10 @@ export function leerLista(texto: string): ListaLeida {
     // cajas y se abre el surtido en el mismo paso.
     const surtidoAlFinal = RE_SURTIDO_AL_FINAL.test(l) && !RE_SURTIDO.test(l);
     if (surtidoAlFinal) l = l.replace(RE_SURTIDO_AL_FINAL, "").trim();
+    // «… NEW COLOR» al final: el color que se abra en esta línea es nuevo.
+    const colorNuevo = RE_COLOR_NUEVO.test(l) && /[A-Z]{2,}\s/.test(l);
+    if (colorNuevo) l = l.replace(RE_COLOR_NUEVO, "").trim();
+    const abrirColor = (nombre: string): ColorLista => (colorNuevo ? { color: nombre, renglones: [], nuevo: true } : { color: nombre, renglones: [] });
     const abrirSurtido = () => {
       if (surtidoAlFinal) surtido = { corrida: {}, linea: cruda.trim(), num };
     };
@@ -239,7 +251,7 @@ export function leerLista(texto: string): ListaLeida {
       if (cc && !/\b(?:OF|DE|CON)\b/.test(resto)) {
         const nombre = limpiarColor(cc[1]);
         if (nombre && !/\d{2,}/.test(nombre)) {
-          color = { color: nombre, renglones: [] };
+          color = abrirColor(nombre);
           modelo.colores.push(color);
           cajasColor = { cajas: Number(cc[2]), linea: cruda.trim() };
           abrirSurtido();
@@ -248,7 +260,7 @@ export function leerLista(texto: string): ListaLeida {
       }
       const c = limpiarColor(resto);
       if (c && /[A-Z]/.test(c)) {
-        color = { color: c, renglones: [] };
+        color = abrirColor(c);
         modelo.colores.push(color);
       }
       return;
@@ -268,7 +280,7 @@ export function leerLista(texto: string): ListaLeida {
       else porCajaColor = pc.porCaja;
       const c = limpiarColor(pc.resto);
       if (c && /[A-Z]{2,}/.test(c)) {
-        color = { color: c, renglones: [] };
+        color = abrirColor(c);
         modelo.colores.push(color);
         porCajaColor = pc.porCaja;
       }
@@ -286,7 +298,7 @@ export function leerLista(texto: string): ListaLeida {
     if (cc && !/\b(?:OF|DE|CON)\b/.test(l)) {
       const nombre = limpiarColor(cc[1]);
       if (nombre && !/\d{2,}/.test(nombre)) {
-        color = { color: nombre, renglones: [] };
+        color = abrirColor(nombre);
         modelo.colores.push(color);
         porCajaColor = null;
         tallasCorrida = null;
@@ -383,7 +395,7 @@ export function leerLista(texto: string): ListaLeida {
     // ---- Un color nuevo del mismo modelo -----------------------------------
     const c = limpiarColor(pc.resto);
     if (c && /[A-Z]{2,}/.test(c) && !/\d{2,}/.test(c)) {
-      color = { color: c, renglones: [] };
+      color = abrirColor(c);
       modelo.colores.push(color);
       porCajaColor = pc.porCaja ?? null;
       tallasCorrida = null;

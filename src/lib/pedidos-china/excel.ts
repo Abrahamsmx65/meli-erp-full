@@ -30,6 +30,15 @@ export interface RenglonPI {
   medidas?: { largoCm: number; anchoCm: number; altoCm: number } | null;
   /** m³ de UNA caja */
   cbmCaja: number | null;
+  /** color que no existe todavía en MELI: va marcado «(NEW COLOR)» en la descripción */
+  nuevo?: boolean;
+}
+
+/** La descripción que se escribe: con la marca de color nuevo si aplica. */
+export function descripcionDeRenglon(r: Pick<RenglonPI, "descripcion" | "nuevo">): string {
+  const base = (r.descripcion || "").trim();
+  if (!r.nuevo) return base;
+  return base ? `${base} (NEW COLOR)` : "(NEW COLOR)";
 }
 
 export interface PedidoPI {
@@ -143,7 +152,7 @@ export function filasDeTabla(renglones: RenglonPI[], unitalla: "cajas" | "pares"
       const t = r.unitalla;
       filas.push({
         modelo: r.modelo,
-        descripcion: r.descripcion,
+        descripcion: descripcionDeRenglon(r),
         color: r.color,
         bajoTalla: { [t]: unitalla === "cajas" ? r.cajas : r.paresPorCaja },
         porCaja: r.paresPorCaja,
@@ -177,7 +186,7 @@ export function filasDeTabla(renglones: RenglonPI[], unitalla: "cajas" | "pares"
       const pares = paresCaja * r.cajas;
       filas.push({
         modelo: primera ? r.modelo : "",
-        descripcion: primera ? r.descripcion : "",
+        descripcion: primera ? descripcionDeRenglon(r) : "",
         color: primera ? r.color : "",
         bajoTalla,
         porCaja: primera ? r.paresPorCaja : null,
@@ -203,7 +212,7 @@ export function filasDeTabla(renglones: RenglonPI[], unitalla: "cajas" | "pares"
     const pares = cajas * r.paresPorCaja;
     filas.push({
       modelo: r.modelo,
-      descripcion: r.descripcion,
+      descripcion: descripcionDeRenglon(r),
       color: r.color,
       bajoTalla,
       porCaja: r.paresPorCaja,

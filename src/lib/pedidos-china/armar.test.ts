@@ -110,3 +110,23 @@ describe("armarBorradorFamilia: varios modelos que se piden juntos en UN pedido"
     expect(b.lineas[0].modelo).toBe("GT120");
   });
 });
+
+describe("color NUEVO: mismo precio que los demás, marcado y con su SKU de MELI (GT128, 20-oct-2026)", () => {
+  const hist: LineaHistoria[] = [
+    h({ pedido: "IN10140", proveedor: "Fujian  Mingtai Shoes Co.,Ltd.", moneda: "RMB", modelo: "GT128", color: "BLK", talla: "23", tallas: { "23": 144 }, paresPorCaja: 48, precio: 31, descripcion: "SANDALIA DAMA" }),
+    h({ pedido: "IN10140", proveedor: "Fujian  Mingtai Shoes Co.,Ltd.", moneda: "RMB", modelo: "GT128", color: "PINK", talla: "24", tallas: { "24": 240 }, paresPorCaja: 48, precio: 31.5, descripcion: "SANDALIA DAMA (NEW COLOR)" }),
+  ];
+  const lista = leerLista("GT128\nPINK SOLID SIZE CTNS 48\n23 3\n\nLT BROWN NEW COLOR\n23 3\n24 5");
+
+  it("el renglón nuevo toma el precio de la talla de otro color y el aviso dice el SKU", () => {
+    const b = armarBorrador(lista.modelos[0], hist);
+    expect(b.descripcion).toBe("SANDALIA DAMA");
+    expect(b.lineas.map((l) => [l.color, l.unitalla, l.precio, Boolean(l.colorNuevo)])).toEqual([
+      ["PINK", "23", 31, false],
+      ["LT BROWN", "23", 31, true],
+      ["LT BROWN", "24", 31.5, true],
+    ]);
+    expect(b.avisos.join(" ")).toContain("GT128-LT BROWN-23-MX");
+    expect(b.avisos.join(" ")).toContain("GT128-LT BROWN-24-MX");
+  });
+});
