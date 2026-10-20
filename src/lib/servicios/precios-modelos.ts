@@ -339,10 +339,31 @@ export async function confirmarRelampagosPendientes(
   const fallidas: ResultadoPrecio[] = [];
   const omitidas: string[] = [];
   const porItem = new Map<string, ResultadoPrecio[]>();
+  // Por el API, MELI deja UNA relámpago programada por publicación: con una
+  // ya «pending», el POST de otra fecha le contesta «sí» y solo le cambia el
+  // precio a la programada (prueba del 20-oct-2026, GT130: las seis formas
+  // devolvieron la misma OFFER del 21-oct y la del 23-oct siguió candidata).
+  // Esas publicaciones esperan a que pase su relámpago, y de las que no
+  // tienen ninguna se inscribe solo una fecha por corrida.
+  const conProgramada = new Set(
+    revision.meli
+      .filter((r) => r.tipo.toUpperCase() === "LIGHTNING" && ["pending", "started", "active", "programmed"].includes(r.estado.toLowerCase()))
+      .map((r) => r.itemId),
+  );
+  const yaAvisadas = new Set<string>();
+  const intentadas = new Set<string>();
   for (const r of revision.meli) {
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
     const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
     if (r.accion !== "inscribir" || r.nuevo == null) continue;
+    if (conProgramada.has(r.itemId) || intentadas.has(r.itemId)) {
+      if (!yaAvisadas.has(r.itemId)) {
+        yaAvisadas.add(r.itemId);
+        omitidas.push(`${donde}: ya tiene una relámpago programada; MELI solo deja una por el API y la siguiente entra cuando pase esa`);
+      }
+      continue;
+    }
+    intentadas.add(r.itemId);
     const s = stockParaRelampago(r, undefined);
     if ("error" in s) {
       omitidas.push(`${donde}: ${s.error}`);

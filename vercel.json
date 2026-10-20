@@ -77,6 +77,10 @@
       "schedule": "0 16 * * *"
     },
     {
+      "path": "/api/cron/relampagos",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/ofertas-meli",
       "schedule": "20 * * * *"
     },

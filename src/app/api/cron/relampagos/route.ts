@@ -9,8 +9,10 @@ export const runtime = "nodejs";
 export const maxDuration = 800;
 
 /**
- * 10:00 de México (16:00Z, vercel.json): inscribe las relámpago candidatas
- * que cumplen el precio relámpago de Números. Mismo secreto que los demás
+ * 10:00 de México (16:00Z) y 00:30 (06:30Z, vercel.json): inscribe las
+ * relámpago candidatas que cumplen el precio relámpago de Números. MELI deja
+ * una sola programada por publicación por el API; la de las 00:30 alcanza la
+ * relámpago del día en cuanto termina la de ayer. Mismo secreto que los demás
  * crons.
  */
 export async function GET(req: NextRequest) {
