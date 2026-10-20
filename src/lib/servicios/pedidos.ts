@@ -217,11 +217,13 @@ export interface CorridaDePedido {
 /**
  * Las corridas que deja un pedido confirmado: una por modelo + color para
  * las cajas de corrida (la receta de la caja) y, para las cajas de UNA
- * talla, una por modelo + color + talla con el pedido `IN10172-24` y
- * `{ "24": 48 }`, calcada de cómo el dueño las apunta en el sheet de
- * corridas (`IN10057-24` GT114 BLK; dueño, 20-oct-2026: «los que son de
- * una talla igual crea corrida y toma cada caja color por separado»).
- * Hasta ese día las unitallas quedaban fuera.
+ * talla, una por modelo + color + talla con el MISMO pedido y la talla
+ * pegada al color: `IN10121 · GT114 · TABACO BROWN-25 · { "25": 24 }`,
+ * calcada de cómo el dueño las apunta en el sheet de corridas (dueño,
+ * 20-oct-2026: «los que son de una talla igual crea corrida y toma cada
+ * caja color por separado»; «así se suben: IN10121 GT114 TABACO BROWN-25,
+ * no cada talla como otro pedido»). Hasta ese día las unitallas quedaban
+ * fuera.
  */
 export function corridasDeProforma(
   accountId: string,
@@ -248,9 +250,9 @@ export function corridasDeProforma(
     vistas.add(k);
     out.push({
       account_id: accountId,
-      pedido: `${pedido}-${l.unitalla}`,
+      pedido,
       modelo: l.modelo,
-      color: l.color,
+      color: `${l.color}-${l.unitalla}`,
       tallas: { [l.unitalla]: l.paresPorCaja },
       total: l.paresPorCaja,
       origen: "proforma",

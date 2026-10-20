@@ -271,7 +271,7 @@ describe("listarContenedores con más de 1,000 líneas amarradas", () => {
 });
 
 describe("corridasDeProforma: las cajas de una talla también son corrida (20-oct-2026)", () => {
-  it("una por color y talla con el pedido-talla, como en el sheet; la de corrida como siempre", () => {
+  it("una por color y talla con la talla pegada al color y el mismo pedido, como en el sheet; la de corrida como siempre", () => {
     const c = corridasDeProforma(
       "acc",
       "IN10172",
@@ -287,9 +287,9 @@ describe("corridasDeProforma: las cajas de una talla también son corrida (20-oc
     );
     expect(c.map((x) => [x.pedido, x.modelo, x.color, x.tallas, x.total, x.origen])).toEqual([
       ["IN10172", "GT148", "BLK", { "23": 10, "24": 14 }, 24, "proforma"],
-      ["IN10172-24", "GT148", "BLK", { "24": 48 }, 48, "proforma"],
-      ["IN10172-24", "GT148", "CREAM", { "24": 48 }, 48, "proforma"],
-      ["IN10172-25", "GT148", "CREAM", { "25": 48 }, 48, "proforma"],
+      ["IN10172", "GT148", "BLK-24", { "24": 48 }, 48, "proforma"],
+      ["IN10172", "GT148", "CREAM-24", { "24": 48 }, 48, "proforma"],
+      ["IN10172", "GT148", "CREAM-25", { "25": 48 }, 48, "proforma"],
     ]);
   });
 });
