@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, mismoColor, totalesDeBorrador, type LineaHistoria } from "./armar";
+import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, hermanosDeModelo, mismoColor, totalesDeBorrador, type LineaHistoria } from "./armar";
 import { leerLista } from "./lista";
 
 const h = (o: Partial<LineaHistoria>): LineaHistoria => ({
@@ -108,6 +108,45 @@ describe("armarBorradorFamilia: varios modelos que se piden juntos en UN pedido"
     const b = armarBorradorFamilia("GT117-GT122", [lista.modelos[2]], hist);
     expect(b.nuevo).toBe(true);
     expect(b.lineas[0].modelo).toBe("GT120");
+  });
+
+  // Dueño, 20-oct-2026: GT120 (nunca pedido) salía sin fábrica ni precio
+  // aunque GT117…GT122 es el mismo zapato; solo la FAMILIA respalda, los
+  // números hermanos (GT104-5 contra GT104-3) no.
+  describe("un modelo que nunca se ha pedido toma la historia de su familia", () => {
+    const familia = ["GT117", "GT118", "GT119", "GT120", "GT121", "GT122"];
+    const hermanosDe = (m: string) => hermanosDeModelo(m, familia);
+
+    it("fábrica, moneda, precio, caja y descripción de los hermanos, avisado", () => {
+      const gt120 = leerLista("GT120 GREY SOLID SIZE 48\n25 5\n26 7").modelos[0];
+      const b = armarBorrador(gt120, hist, null, hermanosDe(gt120.modelo));
+      expect(b).toMatchObject({ modelo: "GT120", fabrica: "mingtai", moneda: "RMB", descripcion: "EVA SANDAL", nuevo: true });
+      expect(b.lineas.map((l) => [l.color, l.unitalla, l.cajas, l.paresPorCaja, l.precio, l.precioDe])).toEqual([
+        ["GREY", "25", 5, 48, 20, "IN10130"],
+        ["GREY", "26", 7, 48, 20, "IN10130"],
+      ]);
+      expect(b.avisos).toEqual(["GT120 nunca se ha pedido: fábrica, moneda, precio, caja y descripción salen de GT117, GT118 (IN10130). Revísalos."]);
+    });
+
+    it("en el borrador de familia también", () => {
+      const b = armarBorradorFamilia("GT117-GT122", lista.modelos, hist, null, hermanosDe);
+      expect(b.lineas.map((l) => [l.modelo, l.precio])).toEqual([
+        ["GT117", 20],
+        ["GT118", 21],
+        ["GT120", 20],
+      ]);
+      expect(b.avisos.filter((a) => a.includes("sin precio"))).toEqual([]);
+    });
+
+    it("sin familia sigue siendo nuevo sin nada, y los números hermanos no cuentan", () => {
+      const gt104 = leerLista("GT104 5-GREEN SOLID SIZE 48\n25 5").modelos[0];
+      expect(gt104.modelo).toBe("GT104-5");
+      expect(hermanosDeModelo("GT104-5", null)).toEqual([]);
+      const b = armarBorrador(gt104, [mingtai({ modelo: "GT104-3", color: "RED" })], null, hermanosDe("GT104-5"));
+      expect(b).toMatchObject({ fabrica: null, moneda: null, nuevo: true });
+      expect(b.lineas[0].precio).toBeNull();
+      expect(b.avisos[0]).toContain("GT104-5 nunca se ha pedido");
+    });
   });
 });
 

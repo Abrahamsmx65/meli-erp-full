@@ -20,7 +20,10 @@ propia receta y su propia venta), pero el renglón lleva `familia` y la
 tabla «Pedido por modelo» los enseña como UN modelo con cada número como un
 color más; el «Excel del pedido» de la familia trae todos sus modelos. En
 Nuevo pedido todo lo que se pega junto ya es UN borrador (un IN, un Excel
-con el modelo en cada renglón; dueño, 20-oct-2026) y la familia solo le da
+con el modelo en cada renglón; dueño, 20-oct-2026); un modelo de la familia
+que nunca se ha pedido (GT120) toma fábrica, moneda, precio, caja y
+descripción de sus hermanos y el aviso lo dice (solo la familia registrada
+respalda: GT104-5 no hereda de GT104-3); y la familia solo le da
 el nombre. Se dan de alta en la propia pantalla («Modelos que se piden
 juntos»).
 
