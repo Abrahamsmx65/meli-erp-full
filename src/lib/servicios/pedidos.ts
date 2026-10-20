@@ -187,21 +187,10 @@ export async function guardarProforma(
   );
   if (errLineas) throw new Error(`No se pudieron guardar los renglones: ${errLineas.message}`);
 
-  // Las corridas. Aquí está el ahorro: se dan de alta solas. Las unitallas
-  // quedan fuera: una caja de pura talla 24 no es la corrida del modelo.
-  const { error: errCorridas } = await db.from("corridas").upsert(
-    lineasDeCorrida.map((l) => ({
-      account_id: accountId,
-      pedido: proforma.pedido,
-      modelo: l.modelo,
-      color: l.color,
-      tallas: l.tallas,
-      total: l.paresPorCaja,
-      origen: "proforma",
-      actualizado_en: new Date().toISOString(),
-    })),
-    { onConflict: "account_id,pedido,modelo,color" },
-  );
+  // Las corridas. Aquí está el ahorro: se dan de alta solas, también las
+  // cajas de UNA talla (una por color y talla, como en el sheet).
+  const corridas = corridasDeProforma(accountId, proforma.pedido, lineasDeCorrida, lineasUnitalla);
+  const { error: errCorridas } = await db.from("corridas").upsert(corridas, { onConflict: "account_id,pedido,modelo,color" });
   if (errCorridas) {
     throw new Error(`El pedido se creó pero las corridas no: ${errCorridas.message}`);
   }
@@ -210,8 +199,65 @@ export async function guardarProforma(
     pedidoId: pedido.id,
     reemplazado,
     lineasCreadas: lineasDeCorrida.length + lineasUnitalla.length,
-    corridasCreadas: lineasDeCorrida.length,
+    corridasCreadas: corridas.length,
   };
+}
+
+export interface CorridaDePedido {
+  account_id: string;
+  pedido: string;
+  modelo: string;
+  color: string;
+  tallas: Record<string, number>;
+  total: number;
+  origen: "proforma";
+  actualizado_en: string;
+}
+
+/**
+ * Las corridas que deja un pedido confirmado: una por modelo + color para
+ * las cajas de corrida (la receta de la caja) y, para las cajas de UNA
+ * talla, una por modelo + color + talla con el pedido `IN10172-24` y
+ * `{ "24": 48 }`, calcada de cómo el dueño las apunta en el sheet de
+ * corridas (`IN10057-24` GT114 BLK; dueño, 20-oct-2026: «los que son de
+ * una talla igual crea corrida y toma cada caja color por separado»).
+ * Hasta ese día las unitallas quedaban fuera.
+ */
+export function corridasDeProforma(
+  accountId: string,
+  pedido: string,
+  lineasDeCorrida: { modelo: string; color: string; tallas: Record<string, number>; paresPorCaja: number }[],
+  lineasUnitalla: { modelo: string; color: string; unitalla: string | null; paresPorCaja: number }[],
+  ahora = new Date().toISOString(),
+): CorridaDePedido[] {
+  const out: CorridaDePedido[] = lineasDeCorrida.map((l) => ({
+    account_id: accountId,
+    pedido,
+    modelo: l.modelo,
+    color: l.color,
+    tallas: l.tallas,
+    total: l.paresPorCaja,
+    origen: "proforma",
+    actualizado_en: ahora,
+  }));
+  const vistas = new Set<string>();
+  for (const l of lineasUnitalla) {
+    if (!l.unitalla || !(l.paresPorCaja > 0)) continue;
+    const k = `${canonizar(l.modelo)}|${canonizar(l.color)}|${l.unitalla}`;
+    if (vistas.has(k)) continue;
+    vistas.add(k);
+    out.push({
+      account_id: accountId,
+      pedido: `${pedido}-${l.unitalla}`,
+      modelo: l.modelo,
+      color: l.color,
+      tallas: { [l.unitalla]: l.paresPorCaja },
+      total: l.paresPorCaja,
+      origen: "proforma",
+      actualizado_en: ahora,
+    });
+  }
+  return out;
 }
 
 export async function listarPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {

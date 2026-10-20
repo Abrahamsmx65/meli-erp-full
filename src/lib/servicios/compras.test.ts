@@ -10,6 +10,7 @@ import {
   partesDeSkuSuelto,
   repartirCorrida,
   sugerirCompra,
+  numeroDePedido,
 } from "./compras";
 import { armarMapaAlias } from "./alias-color";
 
@@ -313,5 +314,14 @@ describe("sin receta de ese color, la caja se supone (18-oct-2026)", () => {
 
   it("sin ninguna receta en la cuenta, null", () => {
     expect(cajaDeRespaldo([], "GT999")).toBeNull();
+  });
+});
+
+describe("numeroDePedido: el primer número manda", () => {
+  it("«IN10057-24» (corrida de caja de una talla) no le gana a IN10121", () => {
+    expect(numeroDePedido("IN10057-24")).toBe(10057);
+    expect(numeroDePedido("IN10121")).toBe(10121);
+    expect(numeroDePedido("RT02-25")).toBe(2);
+    expect(numeroDePedido("sin número")).toBe(0);
   });
 });
