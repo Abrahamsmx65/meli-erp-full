@@ -150,8 +150,13 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
   const deLaFabrica = historia.filter((l) => clavePerfil(perfilDeProveedor(l.proveedor)) === clavePerfil(perfil));
   const moneda = perfil?.moneda ?? deLaFabrica.find((l) => l.moneda)?.moneda ?? null;
 
-  if (nuevo) avisos.push(`${lista.modelo} nunca se ha pedido: elige la fábrica y captura el precio y la descripción.`);
-  else if (!perfil) avisos.push(`El último pedido de ${lista.modelo} no dice de qué fábrica es: elígela.`);
+  if (nuevo) {
+    avisos.push(
+      `${lista.modelo} nunca se ha pedido: si eliges la fábrica sale en su formato; si no, se manda un Excel sencillo.`,
+    );
+  } else if (!perfil) {
+    avisos.push(`El último pedido de ${lista.modelo} no dice de qué fábrica es: sin fábrica se manda un Excel sencillo.`);
+  }
   else if (!deLaFabrica.length) avisos.push(`${lista.modelo} nunca se le ha pedido a ${perfil.nombre}: captura el precio.`);
   if (perfil && !moneda) avisos.push(`No se sabe en qué moneda cobra ${perfil.nombre}: elígela.`);
 
@@ -243,7 +248,7 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
   }
 
   if (!nuevo && lineas.some((l) => l.precio == null)) {
-    avisos.push("Hay renglones sin precio de esa fábrica: captúralo antes de confirmar.");
+    avisos.push("Hay renglones sin precio de esa fábrica: si no lo capturas, el Excel lo lleva en blanco.");
   }
 
   return {
@@ -305,10 +310,10 @@ export function faltantesDeBorrador(b: {
   lineas: LineaBorrador[];
 }): string[] {
   const f: string[] = [];
-  if (!b.fabrica) f.push("la fábrica");
-  if (!b.moneda) f.push("la moneda");
+  // Fábrica, moneda y precio NO son obligatorios (dueño, 20-oct-2026: «si un
+  // producto no tiene fábrica, etc., solo mándame un Excel sencillo»): sin
+  // ellos sale el formato sencillo con el precio en blanco.
   if (!b.lineas.length) f.push("renglones con cajas");
-  if (b.lineas.some((l) => l.precio == null && !l.preciosTalla)) f.push("el precio de algún renglón");
   if (b.lineas.some((l) => !(l.paresPorCaja > 0))) f.push("los pares por caja de algún renglón");
   if (b.lineas.some((l) => !(l.cajas > 0))) f.push("las cajas de algún renglón");
   return f;

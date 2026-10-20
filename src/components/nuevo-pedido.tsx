@@ -199,6 +199,9 @@ function FilaConfirmado({ b, alCambiar }: { b: Borrador; alCambiar: (b: Borrador
         ) : (
           <span style={{ color: "var(--critico-texto)" }}>No salió: {b.correo?.motivo ?? "sin intento"}</span>
         )}
+        {b.correo?.etiquetas ? (
+          <div className="texto-tenue">Sin etiquetas adjuntas: {b.correo.etiquetas}</div>
+        ) : null}
         {error ? <div style={{ color: "var(--critico-texto)" }}>{error}</div> : null}
       </td>
       <td className="whitespace-nowrap">
@@ -302,7 +305,7 @@ function TarjetaBorrador({
             disabled={Boolean(trabajando)}
             onChange={(e) => hacer("fabrica", { accion: "actualizar", fabrica: e.target.value || null })}
           >
-            <option value="">— Elige la fábrica —</option>
+            <option value="">Sin fábrica (Excel sencillo)</option>
             {fabricas.map((f) => (
               <option key={f.clave} value={f.clave}>
                 {f.nombre}
