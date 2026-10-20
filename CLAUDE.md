@@ -1372,6 +1372,17 @@ guárdala numerada.
   publicación y sus pares (hasta 40 y «y N más»). Lo apagado o en borrador
   NO se avisa (el dueño no lo quiso ver; la casilla de la tabla sigue). Ese
   día: 0 sin ninguna publicación y 47 apagadas con 3,784 pares.
+  **ALMACÉN TIKTOK POR FAMILIA** (pestaña «Por familia» de `/tiktok`;
+  `tiktok/familias.ts` puro con pruebas: `armarFamiliasTikTok`,
+  `compararFamiliasTikTok`, `filtrarFamiliasTikTok`; `components/familias-tiktok.tsx`;
+  `PanelTikTok.ventasPorSku` / `ventasDesde`, `cargarPanelTikTok` lee TODA
+  `tiktok_ventas_diarias` y recorta los 30 días; dueño, 20-oct-2026: «quiero
+  uno [por familia] que esté en la sección de inventario TikTok aparte»): un
+  renglón por MODELO con SKU, en almacén, apartado, disponible, lo disponible
+  SIN publicación activa («Sin línea»), vendidos en 30 días y desde que el ERP
+  registra TikTok (1-sep-2026) y «Alcanza» = disponible ÷ ritmo de 30 días;
+  abrir el renglón lo parte por color (`colorDeSku`). Sin lo de David; una
+  familia agotada con historia sí sale (casilla «Solo con stock»).
   **EXCEL POR MODELO del Almacén TikTok** (`tiktok/resumen-modelos.ts`
   motor puro con pruebas, `servicios/tiktok-resumen-modelos.ts`, botón
   «Excel por modelo» en la tabla del inventario → `GET

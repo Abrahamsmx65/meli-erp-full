@@ -5,6 +5,8 @@ import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
 import { InventarioTikTok } from "@/components/inventario-tiktok";
+import { FamiliasTikTok } from "@/components/familias-tiktok";
+import { armarFamiliasTikTok } from "@/lib/tiktok/familias";
 import { Ficha } from "@/components/tiles";
 import { Pestanas } from "@/components/ui/pestanas";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
@@ -64,6 +66,11 @@ export default async function TikTok({
   // la lista (lo apagado o en borrador NO se avisa: dueño, 15-oct-2026).
   const conStock = p.renglones.filter((r) => r.saldo > 0);
   const sinPublicacion = conStock.filter((r) => !r.tienePublicacion);
+
+  // Por familia: el mismo inventario y las ventas de TikTok juntos por
+  // modelo (dueño, 20-oct-2026: «uno que esté en la sección de inventario
+  // TikTok aparte»).
+  const familias = armarFamiliasTikTok({ renglones: p.renglones, ventas: p.ventasPorSku, dias30: DIAS_VENTA });
 
   return (
     <Pagina>
@@ -141,6 +148,12 @@ export default async function TikTok({
             titulo: "Inventario",
             cuenta: p.renglones.length,
             contenido: <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />,
+          },
+          {
+            id: "familias",
+            titulo: "Por familia",
+            cuenta: familias.filter((f) => f.saldo > 0 || f.apartado > 0).length,
+            contenido: <FamiliasTikTok familias={familias} diasVenta={DIAS_VENTA} ventasDesde={p.ventasDesde} />,
           },
           {
             id: "movimientos",
