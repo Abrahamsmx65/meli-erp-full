@@ -45,6 +45,11 @@ export interface PromoMeli {
   seller_percentage?: number | null;
   /** folio de la propuesta (una relámpago trae uno por fecha; todas comparten `id`) */
   offer_id?: string | null;
+  /**
+   * Así llega ese folio en `/seller-promotions/items/{id}` («CANDIDATE-MLM…-…»,
+   * visto el 20-oct-2026): el POST lo pide como `offer_id`.
+   */
+  ref_id?: string | null;
 }
 
 /** Desde este precio el vendedor paga el envío en MELI México. */
@@ -195,7 +200,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     fin: p.finish_date ?? null,
     stockMin: p.stock?.min ?? null,
     stockMax: p.stock?.max ?? null,
-    offerId: p.offer_id ?? null,
+    offerId: p.offer_id ?? p.ref_id ?? null,
     accion,
   };
 }
