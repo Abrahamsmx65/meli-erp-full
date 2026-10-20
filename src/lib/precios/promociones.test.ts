@@ -30,6 +30,9 @@ describe("planDePromo", () => {
     const b = planDePromo("MLM2771343295", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", offer_id: "LGH-B" }, o);
     expect([a.offerId, b.offerId]).toEqual(["LGH-A", "LGH-B"]);
     expect(planDePromo("MLM1", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate" }, o).offerId).toBeNull();
+    // Así llega de verdad (20-oct-2026): el folio viene en `ref_id`.
+    const real = { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", ref_id: "CANDIDATE-MLM2742802077-75446388607" };
+    expect(planDePromo("MLM2742802077", real, o).offerId).toBe("CANDIDATE-MLM2742802077-75446388607");
   });
   it("cambia una inscrita con otro precio y deja igual la que ya cuadra", () => {
     expect(planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "started", price: 600 }, obj).accion).toBe("cambiar");

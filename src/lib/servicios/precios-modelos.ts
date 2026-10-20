@@ -289,6 +289,20 @@ async function inscribirRelampago(
       return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares` };
     } catch (err) {
       ultimo = mensajeMeli(err);
+      // Si MELI no acepta el folio, se intenta como antes (sin él).
+      if (r.offerId && /offer/i.test(ultimo)) {
+        try {
+          await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
+            promotion_id: r.promoId,
+            promotion_type: r.tipo,
+            deal_price: r.nuevo,
+            stock,
+          });
+          return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares (MELI no aceptó el folio: ${ultimo})` };
+        } catch (err2) {
+          ultimo = mensajeMeli(err2);
+        }
+      }
     }
   }
   return { ok: false, detalle: ultimo };
