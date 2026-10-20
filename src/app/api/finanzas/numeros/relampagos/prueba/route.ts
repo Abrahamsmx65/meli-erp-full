@@ -22,7 +22,9 @@ export const maxDuration = 300;
  *
  * `?item=MLM…&precio=229.99&ref=CANDIDATE-…`; sin `item` toma la primera
  * publicación de la última corrida que sigue con una relámpago propuesta, y
- * sin `precio` el precio relámpago con que esa corrida la intentó.
+ * sin `precio` el de la relámpago que ya tiene programada. Desde el 20-oct
+ * prueba mandando las FECHAS de la propuesta (las del listado de la
+ * promoción): sin ellas MELI editaba la relámpago ya programada.
  */
 const crudo = (x: unknown, max = 6000) => {
   const s = JSON.stringify(x ?? null);
@@ -61,8 +63,9 @@ export async function GET(req: Request) {
   let ref = url.searchParams.get("ref")?.trim() || null;
   let candidatas: PromoMeli[] = [];
 
-  // Sin item: la primera «fallida» de la última corrida que siga propuesta.
-  if (!itemId || !precio) {
+  // Sin item: una publicación de la última corrida que siga con propuesta
+  // (de sus fallidas o de sus omitidas por tener otra programada).
+  if (!itemId) {
     const { data } = await admin
       .from("sync_log")
       .select("detalle")
@@ -71,44 +74,61 @@ export async function GET(req: Request) {
       .order("fin", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const fallidas = ((data as { detalle?: { fallidas?: { donde: string; detalle: string }[] } } | null)?.detalle?.fallidas ?? []).slice(0, 40);
-    for (const f of fallidas) {
-      const id = f.donde.split(" · ")[0];
-      if (itemId && id !== itemId) continue;
-      const p = Number(/\$([0-9.]+)/.exec(f.detalle)?.[1]);
+    const d = (data as { detalle?: { fallidas?: { donde: string }[]; omitidas?: string[] } } | null)?.detalle;
+    const ids = [...(d?.fallidas ?? []).map((f) => f.donde), ...(d?.omitidas ?? [])].map((x) => x.split(" · ")[0]).slice(0, 40);
+    for (const id of ids) {
       const c = await propuestas(cliente, id).catch(() => []);
       if (!c.length) continue;
       itemId = id;
-      precio = precio ?? (Number.isFinite(p) ? p : null);
       candidatas = c;
       break;
     }
   }
-  if (!itemId || !precio) return NextResponse.json({ error: "No encontré una relámpago propuesta para probar: pásame ?item=MLM…&precio=…" }, { status: 400 });
+  if (!itemId) return NextResponse.json({ error: "No encontré una relámpago propuesta para probar: pásame ?item=MLM…&precio=…" }, { status: 400 });
   if (!candidatas.length) candidatas = await propuestas(cliente, itemId);
   const objetivo = (ref ? candidatas.find((c) => c.ref_id === ref) : null) ?? candidatas[0];
   if (!objetivo) return NextResponse.json({ error: `${itemId} ya no tiene relámpagos propuestas.` }, { status: 400 });
   ref = objetivo.ref_id ?? null;
-  const numero = ref?.split("-").pop() ?? null;
   const promoId = objetivo.id ?? "LGH-MLM1000";
   const stock = Math.max(5, Number(objetivo.stock?.min) || 0);
+
+  // Las fechas de cada relámpago solo vienen en el listado de la promoción.
+  type Fecha = { id?: string; ref_id?: string; status?: string; price?: number; start_date?: string; finish_date?: string };
+  const fechas = async (): Promise<Fecha[]> => {
+    const r = await cliente.get<{ results?: Fecha[] }>(`/seller-promotions/promotions/${promoId}/items`, {
+      app_version: "v2",
+      promotion_type: "LIGHTNING",
+      item_id: itemId,
+      limit: 50,
+    });
+    return (r?.results ?? []).filter((x) => !x.id || x.id === itemId);
+  };
+  const antes = await fechas().catch(() => [] as Fecha[]);
+  const slot = antes.find((x) => x.ref_id === ref);
+  const programadasAntes = antes.filter((x) => x.status !== "candidate").length;
+  // Sin precio: el de la relámpago ya programada (es el de Números).
+  precio = precio ?? antes.find((x) => x.status !== "candidate" && x.price)?.price ?? null;
+  if (!precio) return NextResponse.json({ error: "No sé a qué precio probar: pásame &precio=…" }, { status: 400 });
+  const inicio = slot?.start_date ?? null;
+  const fin = slot?.finish_date ?? null;
+  const conZona = (x: string | null) => (x && !/[zZ]|[+-]\d\d:\d\d$/.test(x) ? `${x}-06:00` : x);
 
   const lecturas = [
     await leer(cliente, `/seller-promotions/items/${itemId}`),
     ...(ref ? [await leer(cliente, `/seller-promotions/candidates/${ref}`)] : []),
-    ...(ref ? [await leer(cliente, `/seller-promotions/offers/${ref}`)] : []),
-    await leer(cliente, `/seller-promotions/promotions/${promoId}/items`, { promotion_type: "LIGHTNING", item_id: itemId, limit: "50" }),
+    { ruta: "fechas", ok: true, respuesta: antes },
   ];
 
-  const base = { promotion_type: "LIGHTNING", deal_price: precio };
-  const formas: { nombre: string; cuerpo: Record<string, unknown> }[] = [
-    { nombre: "como hoy (promotion_id + offer_id = ref_id)", cuerpo: { ...base, promotion_id: promoId, stock, offer_id: ref } },
-    { nombre: "offer_id = ref_id, sin promotion_id", cuerpo: { ...base, stock, offer_id: ref } },
-    { nombre: "offer_id = número del folio", cuerpo: { ...base, promotion_id: promoId, stock, offer_id: numero } },
-    { nombre: "ref_id en vez de offer_id", cuerpo: { ...base, promotion_id: promoId, stock, ref_id: ref } },
-    { nombre: "candidate_id = ref_id", cuerpo: { ...base, promotion_id: promoId, stock, candidate_id: ref } },
-    { nombre: "sin stock (la propuesta no trae rango)", cuerpo: { ...base, promotion_id: promoId, offer_id: ref } },
-  ];
+  const base = { promotion_type: "LIGHTNING", promotion_id: promoId, deal_price: precio, stock };
+  const formas: { nombre: string; cuerpo: Record<string, unknown> }[] = inicio
+    ? [
+        { nombre: "offer_id + fechas de la propuesta", cuerpo: { ...base, offer_id: ref, start_date: inicio, finish_date: fin } },
+        { nombre: "solo fechas, sin offer_id", cuerpo: { ...base, start_date: inicio, finish_date: fin } },
+        { nombre: "offer_id + fechas con zona -06:00", cuerpo: { ...base, offer_id: ref, start_date: conZona(inicio), finish_date: conZona(fin) } },
+        { nombre: "fechas con zona, sin offer_id", cuerpo: { ...base, start_date: conZona(inicio), finish_date: conZona(fin) } },
+        { nombre: "ref_id + fechas", cuerpo: { ...base, ref_id: ref, start_date: inicio, finish_date: fin } },
+      ]
+    : [];
 
   const intentos: unknown[] = [];
   let funciono: string | null = null;
@@ -120,15 +140,11 @@ export async function GET(req: Request) {
     } catch (err) {
       error = mensajeMeli(err);
     }
-    let despues: PromoMeli[] = [];
-    try {
-      despues = await propuestas(cliente, itemId);
-    } catch {
-      /* se ve en el siguiente intento */
-    }
-    const sigue = despues.some((c) => c.ref_id === ref);
-    intentos.push({ forma: f.nombre, cuerpo: f.cuerpo, respuesta, error, sigueComoPropuesta: sigue, propuestasDespues: despues.length });
-    if (!error && !sigue) {
+    const despues = await fechas().catch(() => [] as Fecha[]);
+    const sigue = despues.some((x) => x.ref_id === ref && x.status === "candidate");
+    const nuevaEnSuFecha = despues.some((x) => x.status !== "candidate" && inicio && x.start_date === inicio);
+    intentos.push({ forma: f.nombre, cuerpo: f.cuerpo, respuesta, error, sigueComoPropuesta: sigue, nuevaEnSuFecha, fechasDespues: despues });
+    if (!error && (!sigue || nuevaEnSuFecha)) {
       funciono = f.nombre;
       break;
     }
@@ -139,7 +155,13 @@ export async function GET(req: Request) {
     precio,
     ref,
     funciono,
-    conclusion: funciono ? `Entró con: ${funciono}` : "Ninguna forma sacó la propuesta de candidata.",
+    inicio,
+    programadasAntes,
+    conclusion: !inicio
+      ? "El listado de MELI no trajo la fecha de la propuesta."
+      : funciono
+        ? `Entró con: ${funciono}`
+        : "Ninguna forma sacó la propuesta de candidata.",
     propuestaAntes: objetivo,
     lecturas,
     intentos,
