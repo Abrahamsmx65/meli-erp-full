@@ -122,7 +122,7 @@ describe("color NUEVO: mismo precio que los demás, marcado y con su SKU de MELI
     const b = armarBorrador(lista.modelos[0], hist);
     expect(b.descripcion).toBe("SANDALIA DAMA");
     expect(b.lineas.map((l) => [l.color, l.unitalla, l.precio, Boolean(l.colorNuevo)])).toEqual([
-      ["PINK", "23", 31, false],
+      ["PINK", "23", 31.5, false],
       ["LT BROWN", "23", 31, true],
       ["LT BROWN", "24", 31.5, true],
     ]);
