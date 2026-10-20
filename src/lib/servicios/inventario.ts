@@ -224,6 +224,8 @@ const SIN_CATEGORIA = "Sin categoría";
  * Amazon, no solo la bodega y el barco (dueño, 16-oct-2026).
  */
 export interface RenglonParaCostear {
+  /** el SKU de origen, cuando se conoce (FBA y TikTok lo traen) */
+  sku?: string;
   modelo: string;
   enBodega: number;
   enCamino: number;
