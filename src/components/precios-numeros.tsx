@@ -6,6 +6,7 @@ import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 import { confirmar } from "@/components/ui/confirmar";
+import { ResultadoRelampagos, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,42 +32,6 @@ function Accion({ a }: { a: string }) {
   return <span style={{ color: t.color }}>{t.texto}</span>;
 }
 
-type ConfirmacionRelampagos = {
-  modelos: number;
-  inscritas: ResultadoPrecio[];
-  fallidas: ResultadoPrecio[];
-  omitidas: string[];
-  avisos: string[];
-};
-
-function ResultadoRelampagos({ r }: { r: ConfirmacionRelampagos }) {
-  return (
-    <div className="flex flex-col gap-1 text-xs">
-      <Aviso tono={r.fallidas.length ? "alerta" : r.inscritas.length ? "bien" : "info"}>
-        {r.inscritas.length} relámpago inscritas · {r.fallidas.length} rechazadas por MELI · {r.omitidas.length} omitidas ·{" "}
-        {r.modelos} modelos revisados
-      </Aviso>
-      {[...r.inscritas, ...r.fallidas].length ? (
-        <ul className="flex flex-col gap-0.5">
-          {[...r.fallidas, ...r.inscritas].map((x, i) => (
-            <li key={i}>
-              <span className="cifra">{x.donde}</span>{" "}
-              <span style={{ color: x.ok ? "var(--exito-texto)" : "var(--estado-critico)" }}>
-                {x.ok ? "✓" : "✗"} {x.detalle}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {r.omitidas.map((o, i) => (
-        <div key={i} className="texto-tenue">
-          {o}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
  * Lleva los precios de Números a MELI y Amazon: primero REVISA en vivo lo
  * que cada publicación tiene contra lo nuevo y solo con «Aplicar» escribe.
@@ -84,15 +49,11 @@ export function PreciosNumeros() {
   // Lo mismo que el cron de las 10:00, a mano: todas las relámpago
   // candidatas al precio relámpago de Números; MELI rechaza las que no lo aceptan.
   const confirmarRelampagos = async () => {
-    if (!(await confirmar({ titulo: "¿Inscribir todas las relámpago?", mensaje: "Se van a inscribir TODAS las relámpago candidatas al precio relámpago de Números (5 pares o lo que pida MELI).", confirmar: "Inscribir" }))) return;
-    setCargando("relampagos");
     setError(null);
-    setRelampagos(null);
     try {
-      const r = await fetch("/api/finanzas/numeros/relampagos", { method: "POST" });
-      const j = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(j?.error ?? "No se pudieron confirmar las relámpago.");
-      setRelampagos(j as ConfirmacionRelampagos);
+      setCargando("relampagos");
+      const r = await pedirConfirmarRelampagos();
+      if (r) setRelampagos(r);
     } catch (err) {
       setError((err as Error).message);
     } finally {
