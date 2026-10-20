@@ -1320,6 +1320,22 @@ guárdala numerada.
   ámbar «N paquetes por guardar · sin señal…» y «Sin señal de wifi. Puedes
   seguir escaneando». La clave de supervisor sí necesita red (la valida el
   servidor) y lo dice. Cargar la página sigue necesitando señal.
+  **RETIRAR del almacén de TikTok** (`tiktok/retiro.ts` puro con pruebas:
+  `planRetiro`, `referenciaDeRetiro` = `RETIRO-<fecha>`; `servicios/
+  tiktok-retiro.ts`, `POST /api/tiktok/retiro`, casillas y botón «Retirar
+  del almacén» en la tabla del Almacén TikTok, SOLO para el dueño; dueño,
+  20-oct-2026: «una opción de poder quitar inventario en TikTok: elijo algún
+  SKU y se pone en 0 en TikTok, en mi kardex y en Industher»): por SKU se
+  retira lo DISPONIBLE (saldo menos apartado de TikTok y de la tienda) como
+  SALIDA del kardex con esa referencia; lo APARTADO en pedidos pagados se
+  queda (quitarlo haría que la defensa cancelara esos pedidos). A Industher
+  se le manda por el MISMO endpoint de salidas de los cortes
+  (`tiktok_salidas_3pl` sin corte, pedido = la referencia `RETIRO-…`,
+  `empujarSalidasAl3pl`): si falla queda pendiente y el cron lo reintenta,
+  y mientras la conciliación la cuenta como salida pendiente. A TikTok se le
+  publica el cero pasando por `sincronizarTikTok` con `soloPedidos` (regla
+  de oro). Lo de David no se retira por aquí. Un SKU sin disponible no
+  cambia y se declara. Para que el par vuelva, una entrada o un conteo.
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
   `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
   del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
