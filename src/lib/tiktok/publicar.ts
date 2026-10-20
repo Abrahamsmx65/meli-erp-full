@@ -294,6 +294,11 @@ export function nombreColorEspanol(color: string): { nombre: string; traducido: 
     const porGuion = crudo.split("-");
     if (porGuion.every((x) => traducirPedazo(x).traducido)) pedazos = porGuion;
   }
+  // «BLK GREY» (GT156): por espacio, solo si cada palabra es un color conocido (DK BROWN ya se tradujo entero arriba).
+  if (pedazos.length === 1 && /\s/.test(crudo)) {
+    const porEspacio = crudo.split(/\s+/);
+    if (porEspacio.every((x) => traducirPedazo(x).traducido)) pedazos = porEspacio;
+  }
   const traducidos = pedazos.map(traducirPedazo).filter((x) => x.nombre);
   const nombres: string[] = [];
   for (const t of traducidos) if (nombres[nombres.length - 1] !== t.nombre) nombres.push(t.nombre);

@@ -1988,6 +1988,31 @@ guárdala numerada.
   como etiquetas y publicación; `MAX_ESLABONES_CATALOGO` 12; constancia en
   `tiktok_sync_log` tarea `catalogo-amazon-disparo`). Un modelo SIN fotos
   en Amazon sigue sin salir: la regla «solo que tenga fotos» se queda.
+  **Formato del catálogo y categorías en MAYÚSCULAS** (dueño, 19-oct-2026:
+  «que el catálogo tenga un formato más bonito… y que todas las categorías
+  sean en mayúscula o minúscula»): `normalizarCategoria` (`src/lib/categoria.ts`)
+  escribe toda categoría de Productos y costos en MAYÚSCULAS con un solo
+  espacio, salvo «Fundas» (así la busca YAPANIZCEL); la usan `/api/productos`,
+  el back del catálogo y `armarCatalogoAmazon` («OTROS» sin categoría). Ese
+  día se pasaron por SQL «Botas lluvia», «Sandalias Eva» y «Sandalias mujer».
+  En la tienda (`PortadaCatalogo`, `catalogo-vista.ts`: `tituloCorto` quita
+  «GETAC» y lo gritado, `rangoTallas` «23 a 28», `categoriaVisible`): portada
+  con cifras y los tres pasos, barra pegajosa con buscador y categorías con
+  su cuenta, secciones con raya y tarjetas del mismo alto (miniaturas dentro
+  de la foto). Dos códigos de Amazon con el mismo nombre en español (BLK y
+  BLACK = Negro) son UN color con las tallas de los dos, y «BLK GREY» se
+  traduce por palabras. Un modelo sin NINGUNA foto en el catálogo de Amazon
+  sigue sin salir (GT101, GT113, GT225, GT245, GT247, GT260–GT264,
+  GT282–GT303 ese día: en MELI tienen una foto de relleno). El dominio
+  `getac-tienda.vercel.app` (el de `TIENDA_URL`) se ligó al proyecto
+  `getac-tienda` el 13-oct-2026: antes daba DEPLOYMENT_NOT_FOUND.
+  **Las fotos se piden al TAMAÑO de la tarjeta** (`fotoAmazon`,
+  `srcSetAmazon`; dueño, 19-oct-2026: «se tardan mucho las imágenes en
+  cargar»): el catálogo guarda la foto original de Amazon (2560 px, ~507 KB)
+  y Amazon la entrega reducida con `ID._AC_SL{lado}_.jpg`: la principal con
+  `srcset` 400/700/1000 (~72 KB a 700) y las miniaturas a 100 px (~2 KB). La
+  página completa pasó de ~420 MB a ~10 MB; las 4 primeras tarjetas piden su
+  foto sin esperar y hay `preconnect` a m.media-amazon.com.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean
