@@ -202,8 +202,16 @@ guárdala numerada.
   pedido» de la familia traiga todos sus modelos; en Nuevo pedido todo lo
   pegado ya es un solo borrador (`armarBorradorFamilia`: cada renglón con
   su `modelo`, la fábrica del primero que la tenga y los demás armados con
-  esa) y la familia solo le da el nombre. Al guardar una familia
-  se tumba `compras-china` (hoy `v5`) y se rehace por atrás.
+  esa) y la familia solo le da el nombre. **Un modelo de la familia que
+  NUNCA se ha pedido se arma con la historia de sus hermanos**
+  (`hermanosDeModelo`, `armarBorrador(…, hermanos)`, `modelosConFamilia`
+  en el servicio; dueño, 20-oct-2026: GT120 salía «nunca se ha pedido» sin
+  fábrica ni precio): fábrica, moneda, precio, caja y descripción de
+  GT117/GT118 y el aviso lo dice. SOLO la familia registrada respalda:
+  «números hermanos no se toma a menos que sea la misma familia» (GT104-5
+  no hereda de GT104-3; si se quiere, se dan de alta como familia). Al
+  guardar una familia se tumba `compras-china` (hoy `v6`) y se rehace por
+  atrás.
 - **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
   `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
   `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,
@@ -229,7 +237,13 @@ guárdala numerada.
   heredar la descripción), la pantalla y el correo dicen «NUEVO» y el
   aviso del borrador trae el SKU con que crearlo en MELI por talla
   (`skuMeliDeColorNuevo`: GT128-LT BROWN-23-MX); creado en MELI y
-  sincronizado, las etiquetas del pedido salen solas) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
+  sincronizado, las etiquetas del pedido salen solas; y **«SOLID SIZE 48»
+  a secas son los pares por caja** y **«GT104 ⇥ 5-GREEN» es el modelo
+  GT104-5 color GREEN** (`partirModeloColor`; GT104, 20-oct-2026: salía
+  «nunca se ha pedido» y «falta cuántos pares trae la caja»): el pedido y
+  el packing list escriben GT104-5 + GREEN y MELI lo parte como GT104 +
+  «5-GREEN», así que se normaliza al escribir el modelo sin número y el
+  color con él) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
   (`siguienteIn`: el mayor entre pedidos, borradores vivos y
   `pedidos_ajustes.ultimo_in`). Hasta el 20-oct-2026 salía un borrador por
   modelo; ese día el dueño pegó GT180 y GT181 juntos («cuando pego un texto
@@ -253,7 +267,10 @@ guárdala numerada.
   en blanco; `faltantesDeBorrador` solo exige renglones, cajas y pares por
   caja. Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
   con `origen = 'sistema'` (cuenta como en camino, da de alta corridas) y
-  correo a `pedidos_ajustes.destinatarios` con el Excel y **el ZIP de
+  correo a `pedidos_ajustes.destinatarios` **EN INGLÉS** (`correoDeBorrador`;
+  dueño, 20-oct-2026: «que los correos se hagan en inglés»: lo leen la
+  fábrica y el agente; «Purchase order IN10187 · GT142 · …», Cartons /
+  Pairs / Amount, NEW COLOR) con el Excel y **el ZIP de
   etiquetas del pedido** (`zipEtiquetasDePedido` en
   `servicios/etiquetas-pedido.ts`, el mismo de Órdenes de compra: PDF de
   2 etiquetas por talla, BOX LABEL y Excel de códigos; dueño, 20-oct-2026:

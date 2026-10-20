@@ -23,8 +23,17 @@
 import { canonizar } from "../importar/sku";
 import type { LineaProforma, Moneda, Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
-import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, totalesDeBorrador, type BorradorArmado, type LineaBorrador, type LineaHistoria } from "../pedidos-china/armar";
-import { familiaDe, nombreDeFamilia, type MapaFamilias } from "../pedidos-china/familias";
+import {
+  armarBorrador,
+  armarBorradorFamilia,
+  faltantesDeBorrador,
+  hermanosDeModelo,
+  totalesDeBorrador,
+  type BorradorArmado,
+  type LineaBorrador,
+  type LineaHistoria,
+} from "../pedidos-china/armar";
+import { familiaDe, listarFamilias, nombreDeFamilia, type MapaFamilias } from "../pedidos-china/familias";
 import { cargarFamilias } from "./familias-modelos";
 import { excelDePedido, nombreArchivoPedido, type PedidoPI } from "../pedidos-china/excel";
 import { FABRICAS, perfilDeClave, perfilDeProveedor, SIN_FABRICA } from "../pedidos-china/fabricas";
@@ -151,6 +160,27 @@ export async function siguienteIn(db: DB, accountId: string): Promise<number> {
 
 // --- Historia ----------------------------------------------------------------
 
+/**
+ * Los modelos de la familia de cada uno (GT120 → GT117…GT122), para que un
+ * modelo que nunca se ha pedido tome la historia de sus hermanos.
+ */
+export function modelosConFamilia(modelos: string[], familias: MapaFamilias | null): string[] {
+  const out = new Set(modelos.map((m) => m.toUpperCase()));
+  if (familias?.size) {
+    const grupos = listarFamilias(familias);
+    for (const m of modelos) {
+      const f = familiaDe(familias, m);
+      if (f) for (const x of grupos.find((g) => g.familia === f)?.modelos ?? []) out.add(x);
+    }
+  }
+  return [...out];
+}
+
+/** Qué modelos respaldan a cada uno de la lista si nunca se ha pedido: solo su familia. */
+export function hermanosDeLista(familias: MapaFamilias | null): (modelo: string) => string[] {
+  return (modelo) => hermanosDeModelo(modelo, modelosConFamilia([modelo], familias));
+}
+
 /** Los renglones de pedidos anteriores de esos modelos, con las medidas de su caja. */
 export async function historiaDeModelos(db: DB, accountId: string, modelos: string[]): Promise<LineaHistoria[]> {
   if (!modelos.length) return [];
@@ -276,9 +306,16 @@ async function monedaConocida(db: DB, accountId: string, armado: BorradorArmado)
  * Arma el borrador de un grupo de la lista: un modelo, o una FAMILIA (varios
  * modelos que se piden juntos: un solo IN y un solo Excel).
  */
-function armarGrupo(nombre: string, familia: string | null, listas: ModeloLista[], historia: LineaHistoria[], fabrica?: string | null): BorradorArmado {
-  if (!familia && listas.length === 1) return armarBorrador(listas[0], historia, fabrica);
-  return armarBorradorFamilia(nombre, listas, historia, fabrica);
+function armarGrupo(
+  nombre: string,
+  familia: string | null,
+  listas: ModeloLista[],
+  historia: LineaHistoria[],
+  fabrica: string | null | undefined,
+  hermanosDe: (modelo: string) => string[],
+): BorradorArmado {
+  if (!familia && listas.length === 1) return armarBorrador(listas[0], historia, fabrica, hermanosDe(listas[0].modelo));
+  return armarBorradorFamilia(nombre, listas, historia, fabrica, hermanosDe);
 }
 
 /**
@@ -309,17 +346,16 @@ export async function crearBorradores(
   if (!lista.modelos.length) {
     throw new Error("No encontré ningún modelo en la lista. Cada bloque empieza con el modelo (GT179, MY2307…).");
   }
-  const [historia, familias] = await Promise.all([
-    historiaDeModelos(db, accountId, lista.modelos.map((m) => m.modelo)),
-    cargarFamilias(db, accountId).catch(() => new Map()),
-  ]);
+  const familias: MapaFamilias = await cargarFamilias(db, accountId).catch(() => new Map());
+  const historia = await historiaDeModelos(db, accountId, modelosConFamilia(lista.modelos.map((m) => m.modelo), familias));
+  const hermanosDe = hermanosDeLista(familias);
   let numero = await siguienteIn(db, accountId);
 
   const creados: Borrador[] = [];
   const nombre = nombreDeBorrador(lista.modelos.map((m) => m.modelo), familias);
   const grupos = [{ nombre, familia: lista.modelos.length > 1 ? nombre : null, elementos: lista.modelos }];
   for (const g of grupos) {
-    const armado = armarGrupo(g.nombre, g.familia, g.elementos, historia);
+    const armado = armarGrupo(g.nombre, g.familia, g.elementos, historia, null, hermanosDe);
     armado.moneda = await monedaConocida(db, accountId, armado);
     const fila = {
       account_id: accountId,
@@ -422,9 +458,10 @@ export async function actualizarBorrador(
   if (cambios.fabrica !== undefined && cambios.fabrica !== b.fabrica) {
     const listas = leerLista(b.texto).modelos;
     if (!listas.length) throw new Error("No se pudo volver a leer la lista de este borrador.");
-    const historia = await historiaDeModelos(db, accountId, listas.map((m) => m.modelo));
+    const familias: MapaFamilias = await cargarFamilias(db, accountId).catch(() => new Map());
+    const historia = await historiaDeModelos(db, accountId, modelosConFamilia(listas.map((m) => m.modelo), familias));
     const familia = listas.length > 1 || b.lineas.some((l) => l.modelo) ? b.modelo : null;
-    const armado = armarGrupo(b.modelo, familia, listas, historia, cambios.fabrica);
+    const armado = armarGrupo(b.modelo, familia, listas, historia, cambios.fabrica, hermanosDeLista(familias));
     armado.moneda = await monedaConocida(db, accountId, armado);
     Object.assign(fila, {
       fabrica: armado.fabrica,
@@ -511,21 +548,26 @@ export function proformaDeBorrador(b: Borrador): Proforma {
 
 function dinero(n: number | null, m: Moneda | null): string {
   if (n == null) return "—";
-  return `${m === "RMB" ? "¥" : "$"}${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${m ? ` ${m}` : ""}`;
+  return `${m === "RMB" ? "¥" : "$"}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${m ? ` ${m}` : ""}`;
 }
 
+/**
+ * El correo del pedido confirmado va EN INGLÉS (dueño, 20-oct-2026: «que
+ * los correos se hagan en inglés, no en español»): lo reciben la fábrica y
+ * el agente en China junto con el Excel y las etiquetas.
+ */
 export function correoDeBorrador(
   b: Borrador,
   etiquetas?: { adjuntas: boolean; sinCodigo: number },
 ): { asunto: string; html: string; texto: string } {
   const e = escaparHtml;
   const t = b.totales;
-  const fab = b.proveedor || perfilDeClave(b.fabrica)?.nombre || "Sin fábrica";
+  const fab = b.proveedor || perfilDeClave(b.fabrica)?.nombre || "No factory";
   const familia = b.lineas.some((l) => l.modelo);
   const filas = b.lineas
     .map((l) => {
       const que = l.unitalla
-        ? `Talla ${l.unitalla}`
+        ? `Size ${l.unitalla}`
         : Object.entries(l.corrida)
             .map(([talla, n]) => `${talla}×${n}`)
             .join(" ");
@@ -534,11 +576,11 @@ export function correoDeBorrador(
         : dinero(l.precio, null);
       return (
         `<tr>${familia ? `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.modelo ?? "")}</td>` : ""}` +
-        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}${l.colorNuevo ? ` <span style="font-size:10px;font-weight:700;color:${TONO.tinta2}">NUEVO</span>` : ""}</td>` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}${l.colorNuevo ? ` <span style="font-size:10px;font-weight:700;color:${TONO.tinta2}">NEW COLOR</span>` : ""}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(que)}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.cajas}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.paresPorCaja}</td>` +
-        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${(l.cajas * l.paresPorCaja).toLocaleString("es-MX")}</td>` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${(l.cajas * l.paresPorCaja).toLocaleString("en-US")}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${e(precio)}</td></tr>`
       );
     })
@@ -549,39 +591,41 @@ export function correoDeBorrador(
     `<td class="g-cifra" style="padding:12px 14px;background:${TONO.suave};border:1px solid ${TONO.borde};border-radius:8px;width:33%">` +
     `<div style="font-size:11px;text-transform:uppercase;color:${TONO.tenue}">${titulo}</div>` +
     `<div style="font-size:20px;font-weight:700;margin-top:4px">${valor}</div></td>`;
+  const formatoFabrica = perfilDeClave(b.fabrica)?.formato && perfilDeClave(b.fabrica)?.formato !== "sencillo";
   const cuerpo =
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="6" border="0"><tr>` +
-    cifra("Cajas", t.cajas.toLocaleString("es-MX")) +
-    cifra("Pares", t.pares.toLocaleString("es-MX")) +
-    cifra("Importe", e(dinero(t.importe, b.moneda))) +
+    cifra("Cartons", t.cajas.toLocaleString("en-US")) +
+    cifra("Pairs", t.pares.toLocaleString("en-US")) +
+    cifra("Amount", e(dinero(t.importe, b.moneda))) +
     `</tr></table>` +
     `<p style="font-size:13px;color:${TONO.tinta2};margin:14px 0">${e(fab)}${t.cbm != null ? ` · ≈ ${t.cbm.toFixed(2)} CBM` : ""}${b.descripcion ? ` · ${e(b.descripcion)}` : ""}</p>` +
     `<table class="g-t" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;border-collapse:collapse">` +
-    `<tr>${familia ? th("Modelo") : ""}${th("Color")}${th("Talla / corrida")}${th("Cajas", true)}${th("Pares x caja", true)}${th("Pares", true)}${th("Precio", true)}</tr>` +
+    `<tr>${familia ? th("Model") : ""}${th("Color")}${th("Size / assortment")}${th("Cartons", true)}${th("Pairs per ctn", true)}${th("Pairs", true)}${th("Price", true)}</tr>` +
     filas +
     `</table>` +
-    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Va adjunto el Excel ${
-      perfilDeClave(b.fabrica)?.formato && perfilDeClave(b.fabrica)?.formato !== "sencillo" ? "en el formato de la fábrica" : "del pedido"
-    }${
+    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Attached: the order Excel${formatoFabrica ? " in the factory's format" : ""}${
       etiquetas?.adjuntas
-        ? ` y el ZIP con las etiquetas (PDF de cada talla y de la caja)${
-            etiquetas.sinCodigo ? `; a ${etiquetas.sinCodigo} variantes les falta código y vienen en FALTANTES.txt` : ""
+        ? ` and the ZIP with the labels (PDF per size and the box label)${
+            etiquetas.sinCodigo ? `; ${etiquetas.sinCodigo} variants have no code yet and are listed in FALTANTES.txt` : ""
           }`
         : ""
     }.</p>`;
-  const asunto = `Pedido ${b.pedido} · ${b.modelo} · ${fab}`;
+  const asunto = `Purchase order ${b.pedido} · ${b.modelo} · ${fab}`;
   const html = plantillaCorreo({
-    preencabezado: `${b.pedido} ${b.modelo}: ${t.cajas} cajas, ${t.pares} pares`,
-    ceja: "Pedido a China confirmado",
+    preencabezado: `${b.pedido} ${b.modelo}: ${t.cajas} cartons, ${t.pares} pairs`,
+    ceja: "Purchase order confirmed",
     titulo: `${b.pedido} · ${b.modelo}`,
     subtitulo: fab,
     cuerpo,
-    boton: { texto: "Ver pedidos pendientes por enviar", url: `${URL_ERP}/pedidos/pendientes` },
+    boton: { texto: "View orders pending shipment", url: `${URL_ERP}/pedidos/pendientes` },
   });
   const texto =
-    `${asunto}\n${t.cajas} cajas · ${t.pares} pares · ${dinero(t.importe, b.moneda)}\n\n` +
+    `${asunto}\n${t.cajas} cartons · ${t.pares} pairs · ${dinero(t.importe, b.moneda)}\n\n` +
     b.lineas
-      .map((l) => `${l.modelo ? `${l.modelo} ` : ""}${l.color} ${l.unitalla ? `talla ${l.unitalla}` : "corrida"}: ${l.cajas} cajas de ${l.paresPorCaja}`)
+      .map(
+        (l) =>
+          `${l.modelo ? `${l.modelo} ` : ""}${l.color}${l.colorNuevo ? " (NEW COLOR)" : ""} ${l.unitalla ? `size ${l.unitalla}` : "assortment"}: ${l.cajas} cartons of ${l.paresPorCaja} pairs`,
+      )
       .join("\n");
   return { asunto, html, texto };
 }

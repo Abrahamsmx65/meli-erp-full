@@ -227,3 +227,46 @@ describe("colores NUEVOS y «CTNS 48» sin OF (GT128, 20-oct-2026)", () => {
     expect(m.colores.flatMap((c) => c.renglones.map((x) => x.paresPorCaja))).toEqual([48, 48, 48, 48, 48, 48]);
   });
 });
+
+describe("«SOLID SIZE 48» a secas y «GT104 5-GREEN» = GT104-5 GREEN (20-oct-2026)", () => {
+  const texto = [
+    "GT104\t5-GREEN\tSOLID SIZE 48",
+    "25\t5",
+    "26\t5",
+    "27\t11",
+    "GT104\t4-NAVY\tSOLID SIZE 48",
+    "26\t7",
+    "27\t7",
+    "GT104\t3-RED\tSOLID SIZE 48",
+    "26\t5",
+  ].join("\n");
+
+  it("lee la caja de 48 y el modelo con su número", () => {
+    const r = leerLista(texto);
+    expect(r.sinEntender).toEqual([]);
+    expect(r.modelos.map((m) => [m.modelo, m.colores.map((c) => c.color), m.avisos])).toEqual([
+      ["GT104-5", ["GREEN"], []],
+      ["GT104-4", ["NAVY"], []],
+      ["GT104-3", ["RED"], []],
+    ]);
+    const verde = r.modelos[0].colores[0].renglones;
+    expect(verde.map((x) => [x.unitalla, x.cajas, x.paresPorCaja])).toEqual([
+      ["25", 5, 48],
+      ["26", 5, 48],
+      ["27", 11, 48],
+    ]);
+  });
+
+  it("también cuando el modelo va solo arriba y los colores con número debajo", () => {
+    const r = leerLista(["GT104", "5-GREEN SOLID SIZE 48", "25 5", "4-NAVY SOLID SIZE 48", "26 7"].join("\n"));
+    expect(r.modelos.map((m) => [m.modelo, m.colores.map((c) => [c.color, c.renglones.length, c.renglones[0]?.paresPorCaja])])).toEqual([
+      ["GT104-5", [["GREEN", 1, 48]]],
+      ["GT104-4", [["NAVY", 1, 48]]],
+    ]);
+  });
+
+  it("un modelo ya con número no se vuelve a partir", () => {
+    const r = leerLista("GT104-5 GREEN CTNS OF 48\n25 5");
+    expect(r.modelos.map((m) => [m.modelo, m.colores[0].color])).toEqual([["GT104-5", "GREEN"]]);
+  });
+});

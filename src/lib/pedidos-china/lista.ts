@@ -93,7 +93,20 @@ const RE_SURTIDO = /^(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO|CORRIDA)\s*
 const RE_SURTIDO_AL_FINAL = /\s+(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO)\s*[:.]?$/;
 // «BLK SOLID SIZE CTNS OF 48»: «solid size» solo dice que la caja es de UNA
 // talla (lo normal de «talla cajas»); se quita para leer el color y la caja.
-const RE_SOLID_SIZE = /\bSOLID\s+SIZES?\b/g;
+// Pero «SOLID SIZE 48» a secas (GT104, 20-oct-2026) SÍ dice los pares por
+// caja: se deja para que lo lea RE_POR_CAJA.
+const RE_SOLID_SIZE = /\bSOLID\s+SIZES?\b(?!\s*(?:OF\s*)?\d)/g;
+// «GT104» + «5-GREEN»: el pedido y el packing list escriben el modelo
+// GT104-5 color GREEN (MELI lo parte como GT104 + «5-GREEN»); se normaliza
+// para que encuentre su historia (20-oct-2026: «GT104 nunca se ha pedido»).
+const RE_COLOR_CON_NUMERO = /^(\d{1,2})\s*-\s*([A-Z].*)$/;
+
+/** «GT104» + «5-GREEN» → modelo GT104-5, color GREEN; si no, tal cual. */
+export function partirModeloColor(modelo: string, color: string): { modelo: string; color: string } {
+  const m = color.match(RE_COLOR_CON_NUMERO);
+  if (!m || /-\d{1,2}$/.test(modelo)) return { modelo, color };
+  return { modelo: `${modelo}-${m[1]}`, color: m[2].trim() };
+}
 const RE_CAJAS_FINAL = /\s*(?:X|×|\*|=)\s*(\d{1,4})\s*(?:CTNS?|CAJAS?|CARTONS?)?\s*$/;
 
 function esTalla(n: number): boolean {
@@ -148,6 +161,8 @@ export function leerLista(texto: string): ListaLeida {
   const sinEntender: string[] = [];
 
   let modelo: ModeloLista | null = null;
+  // el modelo como se escribió («GT104»): un color «5-GREEN» abre GT104-5
+  let modeloBase = "";
   let color: ColorLista | null = null;
   // pares por caja: del color si se dio después de él, si no del modelo
   let porCajaModelo: number | null = null;
@@ -219,7 +234,24 @@ export function leerLista(texto: string): ListaLeida {
     // «… NEW COLOR» al final: el color que se abra en esta línea es nuevo.
     const colorNuevo = RE_COLOR_NUEVO.test(l) && /[A-Z]{2,}\s/.test(l);
     if (colorNuevo) l = l.replace(RE_COLOR_NUEVO, "").trim();
-    const abrirColor = (nombre: string): ColorLista => (colorNuevo ? { color: nombre, renglones: [], nuevo: true } : { color: nombre, renglones: [] });
+    const abrirColor = (nombreCrudo: string): ColorLista => {
+      // «5-GREEN» bajo GT104 es el modelo GT104-5: si el bloque actual ya
+      // tiene colores, se abre otro modelo con la misma caja; si está
+      // vacío (la línea «GT104 5-GREEN …»), solo se renombra.
+      const parte = partirModeloColor(modeloBase || modelo!.modelo, nombreCrudo);
+      const nombre = parte.color;
+      if (modelo && parte.modelo !== modelo.modelo) {
+        if (modelo.colores.length || modelo.avisos.length) {
+          modelo = { modelo: parte.modelo, colores: [], texto: cruda.trim(), avisos: [] };
+          modelos.push(modelo);
+          color = null;
+          cajasColor = null;
+          porCajaColor = null;
+          tallasCorrida = null;
+        } else modelo.modelo = parte.modelo;
+      }
+      return colorNuevo ? { color: nombre, renglones: [], nuevo: true } : { color: nombre, renglones: [] };
+    };
     const abrirSurtido = () => {
       if (surtidoAlFinal) surtido = { corrida: {}, linea: cruda.trim(), num };
     };
@@ -239,6 +271,7 @@ export function leerLista(texto: string): ListaLeida {
     const mm = l.match(RE_MODELO);
     if (mm && !esLineaDeNumeros(l)) {
       modelo = { modelo: mm[1], colores: [], texto: cruda.trim(), avisos: [] };
+      modeloBase = mm[1];
       modelos.push(modelo);
       color = null;
       cajasColor = null;

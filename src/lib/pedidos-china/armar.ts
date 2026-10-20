@@ -146,21 +146,53 @@ export function precioDeHistoria(
 }
 
 /**
+ * Modelos cuya historia RESPALDA a uno que nunca se ha pedido: SOLO los de
+ * su FAMILIA registrada (GT117…GT122: el mismo zapato en seis colores,
+ * misma fábrica y mismo precio; dueño, 20-oct-2026: GT120 salía «nunca se
+ * ha pedido» y «números hermanos no se toma a menos que sea la misma
+ * familia»: GT104-5 no hereda de GT104-3). Devuelve claves canónicas.
+ */
+export function hermanosDeModelo(modelo: string, familia: string[] | null | undefined): string[] {
+  const yo = canonizar(modelo);
+  const out = new Set<string>();
+  for (const m of familia ?? []) {
+    const c = canonizar(m);
+    if (c !== yo) out.add(c);
+  }
+  return [...out];
+}
+
+/**
  * @param fabricaElegida clave del perfil si el dueño cambió la fábrica en
  *   el borrador (los precios de otra fábrica ya no sirven).
+ * @param hermanos modelos de su familia cuya historia se usa SOLO si este
+ *   modelo nunca se ha pedido.
  */
-export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[], fabricaElegida?: string | null): BorradorArmado {
+export function armarBorrador(
+  lista: ModeloLista,
+  historiaTodo: LineaHistoria[],
+  fabricaElegida?: string | null,
+  hermanos?: string[] | null,
+): BorradorArmado {
   const avisos = [...lista.avisos];
   const modeloC = canonizar(lista.modelo);
-  const historia = historiaTodo.filter((l) => canonizar(l.modelo) === modeloC).sort(porPedidoDesc);
-  const nuevo = historia.length === 0;
+  const propia = historiaTodo.filter((l) => canonizar(l.modelo) === modeloC).sort(porPedidoDesc);
+  const nuevo = propia.length === 0;
+  const hermanosC = new Set((hermanos ?? []).map(canonizar));
+  const respaldo = nuevo && hermanosC.size ? historiaTodo.filter((l) => hermanosC.has(canonizar(l.modelo))).sort(porPedidoDesc) : [];
+  const historia = propia.length ? propia : respaldo;
 
   const ultima = historia[0];
   const perfil = fabricaElegida ? perfilDeClave(fabricaElegida) : perfilDeProveedor(ultima?.proveedor);
   const deLaFabrica = historia.filter((l) => clavePerfil(perfilDeProveedor(l.proveedor)) === clavePerfil(perfil));
   const moneda = perfil?.moneda ?? deLaFabrica.find((l) => l.moneda)?.moneda ?? null;
 
-  if (nuevo) {
+  if (nuevo && respaldo.length) {
+    const usados = [...new Set(respaldo.map((l) => l.modelo.toUpperCase()))].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    avisos.push(
+      `${lista.modelo} nunca se ha pedido: fábrica, moneda, precio, caja y descripción salen de ${usados.join(", ")} (${respaldo[0].pedido}). Revísalos.`,
+    );
+  } else if (nuevo) {
     avisos.push(
       `${lista.modelo} nunca se ha pedido: si eliges la fábrica sale en su formato; si no, se manda un Excel sencillo.`,
     );
@@ -281,7 +313,7 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
     }
   }
 
-  if (!nuevo && lineas.some((l) => l.precio == null)) {
+  if (historia.length && lineas.some((l) => l.precio == null)) {
     avisos.push("Hay renglones sin precio de esa fábrica: si no lo capturas, el Excel lo lleva en blanco.");
   }
 
@@ -310,10 +342,12 @@ export function armarBorradorFamilia(
   listas: ModeloLista[],
   historiaTodo: LineaHistoria[],
   fabricaElegida?: string | null,
+  hermanosDe?: (modelo: string) => string[],
 ): BorradorArmado {
-  const primeros = listas.map((l) => armarBorrador(l, historiaTodo, fabricaElegida));
+  const hermanos = (l: ModeloLista) => hermanosDe?.(l.modelo) ?? null;
+  const primeros = listas.map((l) => armarBorrador(l, historiaTodo, fabricaElegida, hermanos(l)));
   const fabrica = fabricaElegida ?? primeros.find((b) => b.fabrica)?.fabrica ?? null;
-  const armados = fabrica ? listas.map((l) => armarBorrador(l, historiaTodo, fabrica)) : primeros;
+  const armados = fabrica ? listas.map((l) => armarBorrador(l, historiaTodo, fabrica, hermanos(l))) : primeros;
 
   const lineas: LineaBorrador[] = [];
   const avisos: string[] = [];
