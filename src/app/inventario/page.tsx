@@ -14,7 +14,14 @@ import type { DB } from "@/lib/datos/repos";
 import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
-import { TotalMexico } from "@/components/total-mexico";
+import { FamiliasExistencias } from "@/components/familias-existencias";
+import { armarFamiliasExistencias } from "@/lib/servicios/familias-existencias";
+import {
+  CLAVE_VENTAS_FAMILIAS,
+  EDAD_VENTAS_FAMILIAS_MS,
+  calcularVentasParaFamilias,
+  type VentasParaFamilias,
+} from "@/lib/servicios/ventas-familias";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
 
@@ -200,13 +207,25 @@ export default async function Inventario({
 
   if (!cuenta) return <SinCuenta titulo="Existencias en bodega" />;
 
-  const [vista, fundasLeidas] = await Promise.all([
+  const [vista, fundasLeidas, ventasLeidas] = await Promise.all([
     vistaBodega(supabase, cuenta.id, t),
     servirConCacheApp<ExistenciasFundas>(supabase as DB, cuenta.id, CLAVE_FUNDAS, EDAD_FUNDAS_MS, () =>
       calcularExistenciasFundas(supabase as DB),
     ).catch((err) => ({ error: (err as Error).message }) as const),
+    // Lo vendido por SKU (30 días y toda la historia) para el total por
+    // familia: masticado, el RPC histórico tarda ~1.5 s.
+    servirConCacheApp<VentasParaFamilias>(supabase as DB, cuenta.id, CLAVE_VENTAS_FAMILIAS, EDAD_VENTAS_FAMILIAS_MS, () =>
+      calcularVentasParaFamilias(supabase as DB, cuenta.id),
+    ).catch((err) => ({ error: (err as Error).message }) as const),
   ]);
   t.fin();
+  const ventasFamilias = "error" in ventasLeidas ? null : ventasLeidas.datos;
+  const familias = armarFamiliasExistencias({
+    skus: vista.skusExistencias,
+    cajasPorModelo: vista.cajasPorModelo,
+    ventas30: ventasFamilias?.d30 ?? [],
+    ventasHist: ventasFamilias?.hist ?? [],
+  });
   const { fichas, inversion } = vista;
   const { ganancia, sinVentaMeli } = inversion;
   const porPromedio = sinVentaMeli.pares > 0 && sinVentaMeli.veces != null;
@@ -256,8 +275,12 @@ export default async function Inventario({
               sheet los puede seguir trayendo.
             </p>
             <p>
-              En el total por familia las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero todas
-              del mismo modelo, así que por familia el número es exacto. Por eso el desglose de adentro solo muestra pares.
+              Por familia: un renglón por modelo con lo que hay de él en bodega, en barco, en la fábrica (fuera del total:
+              no se ha pagado), en Full (con lo que va en transferencia), en FBA y en la bodega de TikTok, y lo que vendió
+              en los últimos 30 días y desde que el ERP registra, por canal (MELI calzado, Amazon y TikTok; sin lo de
+              David). «Alcanza» son los días que dura el total al ritmo de esos 30 días. Las cajas se cuentan una sola vez:
+              una caja de corrida trae varias tallas, pero todas del mismo modelo. Abrir el renglón lo parte por color; un
+              par cuyo SKU no dice el color cuenta en la familia pero no en ningún color.
             </p>
           </>
         }
@@ -433,7 +456,20 @@ export default async function Inventario({
           {
             id: "familia",
             titulo: "Por familia",
-            contenido: <TotalMexico renglones={vista.renglones} cajasPorModelo={vista.cajasPorModelo} />,
+            cuenta: familias.filter((f) => f.total > 0).length,
+            contenido: (
+              <>
+                {"error" in ventasLeidas ? (
+                  <Aviso tono="alerta">No se pudieron leer las ventas por familia: {ventasLeidas.error}</Aviso>
+                ) : null}
+                <FamiliasExistencias
+                  familias={familias}
+                  desde30={ventasFamilias?.desde30 ?? ""}
+                  hasta={ventasFamilias?.hasta ?? ""}
+                  desdeCanal={ventasFamilias?.desdeCanal ?? { meli: null, amazon: null, tiktok: null }}
+                />
+              </>
+            ),
           },
           {
             id: "inversion",

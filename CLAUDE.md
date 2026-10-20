@@ -2575,6 +2575,23 @@ guárdala numerada.
   PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
   `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
   capturado no entra a nada.
+- **EXISTENCIAS POR FAMILIA con sus ventas** (`servicios/familias-existencias.ts`
+  puro con pruebas: `armarFamiliasExistencias`, `colorDeSku`,
+  `compararFamilias`, `filtrarFamilias`; `servicios/ventas-familias.ts`
+  masticado en `app_cache` `existencias:ventas-sku:v1` 15 min;
+  `VistaBodega.skusExistencias`; `components/familias-existencias.tsx`,
+  pestaña «Por familia» de Existencias; dueño, 20-oct-2026: «una lista que no
+  sea por SKU sino por familia con sus totales de stock y que tenga ahí las
+  ventas que ha tenido el producto»): un renglón por MODELO con pares en
+  bodega, barco, fábrica (fuera del total), Full + transferencia, FBA y
+  TikTok (sin lo de David), las cajas contadas una vez, lo vendido en 30 días
+  y desde que el ERP registra por canal (MELI calzado, Amazon, TikTok, de
+  `inicio_ventas_skus` en dos llamadas; la histórica tarda ~1.5 s por el
+  barrido de Amazon, por eso va masticada) y «Alcanza» = total ÷ ritmo de 30
+  días. Abrir el renglón lo parte por COLOR (`colorDeSku`: a un SKU de Amazon
+  con la talla antes del color se le quita la talla; sin color, el par cuenta
+  solo en la familia). Sustituyó al «Total en México por familia»
+  (`TotalMexico`), que solo traía cajas y pares de bodega.
 - **FUNDAS en Existencias y «Todo junto»** (`servicios/existencias-fundas.ts`,
   `app_cache` `existencias:fundas:v1` 15 min; dueño, 16-oct-2026: «una
   sección de fundas, lo que hay en stock y en MELI y Amazon y lo que se gana,
