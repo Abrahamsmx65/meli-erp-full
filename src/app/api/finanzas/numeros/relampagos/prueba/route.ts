@@ -79,6 +79,18 @@ export async function GET(req: Request) {
     for (const id of ids) {
       const c = await propuestas(cliente, id).catch(() => []);
       if (!c.length) continue;
+      // Sirve la que ya tiene una programada: de ahí sale el precio y es el
+      // caso que hay que resolver (agregar OTRA fecha).
+      const r = await cliente
+        .get<{ results?: { id?: string; status?: string; price?: number }[] }>(`/seller-promotions/promotions/${c[0].id ?? "LGH-MLM1000"}/items`, {
+          app_version: "v2",
+          promotion_type: "LIGHTNING",
+          item_id: id,
+          limit: 50,
+        })
+        .catch(() => null);
+      const programada = (r?.results ?? []).some((x) => (!x.id || x.id === id) && x.status !== "candidate" && x.price);
+      if (!programada) continue;
       itemId = id;
       candidatas = c;
       break;
