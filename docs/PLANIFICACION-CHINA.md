@@ -10,6 +10,19 @@ La fábrica no fabrica tallas sueltas: fabrica cajas con una corrida adentro.
 Por eso el pedido se decide por color, y la talla solo decide **cómo se
 reparten** las cajas (corrida vs. unitalla).
 
+**Familias: modelos que se piden juntos** (`modelos_familias`, migración
+0148; `pedidos-china/familias.ts`; dueño, 20-oct-2026: «tengo un modelo que
+es el GT117 a GT122, quiero juntarlo todo para que se pida junto»). GT117
+BROWN, GT118 BLK, GT119 OLIVE, GT120 GREY, GT121 NAVY y GT122 BLK son el
+mismo zapato en seis colores (una sola publicación en MELI, un solo IN de
+Mingtai). El cálculo sigue siendo por modelo + color (cada número tiene su
+propia receta y su propia venta), pero el renglón lleva `familia` y la
+tabla «Pedido por modelo» los enseña como UN modelo con cada número como un
+color más; el «Excel del pedido» de la familia trae todos sus modelos; y en
+Nuevo pedido los bloques de la lista que caen en la misma familia salen en
+UN solo borrador (un IN, un Excel con el modelo en cada renglón). Se dan de
+alta en la propia pantalla («Modelos que se piden juntos»).
+
 ## 2. El inventario que cuenta es TODO el que existe
 
     en Full + viajando a Full + en cajas en bodega + en FBA y viajando a FBA

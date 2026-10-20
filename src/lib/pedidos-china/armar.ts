@@ -45,6 +45,12 @@ export interface LineaHistoria {
 export interface LineaBorrador extends Omit<RenglonPI, "modelo" | "descripcion"> {
   /** de qué pedido salió el precio (o null si se capturó / falta) */
   precioDe: string | null;
+  /**
+   * Solo en un borrador de FAMILIA (varios modelos que se piden juntos,
+   * GT117…GT122): el modelo real del renglón. En un borrador de un solo
+   * modelo no viene y manda el modelo del borrador.
+   */
+  modelo?: string | null;
 }
 
 export interface BorradorArmado {
@@ -253,6 +259,46 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
 }
 
 /** Lo que falta para poder confirmar el borrador (vacío = listo). */
+/**
+ * Un borrador de FAMILIA: varios modelos que la fábrica hace como un solo
+ * zapato y se piden en UN pedido (GT117…GT122). Cada modelo se arma como
+ * siempre con su propia historia y sus renglones llevan `modelo`; la
+ * fábrica es la del primero que la tenga y los demás se arman con ESA (los
+ * precios de otra fábrica no sirven). Nuevo solo si todos lo son.
+ */
+export function armarBorradorFamilia(
+  nombre: string,
+  listas: ModeloLista[],
+  historiaTodo: LineaHistoria[],
+  fabricaElegida?: string | null,
+): BorradorArmado {
+  const primeros = listas.map((l) => armarBorrador(l, historiaTodo, fabricaElegida));
+  const fabrica = fabricaElegida ?? primeros.find((b) => b.fabrica)?.fabrica ?? null;
+  const armados = fabrica ? listas.map((l) => armarBorrador(l, historiaTodo, fabrica)) : primeros;
+
+  const lineas: LineaBorrador[] = [];
+  const avisos: string[] = [];
+  for (const b of armados) {
+    for (const l of b.lineas) lineas.push({ ...l, modelo: b.modelo.toUpperCase() });
+    for (const a of b.avisos) avisos.push(a.startsWith(b.modelo) ? a : `${b.modelo}: ${a}`);
+  }
+  const distintas = new Set(primeros.map((b) => b.fabrica).filter(Boolean));
+  if (distintas.size > 1) {
+    avisos.push(`Los modelos de ${nombre} se han pedido a fábricas distintas; se usa la de ${armados.find((b) => b.fabrica)?.modelo ?? listas[0].modelo}.`);
+  }
+  const con = armados.find((b) => b.fabrica) ?? armados[0];
+  return {
+    modelo: nombre.toUpperCase(),
+    fabrica: con?.fabrica ?? null,
+    proveedor: con?.proveedor ?? null,
+    moneda: con?.moneda ?? armados.find((b) => b.moneda)?.moneda ?? null,
+    descripcion: armados.map((b) => b.descripcion).find(Boolean) ?? "",
+    lineas,
+    nuevo: armados.every((b) => b.nuevo),
+    avisos: [...new Set(avisos)],
+  };
+}
+
 export function faltantesDeBorrador(b: {
   fabrica: string | null;
   moneda: Moneda | null;

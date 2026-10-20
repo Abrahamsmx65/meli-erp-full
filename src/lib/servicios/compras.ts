@@ -36,6 +36,8 @@ import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { desglosarSku } from "./sync";
 import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
+import { familiaDe, type MapaFamilias } from "../pedidos-china/familias";
+import { cargarFamilias } from "./familias-modelos";
 import type { LineaGuardada } from "./cache";
 import type { TikTokCompraSku } from "./tiktok-compras";
 
@@ -149,6 +151,12 @@ export const UNITALLA_MIN_CAJAS = 5;
 export interface RenglonCompra {
   modelo: string;
   color: string;
+  /**
+   * Familia a la que pertenece el modelo (`modelos_familias`): varios
+   * números que la fábrica hace como un solo zapato y se piden juntos
+   * (GT117…GT122). La pantalla y el Excel agrupan por ella; null = va solo.
+   */
+  familia: string | null;
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
@@ -572,7 +580,7 @@ export async function sugerirCompra(
 
   // La página de pedidos ya leyó estas dos tablas para el inventario:
   // volver a pedirlas duplicaba los viajes a la base en cada clic.
-  const [[corridasRaw, skusRaw], aliasColores] = await Promise.all([
+  const [[corridasRaw, skusRaw], aliasColores, familias] = await Promise.all([
     precargado
       ? Promise.resolve([precargado.corridas, precargado.skus] as [any[], any[]])
       : Promise.all([
@@ -586,6 +594,8 @@ export async function sugerirCompra(
     // Colores del pedido ligados a mano con MELI: la receta se encuentra
     // también bajo el color de MELI.
     cargarAliasColores(db, accountId).catch(() => new Map() as MapaAlias),
+    // Modelos que se piden JUNTOS (GT117…GT122 = un zapato en seis colores).
+    cargarFamilias(db, accountId).catch(() => new Map() as MapaFamilias),
   ]);
 
   // La corrida más reciente de cada modelo+color es la que la fábrica usa
@@ -930,6 +940,7 @@ export async function sugerirCompra(
     renglones.push({
       modelo: g.modelo,
       color: g.color,
+      familia: familiaDe(familias, g.modelo),
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
       tallasConRespaldo: g.tallasConRespaldo,

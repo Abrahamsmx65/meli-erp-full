@@ -99,7 +99,8 @@ export function NuevoPedido() {
         <p className="texto-2 mt-1 text-[13px]">
           Un bloque por modelo: el modelo (con el color y «CTNS OF 12» si quieres), el color y luego «talla cajas».
           Para corridas: las tallas en una línea y los pares con «x 20» cajas, o «misma corrida x 20». Cada modelo sale en
-          su propio pedido{siguiente ? `, empezando en IN${siguiente}` : ""}.
+          su propio pedido{siguiente ? `, empezando en IN${siguiente}` : ""}; los modelos de una familia (los que se piden
+          juntos en Planeación de compras) salen en uno solo.
         </p>
         <textarea
           className="mt-3 w-full font-mono text-[13px]"
@@ -268,6 +269,8 @@ function TarjetaBorrador({
   }
 
   const faltan = sucio ? [] : b.faltantes;
+  // Borrador de FAMILIA (GT117…GT122): cada renglón dice de qué modelo es.
+  const familia = lineas.some((l) => l.modelo);
 
   return (
     <section className="tarjeta p-4">
@@ -279,6 +282,9 @@ function TarjetaBorrador({
           <h2 className="text-lg font-semibold">
             {b.pedido} · {b.modelo}
           </h2>
+          {familia ? (
+            <div className="texto-2 text-xs">Familia: {[...new Set(lineas.map((l) => l.modelo).filter(Boolean))].join(", ")}</div>
+          ) : null}
         </div>
         <div className="texto-2 text-sm">
           {n(totales.cajas)} cajas · {n(totales.pares)} pares · {dinero(totales.importe, b.moneda)}
@@ -341,6 +347,7 @@ function TarjetaBorrador({
         <table className="datos">
           <thead>
             <tr>
+              {familia ? <th>Modelo</th> : null}
               <th>Color</th>
               <th>Talla / corrida</th>
               <th className="num">Cajas</th>
@@ -356,6 +363,7 @@ function TarjetaBorrador({
               const t = totalesDeBorrador([l]);
               return (
                 <tr key={i}>
+                  {familia ? <td className="font-medium">{l.modelo}</td> : null}
                   <td>
                     <input className="w-36" value={l.color} onChange={(e) => cambiarLinea(i, { color: e.target.value.toUpperCase() })} />
                   </td>

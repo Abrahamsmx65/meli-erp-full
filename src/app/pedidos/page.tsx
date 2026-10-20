@@ -8,6 +8,8 @@ import { servirCompraChina } from "@/lib/servicios/compras-china";
 import { Ficha } from "@/components/tiles";
 import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
+import { FamiliasModelos } from "@/components/familias-modelos";
+import { familiasDeCuenta } from "@/lib/servicios/familias-modelos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,10 +30,11 @@ export default async function Pedidos() {
   // guardado). Aquí solo se leen además los pedidos (fichas) y si el plan
   // sigue vigente (dos columnas, sin su JSON).
   const t = cronometro("/pedidos");
-  const [guardada, pedidos, planEstado] = await Promise.all([
+  const [guardada, pedidos, planEstado, familias] = await Promise.all([
     t.medir("compra", servirCompraChina(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
     t.medir("plan", estadoPlan(supabase, cuenta.id)),
+    t.medir("familias", familiasDeCuenta(supabase, cuenta.id).catch(() => [])),
   ]);
   t.fin();
   const { compra, amazon: amazonEstado, tiktok: tiktokEstado } = guardada.datos;
@@ -159,6 +162,8 @@ export default async function Pedidos() {
       ) : null}
 
       {amazonEstado.disponible ? <PedidoPorModelo renglones={compra.renglones} /> : null}
+
+      <FamiliasModelos familias={familias} />
     </Pagina>
   );
 }

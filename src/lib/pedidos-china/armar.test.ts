@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarBorrador, faltantesDeBorrador, mismoColor, totalesDeBorrador, type LineaHistoria } from "./armar";
+import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, mismoColor, totalesDeBorrador, type LineaHistoria } from "./armar";
 import { leerLista } from "./lista";
 
 const h = (o: Partial<LineaHistoria>): LineaHistoria => ({
@@ -78,5 +78,33 @@ describe("armarBorrador: lo que la lista no dice sale del último pedido del mod
     expect(mismoColor("BLK", "BLACK")).toBe(true);
     expect(mismoColor("M BROWN", "MBROWN")).toBe(true);
     expect(mismoColor("BLK", "BROWN")).toBe(false);
+  });
+});
+
+describe("armarBorradorFamilia: varios modelos que se piden juntos en UN pedido", () => {
+  const mingtai = (o: Partial<LineaHistoria>): LineaHistoria =>
+    h({ pedido: "IN10130", proveedor: "Fujian  Mingtai Shoes Co.,Ltd.", moneda: "RMB", paresPorCaja: 48, precio: 20, descripcion: "EVA SANDAL", ...o });
+  const hist: LineaHistoria[] = [
+    mingtai({ modelo: "GT117", color: "BROWN", tallas: { "25": 3, "26": 8, "27": 13, "28": 10, "29": 9, "30": 5 } }),
+    mingtai({ modelo: "GT118", color: "BLACK", tallas: { "25": 3, "26": 8, "27": 13, "28": 10, "29": 9, "30": 5 }, precio: 21 }),
+  ];
+  const lista = leerLista(`GT117 BROWN\nMISMA CORRIDA X 10\n\nGT118 BLK\nMISMA CORRIDA X 20\n\nGT120 GREY\n25 26 27\n10 20 18 X 5`);
+
+  it("un solo borrador con el modelo en cada renglón, la fábrica del primero y nuevo solo si todos lo son", () => {
+    const b = armarBorradorFamilia("GT117-GT122", lista.modelos, hist);
+    expect(b).toMatchObject({ modelo: "GT117-GT122", fabrica: "mingtai", moneda: "RMB", descripcion: "EVA SANDAL", nuevo: false });
+    expect(b.lineas.map((l) => [l.modelo, l.color, l.cajas, l.paresPorCaja, l.precio])).toEqual([
+      ["GT117", "BROWN", 10, 48, 20],
+      ["GT118", "BLACK", 20, 48, 21],
+      ["GT120", "GREY", 5, 48, null],
+    ]);
+    expect(b.avisos.some((a) => a.startsWith("GT120"))).toBe(true);
+    expect(totalesDeBorrador(b.lineas)).toMatchObject({ cajas: 35, pares: 1680, importe: null });
+  });
+
+  it("un modelo sin historia en la familia no la vuelve nueva", () => {
+    const b = armarBorradorFamilia("GT117-GT122", [lista.modelos[2]], hist);
+    expect(b.nuevo).toBe(true);
+    expect(b.lineas[0].modelo).toBe("GT120");
   });
 });
