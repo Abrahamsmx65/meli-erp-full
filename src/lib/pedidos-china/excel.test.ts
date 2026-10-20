@@ -83,3 +83,17 @@ describe("excelDePedido: el pedido en el formato de cada fábrica se vuelve a le
     expect(filas[0].cajas).toBe(89);
   });
 });
+
+describe("pedido SIN fábrica: Excel sencillo", () => {
+  it("sin fábrica, moneda ni precio se arma y se vuelve a leer", async () => {
+    const { SIN_FABRICA } = await import("./fabricas");
+    const r = unitallas("GT999", "BLACK", 12, { "25": 10, "26": 8 }, 0).map((x) => ({ ...x, precio: null }));
+    const buf = await excelDePedido({ pedido: "IN10190", fecha: "2026-10-20", perfil: SIN_FABRICA, moneda: null, renglones: r });
+    const p = await importarProforma(buf, { nombre: "IN10190 (GT999).xlsx" });
+    expect(p.pedido).toBe("IN10190");
+    expect(p.lineas.map((l) => [l.unitalla, l.cajas, l.pares, l.precioUnitario])).toEqual([
+      ["25", 10, 120, null],
+      ["26", 8, 96, null],
+    ]);
+  });
+});

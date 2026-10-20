@@ -1,0 +1,184 @@
+/**
+ * El paquete de etiquetas de un pedido (ZIP), el mismo que se descarga en
+ * Órdenes de compra y el que va adjunto en el correo de un pedido nuevo
+ * confirmado (dueño, 20-oct-2026: «cuando hago un pedido y lo confirmo, en
+ * el correo también se me comparta el PDF de etiquetas»).
+ */
+import ExcelJS from "exceljs";
+import JSZip from "jszip";
+import { traerTodo, type DB } from "../datos/repos";
+import {
+  buscarAmazon,
+  buscarVariante,
+  indexarCatalogo,
+  mapaAmazon,
+  sinAnotacion,
+} from "../etiquetas/resolver";
+import { varianteMeli } from "../etiquetas/zpl";
+import { generarPdf2Etiquetas, generarPdfCarton } from "../etiquetas/pdf";
+import { ordenarTallas, textosDeCarton } from "../etiquetas/carton";
+import { cargarAliasColores, colorEfectivo } from "./alias-color";
+
+/** Sin espacios y en mayúsculas: "blk/brown " → "BLK/BROWN". */
+function pegado(s: string): string {
+  return s.toUpperCase().replace(/\s+/g, "");
+}
+
+
+/** Para nombre de archivo: la diagonal no puede ir, se vuelve " - ". */
+function nombreArchivo(s: string): string {
+  return s.replace(/\//g, " - ").replace(/[\\:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * El paquete de etiquetas de un pedido, calcado de cómo ya se comparte con
+ * la fábrica en China (ejemplo real: IN10128_GT125.zip). Por cada modelo va
+ * una carpeta "PEDIDO (MODELO)" con:
+ *
+ *   - "MODELO COLOR TALLA MX, 2 LABEL.pdf" por variante: página 1 la
+ *     etiqueta de Amazon (FNSKU) y página 2 la de MELI (código Full),
+ *     las dos de 2 × 1 pulgadas.
+ *   - "MODELO.xlsx" con SKU | LABEL MELI | LABEL AMAZON.
+ *   - "PEDIDO - BOX LABEL.pdf": una página de 10 × 5 cm por color, con el
+ *     código de barras y el texto PEDIDO-MODELO-COLOR, para el cartón. Si
+ *     el pedido es de cajas de UNA talla (IN10172 de GT148: 48 pares de la
+ *     misma talla por caja), cada talla lleva su propia etiqueta
+ *     PEDIDO-MODELO-COLOR-TALLA: una etiqueta por color no dice qué caja
+ *     es cuál (pedido del dueño, 22-sep-2026).
+ */
+export async function zipEtiquetasDePedido(
+  db: DB,
+  accountId: string,
+  pedidoId: string,
+): Promise<{ nombre: string; contenido: Buffer; sinCodigo: string[] }> {
+  const { data: pedido } = await db
+    .from("pedidos")
+    .select("id, pedido")
+    .eq("id", pedidoId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!pedido) throw new Error("Pedido no encontrado.");
+
+  const { data: lineas } = await db
+    .from("pedido_lineas")
+    .select("modelo, color, talla, tallas")
+    .eq("pedido_id", pedidoId)
+    .order("modelo", { ascending: true })
+    .order("color", { ascending: true });
+  if (!lineas?.length) throw new Error("El pedido no tiene renglones.");
+
+  // El catálogo completo de MELI y los datos de Amazon, indexados con los
+  // amarres de siempre: exacto → canónico → aplastado.
+  const [catalogo, amazon, aliasColores] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    traerTodo<any>(db, "skus", "sku, inventory_id, titulo, color, talla", (q) => q.eq("account_id", accountId)),
+    mapaAmazon(db),
+    // Colores ligados a mano con MELI: la etiqueta sale con el SKU real.
+    cargarAliasColores(db, accountId),
+  ]);
+
+  const indice = indexarCatalogo(catalogo ?? []);
+
+  const numeroPedido = pegado(pedido.pedido || "PEDIDO");
+  const zip = new JSZip();
+  const sinCodigo: string[] = [];
+
+  // Un pedido puede traer varios modelos: cada uno con su carpeta, como los
+  // paquetes que ya se comparten.
+  const porModelo = new Map<string, typeof lineas>();
+  for (const l of lineas) {
+    const m = pegado(l.modelo);
+    if (!porModelo.has(m)) porModelo.set(m, []);
+    porModelo.get(m)!.push(l);
+  }
+
+  for (const [modelo, lineasModelo] of porModelo) {
+    const carpeta = zip.folder(nombreArchivo(`${numeroPedido} (${modelo})`))!;
+
+    const libro = new ExcelJS.Workbook();
+    const hoja = libro.addWorksheet("Hoja 1");
+    hoja.addRow(["SKU", "LABEL MELI", "LABEL AMAZON"]);
+    hoja.getColumn(1).width = 26;
+    hoja.getColumn(2).width = 14;
+    hoja.getColumn(3).width = 14;
+
+    // Etiquetas del cartón: una por color para las cajas de corrida y una
+    // por color + talla para las cajas de una sola talla.
+    const cartones = new Map<string, { color: string; tallas: Set<string>; corrida: boolean }>();
+    // Un color puede venir en varios renglones (la corrida + sus cajas de
+    // una sola talla): cada etiqueta de par va UNA vez.
+    const tallasHechas = new Set<string>();
+
+    for (const l of lineasModelo) {
+      const color = pegado(sinAnotacion(l.color ?? ""));
+      const carton = cartones.get(color) ?? { color, tallas: new Set<string>(), corrida: false };
+      if (l.talla) carton.tallas.add(String(l.talla));
+      else carton.corrida = true;
+      cartones.set(color, carton);
+
+      for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
+        if (tallasHechas.has(`${color}|${talla}`)) continue;
+        tallasHechas.add(`${color}|${talla}`);
+        const { construido, encontrado } = buscarVariante(
+          indice,
+          l.modelo,
+          colorEfectivo(aliasColores, l.modelo, l.color ?? ""),
+          talla,
+        );
+
+        const sku = encontrado?.sku ?? construido;
+        const codigoFull = encontrado?.inventory_id ?? null;
+        const datoAmazon = buscarAmazon(amazon, sku) ?? buscarAmazon(amazon, construido);
+
+        hoja.addRow([sku, codigoFull ?? "", datoAmazon?.fnsku ?? ""]);
+        if (!codigoFull && !datoAmazon) {
+          sinCodigo.push(sku);
+          continue;
+        }
+        if (!codigoFull) sinCodigo.push(`${sku} (sin código Full, solo va la de Amazon)`);
+        if (!datoAmazon) sinCodigo.push(`${sku} (sin FNSKU, solo va la de MELI)`);
+
+        const titulo = encontrado?.titulo ?? `${l.modelo} ${l.color}`;
+        const pdf = await generarPdf2Etiquetas(
+          datoAmazon
+            ? {
+                fnsku: datoAmazon.fnsku,
+                titulo: datoAmazon.titulo ?? titulo,
+                sku: datoAmazon.sku,
+              }
+            : null,
+          codigoFull
+            ? {
+                codigo: codigoFull,
+                titulo,
+                variante: varianteMeli(
+                  encontrado?.color ?? sinAnotacion(l.color ?? ""),
+                  encontrado?.talla ?? talla,
+                ),
+                pie: `SKU: ${sku}`,
+                cantidad: 1,
+              }
+            : null,
+        );
+
+        carpeta.file(nombreArchivo(`${modelo} ${color} ${talla} MX, 2 LABEL.pdf`), pdf);
+      }
+    }
+
+    carpeta.file(
+      nombreArchivo(`${numeroPedido} - BOX LABEL.pdf`),
+      await generarPdfCarton(textosDeCarton(numeroPedido, modelo, [...cartones.values()])),
+    );
+    carpeta.file(nombreArchivo(`${modelo}.xlsx`), Buffer.from(await libro.xlsx.writeBuffer()));
+  }
+
+  if (sinCodigo.length) {
+    zip.file(
+      "FALTANTES.txt",
+      "A estas variantes les falta código:\n\n" + sinCodigo.join("\n") + "\n",
+    );
+  }
+
+  const contenido = await zip.generateAsync({ type: "nodebuffer" });
+  return { nombre: `${nombreArchivo(numeroPedido)}.zip`, contenido, sinCodigo };
+}

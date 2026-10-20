@@ -23,9 +23,10 @@ import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, totalesDeBorr
 import { agruparPorFamilia } from "../pedidos-china/familias";
 import { cargarFamilias } from "./familias-modelos";
 import { excelDePedido, nombreArchivoPedido, type PedidoPI } from "../pedidos-china/excel";
-import { FABRICAS, perfilDeClave, perfilDeProveedor } from "../pedidos-china/fabricas";
+import { FABRICAS, perfilDeClave, perfilDeProveedor, SIN_FABRICA } from "../pedidos-china/fabricas";
 import { leerLista, type ModeloLista } from "../pedidos-china/lista";
 import { guardarProforma } from "./pedidos";
+import { zipEtiquetasDePedido } from "./etiquetas-pedido";
 import { enviarCorreo } from "./correo";
 import { escaparHtml, plantillaCorreo, TONO, URL_ERP } from "./correo-marca";
 
@@ -44,7 +45,14 @@ export interface Borrador {
   avisos: string[];
   estado: "borrador" | "confirmado" | "descartado";
   pedidoId: string | null;
-  correo: { enviado: boolean; para: string[]; motivo?: string; en: string } | null;
+  correo: {
+    enviado: boolean;
+    para: string[];
+    motivo?: string;
+    en: string;
+    /** si el ZIP de etiquetas no se pudo armar, por qué (el correo sale igual) */
+    etiquetas?: string;
+  } | null;
   creadoEn: string;
   confirmadoEn: string | null;
   /** lo que falta para poder confirmar */
@@ -412,8 +420,8 @@ function hoyMx(): string {
 }
 
 export function pedidoPIDe(b: Borrador): PedidoPI {
-  const perfil = perfilDeClave(b.fabrica);
-  if (!perfil) throw new Error("Falta la fábrica del pedido.");
+  // Sin fábrica: Excel sencillo.
+  const perfil = perfilDeClave(b.fabrica) ?? SIN_FABRICA;
   return {
     pedido: b.pedido,
     fecha: b.confirmadoEn ? b.confirmadoEn.slice(0, 10) : hoyMx(),
@@ -462,10 +470,13 @@ function dinero(n: number | null, m: Moneda | null): string {
   return `${m === "RMB" ? "¥" : "$"}${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${m ? ` ${m}` : ""}`;
 }
 
-export function correoDeBorrador(b: Borrador): { asunto: string; html: string; texto: string } {
+export function correoDeBorrador(
+  b: Borrador,
+  etiquetas?: { adjuntas: boolean; sinCodigo: number },
+): { asunto: string; html: string; texto: string } {
   const e = escaparHtml;
   const t = b.totales;
-  const fab = b.proveedor ?? perfilDeClave(b.fabrica)?.nombre ?? "";
+  const fab = b.proveedor || perfilDeClave(b.fabrica)?.nombre || "Sin fábrica";
   const familia = b.lineas.some((l) => l.modelo);
   const filas = b.lineas
     .map((l) => {
@@ -505,7 +516,15 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
     `<tr>${familia ? th("Modelo") : ""}${th("Color")}${th("Talla / corrida")}${th("Cajas", true)}${th("Pares x caja", true)}${th("Pares", true)}${th("Precio", true)}</tr>` +
     filas +
     `</table>` +
-    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Va adjunto el Excel en el formato de la fábrica.</p>`;
+    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Va adjunto el Excel ${
+      perfilDeClave(b.fabrica)?.formato && perfilDeClave(b.fabrica)?.formato !== "sencillo" ? "en el formato de la fábrica" : "del pedido"
+    }${
+      etiquetas?.adjuntas
+        ? ` y el ZIP con las etiquetas (PDF de cada talla y de la caja)${
+            etiquetas.sinCodigo ? `; a ${etiquetas.sinCodigo} variantes les falta código y vienen en FALTANTES.txt` : ""
+          }`
+        : ""
+    }.</p>`;
   const asunto = `Pedido ${b.pedido} · ${b.modelo} · ${fab}`;
   const html = plantillaCorreo({
     preencabezado: `${b.pedido} ${b.modelo}: ${t.cajas} cajas, ${t.pares} pares`,
@@ -556,11 +575,35 @@ export async function mandarCorreo(db: DB, accountId: string, id: string): Promi
   const { destinatarios } = await leerAjustes(db, accountId);
   const pi = pedidoPIDe(b);
   const contenido = await excelDePedido(pi);
-  const c = correoDeBorrador(b);
+  const adjuntos = [{ nombre: nombreArchivoPedido(b.pedido, pi.renglones), contenido }];
+
+  // El ZIP de etiquetas (el mismo de Órdenes de compra). Si no se puede
+  // armar, el correo sale con el Excel y se anota por qué.
+  let etiquetas: { adjuntas: boolean; sinCodigo: number } = { adjuntas: false, sinCodigo: 0 };
+  let motivoEtiquetas: string | undefined;
+  if (b.pedidoId) {
+    try {
+      const zip = await zipEtiquetasDePedido(db, accountId, b.pedidoId);
+      adjuntos.push({ nombre: `${b.pedido} etiquetas.zip`, contenido: zip.contenido });
+      etiquetas = { adjuntas: true, sinCodigo: zip.sinCodigo.length };
+    } catch (err) {
+      motivoEtiquetas = (err as Error).message;
+    }
+  } else {
+    motivoEtiquetas = "El borrador no tiene pedido dado de alta.";
+  }
+
+  const c = correoDeBorrador(b, etiquetas);
   const res = destinatarios.length
-    ? await enviarCorreo({ para: destinatarios, asunto: c.asunto, html: c.html, texto: c.texto, adjuntos: [{ nombre: nombreArchivoPedido(b.pedido, pi.renglones), contenido }] })
+    ? await enviarCorreo({ para: destinatarios, asunto: c.asunto, html: c.html, texto: c.texto, adjuntos })
     : { enviado: false, motivo: "No hay correos en «Mandar a»." };
-  const correo = { enviado: res.enviado, para: destinatarios, motivo: res.motivo, en: new Date().toISOString() };
+  const correo = {
+    enviado: res.enviado,
+    para: destinatarios,
+    motivo: res.motivo,
+    en: new Date().toISOString(),
+    ...(motivoEtiquetas ? { etiquetas: motivoEtiquetas } : {}),
+  };
   await db.from("pedidos_borradores").update({ correo }).eq("id", id);
   return { ...b, correo };
 }

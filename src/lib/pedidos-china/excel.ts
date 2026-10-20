@@ -563,7 +563,8 @@ export async function excelDePedido(p: PedidoPI): Promise<Buffer> {
       const cT = 4;
       const c0 = cT + nT;
       const col: Columnas = { item: 1, desc: 2, color: 3, tallas: cT, porCaja: c0, cajas: c0 + 1, pares: c0 + 2, precio: c0 + 3, importe: c0 + 4, medidas: c0 + 5, cbm: c0 + 8 };
-      celda(ws, 1, 1, perfil.nombre, { negrita: true, tam: 14, centro: false });
+      // Sin fábrica (pedido sencillo) el encabezado es de la orden de compra.
+      celda(ws, 1, 1, perfil.nombre || "PURCHASE ORDER", { negrita: true, tam: 14, centro: false });
       celda(ws, 2, 1, "PROFORMA INVOICE", { negrita: true, tam: 12, centro: false });
       celda(ws, 3, 1, `PI : ${p.pedido}`, { negrita: true, centro: false });
       celda(ws, 4, 1, `To: ${COMPRADOR.nombre} · Date ${p.fecha} · ${perfil.entrega} · ${modelos}`, { centro: false });

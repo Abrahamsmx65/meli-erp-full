@@ -56,12 +56,14 @@ describe("armarBorrador: lo que la lista no dice sale del último pedido del mod
     expect(totalesDeBorrador(b.lineas).importe).toBeCloseTo(20 * (18 * 9.6 + 4 * 10.1), 2);
   });
 
-  it("producto nuevo: sin fábrica ni precio, avisado y sin poder confirmar", () => {
+  it("producto nuevo: sin fábrica ni precio se confirma igual (Excel sencillo); solo faltan los pares por caja", () => {
     const b = armarBorrador(lista.modelos[3], historia);
     expect(b.nuevo).toBe(true);
     expect(b.fabrica).toBeNull();
     expect(b.avisos.join(" ")).toContain("nunca se ha pedido");
-    expect(faltantesDeBorrador(b)).toContain("la fábrica");
+    // Sin fábrica, moneda ni precio también se confirma (Excel sencillo); la
+    // lista no dice cuántos pares trae la caja y eso sí falta.
+    expect(faltantesDeBorrador(b)).toEqual(["los pares por caja de algún renglón"]);
     // Con la fábrica elegida a mano, la moneda sale del perfil.
     const conFabrica = armarBorrador(lista.modelos[3], historia, "chaozhou");
     expect(conFabrica.moneda).toBe("USD");
