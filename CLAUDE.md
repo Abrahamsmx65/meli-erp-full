@@ -218,8 +218,18 @@ guárdala numerada.
   GT142: «RED 20 CTNS ⇥ ASSORTMENT» en UNA línea abre el surtido de 20
   cajas y los «talla ⇥ pares» de abajo son la corrida de la caja,
   «BLK ⇥ SOLID SIZE CTNS OF 48» es color + caja de una talla —«solid
-  size» se quita, `RE_SOLID_SIZE`— y los «talla ⇥ cajas» de abajo son
-  cajas por talla) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
+  size» se quita, `RE_SOLID_SIZE`; «CTNS 48» sin OF también vale— y los
+  «talla ⇥ cajas» de abajo son cajas por talla; y **«LT BROWN NEW COLOR»
+  es un COLOR NUEVO** (`RE_COLOR_NUEVO`, `ColorLista.nuevo`,
+  `LineaBorrador.colorNuevo`; GT128, 20-oct-2026: «voy a aumentar colores
+  nuevos, llevan mismo precio pero no están en sistema»): toma el precio
+  de los demás colores del modelo (misma talla, de esa fábrica), el Excel
+  lo marca «(NEW COLOR)» en la descripción (`descripcionDeRenglon`; la
+  marca viaja a `pedido_lineas.descripcion` y `armarBorrador` la quita al
+  heredar la descripción), la pantalla y el correo dicen «NUEVO» y el
+  aviso del borrador trae el SKU con que crearlo en MELI por talla
+  (`skuMeliDeColorNuevo`: GT128-LT BROWN-23-MX); creado en MELI y
+  sincronizado, las etiquetas del pedido salen solas) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
   (`siguienteIn`: el mayor entre pedidos, borradores vivos y
   `pedidos_ajustes.ultimo_in`). Hasta el 20-oct-2026 salía un borrador por
   modelo; ese día el dueño pegó GT180 y GT181 juntos («cuando pego un texto

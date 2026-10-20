@@ -195,3 +195,35 @@ describe("la hoja del dueño con tabulador: «RED 20 CTNS\tASSORTMENT» y «BLK\
     ]);
   });
 });
+
+describe("colores NUEVOS y «CTNS 48» sin OF (GT128, 20-oct-2026)", () => {
+  const texto = [
+    "GT128\t",
+    "PINK\tSOLID SIZE CTNS 48",
+    "23\t3",
+    "24\t5",
+    "\t",
+    "BROWN\t",
+    "23\t3",
+    "\t",
+    "LT BROWN NEW COLOR\t",
+    "23\t3",
+    "24\t5",
+    "\t",
+    "CAMEL NEW COLOR\t",
+    "23\t3",
+  ].join("\n");
+
+  it("lee la caja de 48 para todos los colores y marca los nuevos", () => {
+    const r = leerLista(texto);
+    const m = r.modelos[0];
+    expect(m.avisos).toEqual([]);
+    expect(m.colores.map((c) => [c.color, Boolean(c.nuevo), c.renglones.length])).toEqual([
+      ["PINK", false, 2],
+      ["BROWN", false, 1],
+      ["LT BROWN", true, 2],
+      ["CAMEL", true, 1],
+    ]);
+    expect(m.colores.flatMap((c) => c.renglones.map((x) => x.paresPorCaja))).toEqual([48, 48, 48, 48, 48, 48]);
+  });
+});

@@ -409,6 +409,11 @@ function TarjetaBorrador({
                   {familia ? <td className="font-medium">{l.modelo}</td> : null}
                   <td>
                     <input className="w-36" value={l.color} onChange={(e) => cambiarLinea(i, { color: e.target.value.toUpperCase() })} />
+                    {l.colorNuevo ? (
+                      <div className="text-[10px] font-semibold uppercase" style={{ color: "var(--acento)" }} title="Color nuevo: no existe en MELI todavía; va marcado en el Excel">
+                        Nuevo
+                      </div>
+                    ) : null}
                   </td>
                   <td className="text-xs">
                     {l.unitalla

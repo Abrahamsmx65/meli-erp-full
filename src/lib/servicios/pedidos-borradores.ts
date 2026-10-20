@@ -368,6 +368,7 @@ function validarLineas(lineas: unknown): LineaBorrador[] {
     for (const [t, n] of Object.entries(l.preciosTalla ?? {})) if (Number(n) > 0) preciosTalla[String(t)] = Number(n);
     return {
       ...(l.modelo ? { modelo: String(l.modelo).trim().toUpperCase() } : {}),
+      ...(l.colorNuevo ? { colorNuevo: true } : {}),
       color: String(l.color ?? "").trim().toUpperCase(),
       unitalla: l.unitalla ? String(l.unitalla) : null,
       corrida,
@@ -470,7 +471,7 @@ export function pedidoPIDe(b: Borrador): PedidoPI {
     fecha: b.confirmadoEn ? b.confirmadoEn.slice(0, 10) : hoyMx(),
     perfil,
     moneda: b.moneda,
-    renglones: b.lineas.map((l) => ({ ...l, modelo: l.modelo || b.modelo, descripcion: b.descripcion })),
+    renglones: b.lineas.map((l) => ({ ...l, modelo: l.modelo || b.modelo, descripcion: b.descripcion, nuevo: Boolean(l.colorNuevo) })),
   };
 }
 
@@ -486,7 +487,7 @@ export function proformaDeBorrador(b: Borrador): Proforma {
     modelo: l.modelo || b.modelo,
     color: l.color,
     colorCrudo: l.color,
-    descripcion: b.descripcion,
+    descripcion: l.colorNuevo ? `${b.descripcion} (NEW COLOR)`.trim() : b.descripcion,
     tallas: l.unitalla ? { [l.unitalla]: l.paresPorCaja } : { ...l.corrida },
     paresPorCaja: l.paresPorCaja,
     cajas: l.cajas,
@@ -533,7 +534,7 @@ export function correoDeBorrador(
         : dinero(l.precio, null);
       return (
         `<tr>${familia ? `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.modelo ?? "")}</td>` : ""}` +
-        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}</td>` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}${l.colorNuevo ? ` <span style="font-size:10px;font-weight:700;color:${TONO.tinta2}">NUEVO</span>` : ""}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(que)}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.cajas}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.paresPorCaja}</td>` +

@@ -51,6 +51,16 @@ export interface LineaBorrador extends Omit<RenglonPI, "modelo" | "descripcion">
    * modelo no viene y manda el modelo del borrador.
    */
   modelo?: string | null;
+  /** la lista lo trajo como «NEW COLOR»: no existe en MELI todavía; va marcado en el Excel */
+  colorNuevo?: boolean;
+}
+
+/** Marca que lleva en el Excel (descripción) un renglón de color nuevo. */
+export const MARCA_COLOR_NUEVO = "(NEW COLOR)";
+
+/** Con qué SKU se crea en MELI una talla de un color nuevo: MODELO-COLOR-TALLA-MX. */
+export function skuMeliDeColorNuevo(modelo: string, color: string, talla: string): string {
+  return `${modelo.toUpperCase()}-${color.toUpperCase()}-${talla}-MX`;
 }
 
 export interface BorradorArmado {
@@ -161,7 +171,14 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
   if (perfil && !moneda) avisos.push(`No se sabe en qué moneda cobra ${perfil.nombre}: elígela.`);
 
   const descripcion =
-    historia.map((l) => (l.descripcion ?? "").replace(/\s*\(caja de una sola talla\)\s*$/i, "").trim()).find(Boolean) ?? "";
+    historia
+      .map((l) =>
+        (l.descripcion ?? "")
+          .replace(/\s*\(caja de una sola talla\)\s*$/i, "")
+          .replace(/\s*\(NEW COLOR\)\s*$/i, "")
+          .trim(),
+      )
+      .find(Boolean) ?? "";
 
   const lineas: LineaBorrador[] = [];
   for (const c of lista.colores) {
@@ -170,6 +187,21 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
     const previo = historia.find((l) => mismoColor(l.color, c.color));
     const color = (previo?.color ?? c.color).toUpperCase();
     const delColor = historia.filter((l) => mismoColor(l.color, color));
+    // Color NUEVO: lleva el precio de los demás colores del modelo (el
+    // dueño: «llevan mismo precio»), va marcado en el Excel y se le dice
+    // con qué SKU crearlo en MELI, una variante por talla.
+    const nuevo = Boolean(c.nuevo);
+    if (nuevo) {
+      const tallas = [...new Set(c.renglones.flatMap((r) => (r.unitalla ? [r.unitalla] : Object.keys(r.corrida ?? {}))))].sort(
+        (a, b) => Number(a) - Number(b),
+      );
+      avisos.push(
+        `${color} es COLOR NUEVO de ${lista.modelo}: lleva el precio de los demás colores y va marcado «${MARCA_COLOR_NUEVO}» en el Excel. Créalo en MELI con el SKU ${skuMeliDeColorNuevo(lista.modelo, color, "{talla}")}` +
+          (tallas.length ? ` (tallas ${tallas.join(", ")}: ${tallas.map((t) => skuMeliDeColorNuevo(lista.modelo, color, t)).join(", ")})` : "") +
+          "; al sincronizar, las etiquetas salen solas.",
+      );
+    }
+    const marcaNuevo = nuevo ? { colorNuevo: true as const } : {};
 
     for (const r of c.renglones) {
       // Medidas: de una caja anterior del modelo con los mismos pares.
@@ -199,6 +231,7 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
           medidas: m?.medidas ?? null,
           cbmCaja: m?.cbmCaja ?? null,
           precioDe: p?.pedido ?? null,
+          ...marcaNuevo,
         });
         continue;
       }
@@ -243,6 +276,7 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
         medidas: m?.medidas ?? null,
         cbmCaja: m?.cbmCaja ?? null,
         precioDe,
+        ...marcaNuevo,
       });
     }
   }
