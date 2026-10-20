@@ -6,6 +6,7 @@ import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla, Vacio } f
 import { Pestanas } from "@/components/ui/pestanas";
 import { Ficha } from "@/components/tiles";
 import { ControlesOfertas } from "@/components/ofertas-meli";
+import { ConfirmarRelampagos } from "@/components/confirmar-relampagos";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,9 @@ export default async function OfertasMeli() {
           ) : null}
         </Aviso>
       ) : null}
+      <Seccion titulo="Relámpagos" descripcion="Inscribe todas las relámpago que te propuso MELI (o cargó tu asesor) al precio relámpago de Números. Corre sola a las 10:00.">
+        <ConfirmarRelampagos />
+      </Seccion>
       <Cifras columnas={4}>
         <Ficha titulo="Cumplen, por aceptar" valor={String(cumplen.length)} />
         <Ficha titulo="No cumplen" valor={String(noCumplen.length)} />
