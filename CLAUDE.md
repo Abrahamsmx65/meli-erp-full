@@ -188,6 +188,22 @@ guárdala numerada.
   contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
   calzado y Nombre = tipo por código fiscal (PANTUFLAS, BOTAS…). Lo que falta
   va en blanco y la pantalla lo avisa.
+- **FAMILIAS: modelos que se piden JUNTOS** (`modelos_familias`, migración
+  0148; `pedidos-china/familias.ts` puro con pruebas,
+  `servicios/familias-modelos.ts`, `POST /api/pedidos/familias`, sección
+  «Modelos que se piden juntos» en Planeación de compras; dueño,
+  20-oct-2026: «tengo un modelo que es el GT117 a GT122, quiero juntarlo
+  todo para que se pida junto»): GT117 BROWN, GT118 BLK, GT119 OLIVE, GT120
+  GREY, GT121 NAVY y GT122 BLK son el mismo zapato en seis colores (una sola
+  publicación en MELI, un solo IN de Mingtai). La familia se da de alta en
+  la pantalla (modelos + nombre, «GT117-GT122» por omisión); el cálculo
+  sigue por modelo + color, pero `RenglonCompra.familia` hace que la tabla
+  los enseñe como UN modelo (cada número es un color más), el «Excel del
+  pedido» de la familia traiga todos sus modelos y, en Nuevo pedido, los
+  bloques de la lista de la misma familia salgan en UN borrador
+  (`armarBorradorFamilia`: cada renglón con su `modelo`, la fábrica del
+  primero que la tenga y los demás armados con esa). Al guardar una familia
+  se tumba `compras-china` (hoy `v5`) y se rehace por atrás.
 - **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
   `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
   `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,

@@ -19,10 +19,12 @@
 import { canonizar } from "../importar/sku";
 import type { LineaProforma, Moneda, Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
-import { armarBorrador, faltantesDeBorrador, totalesDeBorrador, type BorradorArmado, type LineaBorrador, type LineaHistoria } from "../pedidos-china/armar";
+import { armarBorrador, armarBorradorFamilia, faltantesDeBorrador, totalesDeBorrador, type BorradorArmado, type LineaBorrador, type LineaHistoria } from "../pedidos-china/armar";
+import { agruparPorFamilia } from "../pedidos-china/familias";
+import { cargarFamilias } from "./familias-modelos";
 import { excelDePedido, nombreArchivoPedido, type PedidoPI } from "../pedidos-china/excel";
 import { FABRICAS, perfilDeClave, perfilDeProveedor } from "../pedidos-china/fabricas";
-import { leerLista } from "../pedidos-china/lista";
+import { leerLista, type ModeloLista } from "../pedidos-china/lista";
 import { guardarProforma } from "./pedidos";
 import { enviarCorreo } from "./correo";
 import { escaparHtml, plantillaCorreo, TONO, URL_ERP } from "./correo-marca";
@@ -258,7 +260,20 @@ async function monedaConocida(db: DB, accountId: string, armado: BorradorArmado)
   return (delMismo[0]?.moneda as Moneda) ?? null;
 }
 
-/** Pega la lista y arma un borrador por modelo, cada uno con su IN. */
+/**
+ * Arma el borrador de un grupo de la lista: un modelo, o una FAMILIA (varios
+ * modelos que se piden juntos: un solo IN y un solo Excel).
+ */
+function armarGrupo(nombre: string, familia: string | null, listas: ModeloLista[], historia: LineaHistoria[], fabrica?: string | null): BorradorArmado {
+  if (!familia && listas.length === 1) return armarBorrador(listas[0], historia, fabrica);
+  return armarBorradorFamilia(nombre, listas, historia, fabrica);
+}
+
+/**
+ * Pega la lista y arma un borrador por modelo, cada uno con su IN. Los
+ * modelos de una misma FAMILIA (`modelos_familias`: GT117…GT122) salen en
+ * UN solo borrador.
+ */
 export async function crearBorradores(
   db: DB,
   accountId: string,
@@ -268,12 +283,15 @@ export async function crearBorradores(
   if (!lista.modelos.length) {
     throw new Error("No encontré ningún modelo en la lista. Cada bloque empieza con el modelo (GT179, MY2307…).");
   }
-  const historia = await historiaDeModelos(db, accountId, lista.modelos.map((m) => m.modelo));
+  const [historia, familias] = await Promise.all([
+    historiaDeModelos(db, accountId, lista.modelos.map((m) => m.modelo)),
+    cargarFamilias(db, accountId).catch(() => new Map()),
+  ]);
   let numero = await siguienteIn(db, accountId);
 
   const creados: Borrador[] = [];
-  for (const m of lista.modelos) {
-    const armado = armarBorrador(m, historia);
+  for (const g of agruparPorFamilia(lista.modelos, familias)) {
+    const armado = armarGrupo(g.nombre, g.familia, g.elementos, historia);
     armado.moneda = await monedaConocida(db, accountId, armado);
     const fila = {
       account_id: accountId,
@@ -283,7 +301,7 @@ export async function crearBorradores(
       moneda: armado.moneda,
       descripcion: armado.descripcion,
       lineas: armado.lineas,
-      texto: m.texto,
+      texto: g.elementos.map((m) => m.texto).join("\n\n"),
       avisos: armado.avisos,
     };
     // El IN es único entre los vivos: si otro clic lo tomó, el siguiente.
@@ -299,7 +317,7 @@ export async function crearBorradores(
         creados.push(aBorrador(data));
         break;
       }
-      if (error?.code !== "23505" || ++intento > 5) throw new Error(`No se pudo guardar el borrador de ${m.modelo}: ${error?.message}`);
+      if (error?.code !== "23505" || ++intento > 5) throw new Error(`No se pudo guardar el borrador de ${g.nombre}: ${error?.message}`);
     }
   }
   return { creados, sinEntender: lista.sinEntender };
@@ -321,6 +339,7 @@ function validarLineas(lineas: unknown): LineaBorrador[] {
     const preciosTalla: Record<string, number> = {};
     for (const [t, n] of Object.entries(l.preciosTalla ?? {})) if (Number(n) > 0) preciosTalla[String(t)] = Number(n);
     return {
+      ...(l.modelo ? { modelo: String(l.modelo).trim().toUpperCase() } : {}),
       color: String(l.color ?? "").trim().toUpperCase(),
       unitalla: l.unitalla ? String(l.unitalla) : null,
       corrida,
@@ -350,10 +369,11 @@ export async function actualizarBorrador(
   const fila: Record<string, unknown> = { actualizado_en: new Date().toISOString() };
 
   if (cambios.fabrica !== undefined && cambios.fabrica !== b.fabrica) {
-    const lista = leerLista(b.texto).modelos[0];
-    if (!lista) throw new Error("No se pudo volver a leer la lista de este borrador.");
-    const historia = await historiaDeModelos(db, accountId, [b.modelo]);
-    const armado = armarBorrador(lista, historia, cambios.fabrica);
+    const listas = leerLista(b.texto).modelos;
+    if (!listas.length) throw new Error("No se pudo volver a leer la lista de este borrador.");
+    const historia = await historiaDeModelos(db, accountId, listas.map((m) => m.modelo));
+    const familia = listas.length > 1 || b.lineas.some((l) => l.modelo) ? b.modelo : null;
+    const armado = armarGrupo(b.modelo, familia, listas, historia, cambios.fabrica);
     armado.moneda = await monedaConocida(db, accountId, armado);
     Object.assign(fila, {
       fabrica: armado.fabrica,
@@ -399,7 +419,7 @@ export function pedidoPIDe(b: Borrador): PedidoPI {
     fecha: b.confirmadoEn ? b.confirmadoEn.slice(0, 10) : hoyMx(),
     perfil,
     moneda: b.moneda,
-    renglones: b.lineas.map((l) => ({ ...l, modelo: b.modelo, descripcion: b.descripcion })),
+    renglones: b.lineas.map((l) => ({ ...l, modelo: l.modelo || b.modelo, descripcion: b.descripcion })),
   };
 }
 
@@ -412,7 +432,7 @@ export async function excelDeBorrador(db: DB, accountId: string, id: string): Pr
 /** El pedido como proforma ya leída, para darlo de alta igual que una de la fábrica. */
 export function proformaDeBorrador(b: Borrador): Proforma {
   const lineas: LineaProforma[] = b.lineas.map((l) => ({
-    modelo: b.modelo,
+    modelo: l.modelo || b.modelo,
     color: l.color,
     colorCrudo: l.color,
     descripcion: b.descripcion,
@@ -446,6 +466,7 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
   const e = escaparHtml;
   const t = b.totales;
   const fab = b.proveedor ?? perfilDeClave(b.fabrica)?.nombre ?? "";
+  const familia = b.lineas.some((l) => l.modelo);
   const filas = b.lineas
     .map((l) => {
       const que = l.unitalla
@@ -457,7 +478,8 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
         ? [...new Set(Object.values(l.preciosTalla))].map((p) => dinero(p, null)).join(" / ")
         : dinero(l.precio, null);
       return (
-        `<tr><td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}</td>` +
+        `<tr>${familia ? `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.modelo ?? "")}</td>` : ""}` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(que)}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.cajas}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.paresPorCaja}</td>` +
@@ -480,7 +502,7 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
     `</tr></table>` +
     `<p style="font-size:13px;color:${TONO.tinta2};margin:14px 0">${e(fab)}${t.cbm != null ? ` · ≈ ${t.cbm.toFixed(2)} CBM` : ""}${b.descripcion ? ` · ${e(b.descripcion)}` : ""}</p>` +
     `<table class="g-t" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;border-collapse:collapse">` +
-    `<tr>${th("Color")}${th("Talla / corrida")}${th("Cajas", true)}${th("Pares x caja", true)}${th("Pares", true)}${th("Precio", true)}</tr>` +
+    `<tr>${familia ? th("Modelo") : ""}${th("Color")}${th("Talla / corrida")}${th("Cajas", true)}${th("Pares x caja", true)}${th("Pares", true)}${th("Precio", true)}</tr>` +
     filas +
     `</table>` +
     `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Va adjunto el Excel en el formato de la fábrica.</p>`;
@@ -496,7 +518,7 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
   const texto =
     `${asunto}\n${t.cajas} cajas · ${t.pares} pares · ${dinero(t.importe, b.moneda)}\n\n` +
     b.lineas
-      .map((l) => `${l.color} ${l.unitalla ? `talla ${l.unitalla}` : "corrida"}: ${l.cajas} cajas de ${l.paresPorCaja}`)
+      .map((l) => `${l.modelo ? `${l.modelo} ` : ""}${l.color} ${l.unitalla ? `talla ${l.unitalla}` : "corrida"}: ${l.cajas} cajas de ${l.paresPorCaja}`)
       .join("\n");
   return { asunto, html, texto };
 }
