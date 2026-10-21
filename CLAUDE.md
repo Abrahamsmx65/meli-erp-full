@@ -3152,6 +3152,18 @@ login, la base y el deploy.
   guardado, lo guardado sobre el navegador, cada cambio se guarda medio
   segundo después del último clic y la elección NUNCA se recorta contra el
   catálogo: un diseño que el resumen no trae sigue elegido y reaparece.
+  **A China se pide SOLO lo que falta de verdad, en números cerrados**
+  (`redondearPedido`, `multiploDeDiseno` en `yapanizcel/compras.ts`, puros con
+  pruebas; `yz_parametros.pedido_minimo` 50, `pedido_multiplo` 10 y
+  `pedido_multiplos` por diseño `{"662": 20}`, migración 0151; campos en
+  Configuración de fundas; dueño, 21-oct-2026: «solamente modelos que
+  necesitan mínimo 50 unidades y todo con números cerrados redondeando hacia
+  arriba en 10 y 10; de la fábrica 662 es 40 o 60, no 50»): por SKU, la
+  FALTA = objetivo de 120 días − posición (`VarianteCompra.necesidad`); si
+  es menor al mínimo no se pide nada (la pantalla la enseña en gris entre
+  paréntesis y el Excel en «Falta»), y si llega, se sube al múltiplo cerrado
+  del diseño (el 662 de 20 en 20: una falta de 50 se pide como 60). Los
+  totales por diseño y el Excel suman lo ya redondeado.
   **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
   (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
   diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`
