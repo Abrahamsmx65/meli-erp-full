@@ -117,14 +117,23 @@ export interface ModeloEnOferta {
   skuIds: string[];
 }
 
-/** El cuerpo de «crear actividad» (relámpago por variante). */
-export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta): Record<string, unknown> {
+/**
+ * A qué nivel va la relámpago: por VARIANTE (precio y topes por talla, lo de
+ * siempre) o por PRODUCTO (un precio para todo el modelo, como las que el
+ * dueño arma a mano en el Seller Center). Dueño, 21-oct-2026: sus relámpagos
+ * públicas a mano («gt148 16 a 19 oct», nivel PRODUCT) convivieron con la de
+ * creadoras «GT148 SAHORY MONSE MARLU», y la cíclica por variante no.
+ */
+export type NivelProducto = "VARIATION" | "PRODUCT";
+
+/** El cuerpo de «crear actividad» (relámpago por variante, o por producto). */
+export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta, nivelProducto: NivelProducto = "VARIATION"): Record<string, unknown> {
   const t = titulo.replace(/\s+/g, " ").trim().slice(0, MAX_TITULO_OFERTA);
   if (!t) throw new Error("La oferta necesita un título.");
   return {
     title: t,
     activity_type: "FLASHSALE",
-    product_level: "VARIATION",
+    product_level: nivelProducto,
     begin_time: ventana.beginTime,
     end_time: ventana.endTime,
   };
@@ -138,10 +147,29 @@ export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta): Recor
 export function lotesDeProductos(
   modelos: ModeloEnOferta[],
   topes: { porTalla: number; porComprador: number },
+  nivelProducto: NivelProducto = "VARIATION",
 ): Record<string, unknown>[][] {
   const lotes: Record<string, unknown>[][] = [];
   let actual: Record<string, unknown>[] = [];
   let enLote = 0;
+  if (nivelProducto === "PRODUCT") {
+    // Por producto: un renglón por modelo con el precio y los topes del producto, sin variantes.
+    for (const m of modelos) {
+      if (!(m.precio > 0)) throw new Error(`${m.modelo}: el precio de oferta tiene que ser mayor a cero.`);
+      actual.push({
+        id: m.productId,
+        activity_price_amount: m.precio.toFixed(2),
+        quantity_limit: topeParaTikTok(topes.porTalla),
+        quantity_per_user: topeParaTikTok(topes.porComprador),
+      });
+      if (actual.length >= SKUS_POR_LLAMADA) {
+        lotes.push(actual);
+        actual = [];
+      }
+    }
+    if (actual.length) lotes.push(actual);
+    return lotes;
+  }
   for (const m of modelos) {
     if (!(m.precio > 0)) throw new Error(`${m.modelo}: el precio de oferta tiene que ser mayor a cero.`);
     if (!m.skuIds.length) throw new Error(`${m.modelo}: no tiene variantes activas en TikTok.`);

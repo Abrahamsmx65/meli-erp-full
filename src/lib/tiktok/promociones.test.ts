@@ -259,3 +259,24 @@ describe("cíclica rechazada por TikTok: una relámpago a mano no estorba hasta 
     expect(hastaCuandoBloquear([vencida], ahora).getTime()).toBe(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
   });
 });
+
+describe("relámpago por PRODUCTO", () => {
+  it("manda un renglón por modelo con el precio y los topes, sin variantes", () => {
+    const lotes = lotesDeProductos(
+      [
+        { modelo: "GT148", productId: "P148", precio: 189.99, skuIds: ["a", "b"] },
+        { modelo: "GT114", productId: "P114", precio: 188.99, skuIds: [] },
+      ],
+      { porTalla: -1, porComprador: 2 },
+      "PRODUCT",
+    );
+    expect(lotes).toEqual([
+      [
+        { id: "P148", activity_price_amount: "189.99", quantity_limit: -1, quantity_per_user: 2 },
+        { id: "P114", activity_price_amount: "188.99", quantity_limit: -1, quantity_per_user: 2 },
+      ],
+    ]);
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }, "PRODUCT").product_level).toBe("PRODUCT");
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }).product_level).toBe("VARIATION");
+  });
+});
