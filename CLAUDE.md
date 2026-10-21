@@ -1803,6 +1803,15 @@ guárdala numerada.
   creadoras («gt148 16 a 19 oct» corrió sobre SAHORY), pero por API no hay
   camino: mientras un modelo tenga una relámpago de creadores viva, su
   cíclica queda bloqueada hasta que termine y la pantalla lo dice.
+  **La diferencia la hace la RESERVA de cantidades al creador** (dueño,
+  21-oct-2026, al comparar «GT148 LIVE MAFER» con «GT148 SAHORY MONSE
+  MARLU»): una relámpago del creador CON cantidades reservadas queda solo
+  del creador (sin producto en la actividad, GMV 0, el API no la devuelve)
+  y NO estorba a la cíclica; una SIN reserva TikTok la crea como relámpago
+  normal con el producto adentro (el API la devuelve con precio, vende GMV)
+  y bloquea la cíclica por API. Regla práctica: las relámpagos para
+  creadores se hacen reservando cantidades; las tres sin reserva (GT148,
+  GT135, GT150) el dueño las cubre a mano hasta que terminen.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
