@@ -26,8 +26,9 @@ import {
   sumarRecibidoEnProceso,
   type EnCaminoFba,
 } from "./fba-en-camino";
-import { planFbaConCajas, type HistoriaSkuFba, type PlanFbaCajas } from "./fba-plan";
+import { planFbaConCajas, type HistoriaSkuFba, type PlanFbaCajas, type VentaDiaFba } from "./fba-plan";
 import { catalogoBodega } from "./inventario";
+import { aISO, sumarDias } from "../engine/fechas";
 import { separarEnvios, type PlanDeEnvios } from "./envios";
 import { desglosarOpcionales, type DesgloseOpcionales } from "../reporte/opcionales";
 import { normalizarParametros } from "../engine/params";
@@ -124,6 +125,42 @@ async function historiaFba(
 }
 
 /**
+ * Venta por día y SKU de Amazon de los últimos 30 días, para el colchón de
+ * subida (se mira la ventana de `colchonVentanaDias`, 14). Si falla, el
+ * plan sale sin colchón y lo dice.
+ */
+export async function ventasRecientesFba(
+  db: DB,
+  cuentaAmazonId: string,
+): Promise<{ ventas: VentaDiaFba[] | null; error: string | null }> {
+  const hoy = aISO(new Date(Date.now() - 6 * 3_600_000));
+  try {
+    const filas = await traerTodo<{ seller_sku: string; fecha: string; unidades: number | string }>(
+      db,
+      "amazon_ventas_diarias",
+      "seller_sku, fecha, unidades",
+      (q) =>
+        q
+          .eq("account_id", cuentaAmazonId)
+          .gte("fecha", sumarDias(hoy, -30))
+          .lt("fecha", hoy)
+          .order("fecha")
+          .order("seller_sku"),
+    );
+    return {
+      ventas: filas.map((f) => ({
+        sku: String(f.seller_sku),
+        fecha: String(f.fecha).slice(0, 10),
+        unidades: Number(f.unidades) || 0,
+      })),
+      error: null,
+    };
+  } catch (err) {
+    return { ventas: null, error: (err as Error).message };
+  }
+}
+
+/**
  * SKUs con una publicación en Amazon que puede recibir inventario en FBA:
  * Active o Inactive (sin stock). Una Incomplete no se puede surtir. Si la
  * lectura falla se devuelve null y el plan se conforma con lo que Amazon
@@ -164,6 +201,7 @@ export async function calcularPlanFba(
     historia,
     listados,
     enProceso,
+    recientes,
   ] = await Promise.all([
       // SIN límite: con el top-500, el 64% del calzado con venta quedaba
       // invisible para el plan (esta página no pinta renglones crudos).
@@ -191,6 +229,7 @@ export async function calcularPlanFba(
       historiaFba(db, cuentaAmazonId),
       skusListadosFba(db, cuentaAmazonId),
       recibidoEnProcesoFba(db, cuentaAmazonId),
+      ventasRecientesFba(db, cuentaAmazonId),
     ]);
 
   // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
@@ -202,7 +241,6 @@ export async function calcularPlanFba(
   const renglones = sumarRecibidoEnProceso(aplicarEnCamino(renglonesCrudos, enCamino), enProceso);
 
   const indiceMeli = indexarCatalogo(skusMeli);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
 
   // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
   // Las mismas reglas de producto que el plan de Full (NUEVO en
@@ -219,10 +257,25 @@ export async function calcularPlanFba(
     }),
     historia: historia.historia ?? undefined,
     skusListados: listados ?? undefined,
+    ventasRecientes: recientes.ventas ?? undefined,
   });
   if (historia.error) {
     planFba.avisos.push(`No se pudo leer la historia de ventas de Amazon (${historia.error}).`);
   }
+  if (recientes.error) {
+    planFba.avisos.push(
+      `No se pudo leer la venta de las últimas semanas de Amazon (${recientes.error}): este plan sale sin colchón de subida.`,
+    );
+  }
+  // «Por producto» dice lo mismo que el plan de cajas.
+  const sugerencias = sugerirEnvioFba(
+    renglones,
+    dias,
+    mapaCorridas(corridasRaw),
+    undefined,
+    indiceMeli,
+    planFba,
+  );
   const desglose = desglosarOpcionales(
     planFba.cajas.map((c) => ({
       codigo: c.codigo,

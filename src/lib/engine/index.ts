@@ -8,7 +8,8 @@ import { normalizarParametros } from "./params";
 import { calcularLinea, prioridadFaltante, prioridadSobrante } from "./replenish";
 import { reconstruirStockDiario } from "./stockHistory";
 import { optimizarCajas } from "./boxes";
-import { ajustarNecesidadPorCorrida } from "./corrida";
+import { ajustarCorridaPorHermanas, ajustarNecesidadPorCorrida } from "./corrida";
+import { colchonDeSubida } from "./colchon";
 import type {
   Caja,
   ISODate,
@@ -26,8 +27,9 @@ import type {
 export * from "./types";
 export { PARAMETROS_DEFAULT, normalizarParametros, periodoRevision, ventanaRiesgo, zScore } from "./params";
 export { optimizarCajas } from "./boxes";
-export { ajustarNecesidadPorCorrida } from "./corrida";
-export type { AjusteCorrida, DatosSkuCorrida } from "./corrida";
+export { ajustarCorridaPorHermanas, ajustarNecesidadPorCorrida } from "./corrida";
+export type { AjusteCorrida, AjusteHermanas, DatosSkuCorrida } from "./corrida";
+export { colchonDeSubida } from "./colchon";
 export { calcularDemanda } from "./demand";
 export { reconstruirStockDiario, calcularFraccionesConStock } from "./stockHistory";
 export { calcularLinea } from "./replenish";
@@ -90,12 +92,40 @@ export function generarPlan(e: EntradaPlan): Plan {
     ventas: e.ventas,
   });
 
-  // 2. Demanda real corregida por agotamientos + 3. cuánto mandar.
+  // 2. Demanda real corregida por agotamientos.
+  const demandas = new Map(
+    listaSkus.map((sku) => [
+      sku,
+      calcularDemanda(sku, historial.get(sku) ?? [], p, overrideMap.get(sku)),
+    ]),
+  );
+
+  // 2.1 COLCHÓN DE SUBIDA por producto (modelo + color de sus cajas).
+  const productoDeSku = new Map<string, string>();
+  for (const c of e.cajas) {
+    if (c.cajasDisponibles <= 0) continue;
+    const prod = c.producto ?? c.codigo;
+    for (const it of c.items) if (!productoDeSku.has(it.sku)) productoDeSku.set(it.sku, prod);
+  }
+  const colchon =
+    p.colchonSubidaFactor > 0 && (p.corridaHermanasMaxDias ?? 0) > 0
+      ? colchonDeSubida(productoDeSku, historial, demandas, overrideMap, p)
+      : new Map<string, number>();
+  const pColchon: typeof p = { ...p, horizonteDias: p.colchonObjetivoDias };
+
+  // 3. Cuánto mandar.
   const lineas: LineaPlan[] = listaSkus.map((sku) => {
-    const dias = historial.get(sku) ?? [];
     const override = overrideMap.get(sku);
-    const demanda = calcularDemanda(sku, dias, p, override);
-    return calcularLinea(
+    const demanda = demandas.get(sku)!;
+    const prod = productoDeSku.get(sku);
+    const factor = prod ? colchon.get(prod) : undefined;
+    if (factor) {
+      demanda.demandaDiaria *= factor;
+      demanda.notas.push(
+        `El color va en subida: sus últimos ${p.colchonVentanaDias} días con stock venden ${factor.toFixed(2)}× lo del plan; se usa ese ritmo y el objetivo es de ${p.colchonObjetivoDias} días.`,
+      );
+    }
+    const linea = calcularLinea(
       {
         sku,
         titulo: tituloMap.get(sku) ?? null,
@@ -105,8 +135,10 @@ export function generarPlan(e: EntradaPlan): Plan {
         override,
         hoy,
       },
-      p,
+      factor ? pColchon : p,
     );
+    if (factor) linea.colchonSubida = factor;
+    return linea;
   });
 
   // Orden operativo: lo que se quema primero, primero.
@@ -211,17 +243,37 @@ export function generarPlan(e: EntradaPlan): Plan {
     demandaDiaria.set(l.sku, l.demanda.demandaDiaria);
   }
 
-  // 4.1 Regla de la corrida despareja: una talla agotada cuya caja sobre-
-  // surtiría a sus hermanas no pide sus 30 días completos — la mitad si las
-  // hermanas van al día, solo 7 días si la corrida ya está dispareja.
-  const ajustesCorrida = ajustarNecesidadPorCorrida({
+  const datosCorrida = new Map(
+    lineas.map((l) => [l.sku, { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria }]),
+  );
+  const skusColchon = new Set(
+    [...productoDeSku].filter(([, prod]) => colchon.has(prod)).map(([sku]) => sku),
+  );
+  const reglaHermanas = p.corridaHermanasMaxDias > 0;
+
+  // 4.1 Regla de la corrida. En Full (desde el 21-oct-2026) por HERMANAS:
+  // la talla corta cuya caja dejaría a una hermana arriba de 45 días se
+  // surte a 15; una talla chica en la caja gotea 1 caja por envío. Con
+  // `corridaHermanasMaxDias` en 0 queda la regla vieja (mitad / 7 días).
+  // `coberturaSinForzarDias` en 0 = la caja siempre se fuerza: no se recorta.
+  const ajustesHermanas = reglaHermanas && p.coberturaSinForzarDias > 0
+    ? ajustarCorridaPorHermanas({
+        necesidad,
+        datos: datosCorrida,
+        cajas: e.cajas,
+        hermanasMaxDias: p.corridaHermanasMaxDias,
+        objetivoCorto: p.coberturaSinForzarDias,
+        fraccionTallaChica: p.corridaFraccionTallaChica,
+        // Producto NUEVO: se le rellena la caja. Color EN SUBIDA: lo topa el
+        // color completo, no las hermanas.
+        exentos: new Set([...skusNuevos, ...skusColchon]),
+      })
+    : [];
+  const ajustesCorrida = reglaHermanas
+    ? []
+    : ajustarNecesidadPorCorrida({
     necesidad,
-    datos: new Map(
-      lineas.map((l) => [
-        l.sku,
-        { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria },
-      ]),
-    ),
+    datos: datosCorrida,
     cajas: e.cajas,
     horizonteDias: p.horizonteDias,
     factorSobrante: p.corridaSobranteFactor,
@@ -242,10 +294,15 @@ export function generarPlan(e: EntradaPlan): Plan {
       .filter((a) => a.regla !== "cobertura_suficiente")
       .map((a) => [a.sku, 0]),
   );
+  // Lo que la regla por hermanas recortó (o el goteo) va completo y firme.
+  for (const a of ajustesHermanas) {
+    if (a.regla !== "cobertura_suficiente") toleranciaPorSku.set(a.sku, 0);
+  }
   // Y el rescate del optimizador obedece lo mismo: una talla a la que le
   // alcanza el stock para `coberturaSinForzarDias` no arrastra una caja
-  // que sus hermanas no piden. Solo la caja que el costo justifique.
-  if (p.coberturaSinForzarDias > 0) {
+  // que sus hermanas no piden. Solo la caja que el costo justifique. (Con
+  // la regla por hermanas esto ya lo decidió ella talla por talla.)
+  if (p.coberturaSinForzarDias > 0 && !reglaHermanas) {
     for (const l of lineas) {
       if (!necesidad.has(l.sku) || toleranciaPorSku.has(l.sku) || skusNuevos.has(l.sku)) continue;
       if (l.coberturaDias >= p.coberturaSinForzarDias) {
@@ -271,6 +328,73 @@ export function generarPlan(e: EntradaPlan): Plan {
         : a.regla === "mitad_corrida"
         ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas). Si la mitad no cierra en cajas completas, la caja de la fracción sube marcada OPCIONAL.`
         : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+  }
+
+  for (const a of ajustesHermanas) {
+    const l = lineaPorSku.get(a.sku);
+    if (!l) continue;
+    l.sugeridoCompleto = a.necesidadOriginal;
+    l.sugerido = a.necesidadAjustada;
+    l.faltanteBodega = Math.max(0, a.necesidadAjustada - l.inventarioPropio);
+    l.ajusteCorrida = a.regla;
+    const peor = Number.isFinite(a.peorHermanaDias) ? `${Math.round(a.peorHermanaDias)} días` : "stock sin venta";
+    l.explicacion +=
+      a.regla === "cobertura_suficiente"
+        ? ` Su caja dejaría a una talla hermana con ${peor} (más de ${p.corridaHermanasMaxDias}) y a esta talla todavía le alcanza para ${p.coberturaSinForzarDias} días: no se fuerza la caja, espera al siguiente envío.`
+        : a.regla === "quince_dias"
+        ? ` Su caja dejaría a una talla hermana con ${peor} (más de ${p.corridaHermanasMaxDias}): esta talla solo se surte a ${p.coberturaSinForzarDias} días (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas) y se va mandando en cada envío.`
+        : ` Trae muy pocos pares en su caja o sus hermanas ya pasan de ${p.corridaHermanasMaxDias} días: viaja UNA caja por envío (goteo).`;
+  }
+
+  // 4.1b COLCHÓN DE SUBIDA: el color se surte a 45 días, pero la corrida
+  // solo se fuerza mientras el color completo no pase del tope (60 días a
+  // su ritmo). La caja que cruza el tope sí va.
+  const porProducto = new Map<string, LineaPlan[]>();
+  for (const l of lineas) {
+    const prod = productoDeSku.get(l.sku);
+    if (!prod || !colchon.has(prod)) continue;
+    const lst = porProducto.get(prod);
+    if (lst) lst.push(l);
+    else porProducto.set(prod, [l]);
+  }
+  for (const [prod, ls] of porProducto) {
+    const ritmo = ls.reduce((a, l) => a + l.demanda.demandaDiaria, 0);
+    const pos = ls.reduce((a, l) => a + l.posicion, 0);
+    const caben = p.colchonTopeColorDias * ritmo - pos;
+    const cajasProd = cajasPorProducto.get(prod) ?? [];
+    for (const l of ls) {
+      const pedida = necesidad.get(l.sku) ?? 0;
+      if (pedida <= 0) continue;
+      let piezas = 0;
+      let total = 0;
+      for (const c of cajasProd) {
+        const pz = c.items.find((it) => it.sku === l.sku)?.piezas ?? 0;
+        if (pz > piezas) {
+          piezas = pz;
+          total = c.items.reduce((a, it) => a + it.piezas, 0);
+        }
+      }
+      if (piezas <= 0 || total <= 0) continue;
+      const porTope = caben > 0 ? Math.ceil(caben / total) : 0;
+      // Y nunca más de `colchonMaxCajasEnvio` (5) cajas del color por envío:
+      // el colchón ve subidas de 2 a 3 veces que Daniel no persigue de un
+      // jalón (GT252, GT122, GT229 DK BROWN); lo demás va en los siguientes.
+      const porEnvio = p.colchonMaxCajasEnvio > 0 ? p.colchonMaxCajasEnvio : Infinity;
+      const maxCajas = Math.min(porTope, porEnvio);
+      const tope = maxCajas * piezas;
+      toleranciaPorSku.set(l.sku, 0);
+      if (pedida <= tope) continue;
+      if (tope > 0) necesidad.set(l.sku, tope);
+      else necesidad.delete(l.sku);
+      l.sugeridoCompleto = pedida;
+      l.sugerido = tope;
+      l.faltanteBodega = Math.max(0, tope - l.inventarioPropio);
+      l.ajusteCorrida = "tope_color";
+      l.explicacion +=
+        porEnvio < porTope
+          ? ` El color va en subida, pero con colchón viajan a lo más ${porEnvio} cajas del color por envío: ${tope} de ${pedida} pzas; lo demás en los siguientes envíos.`
+          : ` El color va en subida pero no pasa de ${p.colchonTopeColorDias} días a su ritmo (${Math.round(ritmo * 10) / 10}/día): caben ${maxCajas} caja(s), así que viajan ${tope} de ${pedida} pzas.`;
+    }
   }
 
   // 4.2 Producto NUEVO (decisión del dueño, sep-2026): lanzado hace menos

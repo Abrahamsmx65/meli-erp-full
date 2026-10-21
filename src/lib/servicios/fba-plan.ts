@@ -13,10 +13,10 @@
  * registrado aparta desaparece para ambos en la siguiente sincronización
  * con Industher. El orden lo decide el usuario.
  */
-import { ajustarNecesidadPorCorrida, optimizarCajas } from "../engine";
-import type { AjusteCorrida } from "../engine";
+import { ajustarCorridaPorHermanas, ajustarNecesidadPorCorrida, optimizarCajas } from "../engine";
+import type { ReglaCorrida, ReglaHermanas } from "../engine/corrida";
 import type { ISODate, Parametros } from "../engine/types";
-import { aISO } from "../engine/fechas";
+import { aISO, sumarDias } from "../engine/fechas";
 import type { CajaConstruida } from "../importar/cajas";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
@@ -24,6 +24,30 @@ import type { RenglonAmazon } from "./amazon";
 import { esCalzado, OBJETIVO_DIAS_FBA, RIESGO_DIAS_FBA, URGENTE_DIAS_FBA } from "./fba";
 import type { CajaPlaneada } from "./plan";
 import { reasignarPorBodega } from "./plan";
+
+/**
+ * Lo que la corrida o el colchón le hicieron a la necesidad de una talla.
+ * Las reglas de Full: «quince_dias», «goteo» y «cobertura_suficiente» de
+ * la corrida por hermanas, «colchon» (el color va en subida: objetivo de 45
+ * días) y «tope_color» (con colchón, a lo más N cajas del color por envío
+ * o el tope de 60 días). «mitad_corrida» y «solo_7_dias» solo salen con la
+ * regla vieja (`corridaHermanasMaxDias` = 0).
+ */
+export type ReglaFba = ReglaCorrida | ReglaHermanas | "colchon" | "tope_color";
+
+export interface AjusteFba {
+  sku: string;
+  regla: ReglaFba;
+  necesidadOriginal: number;
+  necesidadAjustada: number;
+}
+
+/** Una venta diaria de Amazon por SKU (para el colchón de subida). */
+export interface VentaDiaFba {
+  sku: string;
+  fecha: ISODate;
+  unidades: number;
+}
 
 export interface SinAmarreFba {
   sku: string;
@@ -88,7 +112,7 @@ export interface PlanFbaCajas {
    * sobre-surtiría a las hermanas, así que piden la mitad (hermanas al día)
    * o solo 7 días (corrida dispareja) en vez de sus 30 días completos.
    */
-  ajustesCorrida: AjusteCorrida[];
+  ajustesCorrida: AjusteFba[];
   /**
    * Las mismas reglas de producto que el plan de Full (decisión del dueño,
    * sep-2026): producto NUEVO en crecimiento (su faltante fuerza caja firme)
@@ -143,6 +167,11 @@ export function planFbaConCajas(opts: {
   skusListados?: Set<string>;
   /** día del negocio; por omisión hoy (para la edad del producto nuevo) */
   hoy?: ISODate;
+  /**
+   * Venta por día y SKU de Amazon de las últimas semanas (al menos
+   * `colchonVentanaDias`). Sin ella no hay colchón de subida.
+   */
+  ventasRecientes?: VentaDiaFba[];
 }): PlanFbaCajas {
   const { renglones, dias, catalogo, indiceMeli, parametros: p } = opts;
   const objetivo = opts.objetivoDias ?? OBJETIVO_DIAS_FBA;
@@ -157,6 +186,16 @@ export function planFbaConCajas(opts: {
   const posicionPorSku = new Map<string, number>();
   const unidadesVentana = new Map<string, number>();
   const sinAmarre: SinAmarreFba[] = [];
+  // Para el colchón de subida: lo vendido en las últimas `colchonVentanaDias`
+  // (sin hoy, que va a medias), por SKU de MELI.
+  const recientePorSku = new Map<string, number>();
+  const finVentana = sumarDias(hoy, -1);
+  const inicioVentana = sumarDias(hoy, -p.colchonVentanaDias);
+  const recienteAmazon = new Map<string, number>();
+  for (const v of opts.ventasRecientes ?? []) {
+    if (v.fecha < inicioVentana || v.fecha > finVentana) continue;
+    recienteAmazon.set(v.sku, (recienteAmazon.get(v.sku) ?? 0) + v.unidades);
+  }
 
   for (const r of renglones) {
     if (!esCalzado(r.sku)) continue;
@@ -187,6 +226,7 @@ export function planFbaConCajas(opts: {
     demandaDiaria.set(sku, (demandaDiaria.get(sku) ?? 0) + ventaDiaria);
     posicionPorSku.set(sku, (posicionPorSku.get(sku) ?? 0) + posicion);
     unidadesVentana.set(sku, (unidadesVentana.get(sku) ?? 0) + r.unidades);
+    recientePorSku.set(sku, (recientePorSku.get(sku) ?? 0) + (recienteAmazon.get(r.sku) ?? 0));
 
     // Los mismos pesos que el plan de Full, con los estados traducidos a
     // FBA: bajo de cobertura duele como crítico; con el doble del objetivo
@@ -292,35 +332,136 @@ export function planFbaConCajas(opts: {
     for (const sk of skusPorProducto.get(prod) ?? []) skusNuevos.add(sk);
   }
 
-  // La misma regla de la corrida despareja que el plan de Full: la talla
-  // agotada cuya caja sobre-surtiría a sus hermanas no pide sus 30 días
-  // completos — la mitad si las hermanas van al día, 7 días si la corrida
-  // ya está dispareja.
-  const ajustesCorrida = ajustarNecesidadPorCorrida({
-    necesidad,
-    datos: new Map(
-      [...demandaDiaria.entries()].map(([sku, d]) => [
-        sku,
-        { posicion: posicionPorSku.get(sku) ?? 0, demandaDiaria: d },
-      ]),
-    ),
-    cajas: catalogo,
-    // El sobrante de las hermanas se mide contra el objetivo REAL de FBA
-    // (30 días + los 7 que tarda en volverse vendible): contra 30 pelones,
-    // una talla recién surtida al objetivo ya contaría como "dispareja".
-    horizonteDias: horizonte,
-    factorSobrante: p.corridaSobranteFactor,
-    diasDispareja: p.corridaDiasDispareja,
-    faltanteGrande: p.corridaFaltanteGrande,
-    // A un producto NUEVO se le rellena la caja: la regla no lo recorta.
-    exentos: skusNuevos,
-  });
+  // --- COLCHÓN DE SUBIDA, el mismo de Full (`engine/colchon.ts`): si el
+  // modelo + color vende en sus últimas 2 semanas al menos 1.2× lo que usa
+  // el plan, se usa ese ritmo, el objetivo es de 45 días (+ los 7 que tarda
+  // FBA) y la corrida se fuerza mientras el color no pase de 60 (+ 7), con
+  // a lo más 5 cajas del color por envío. Amazon no tiene la venta corregida
+  // por agotamiento: los dos ritmos se comparan crudos.
+  const reglaHermanas = p.corridaHermanasMaxDias > 0 && p.coberturaSinForzarDias > 0;
+  const ajustesCorrida: AjusteFba[] = [];
+  const colchon = new Map<string, number>(); // producto -> factor
+  if (opts.ventasRecientes && p.colchonSubidaFactor > 0 && p.corridaHermanasMaxDias > 0) {
+    for (const [prod, skus] of skusPorProducto) {
+      let ritmo = 0;
+      let base = 0;
+      let pares = 0;
+      for (const sk of skus) {
+        const D = demandaDiaria.get(sk);
+        if (D === undefined) continue;
+        const u = recientePorSku.get(sk) ?? 0;
+        pares += u;
+        ritmo += u / p.colchonVentanaDias;
+        base += D;
+      }
+      if (base <= 1e-9 || pares < 10) continue;
+      const factor = ritmo / base;
+      if (factor >= p.colchonSubidaFactor) colchon.set(prod, factor);
+    }
+  }
+  const horizonteColchon = p.colchonObjetivoDias + RIESGO_DIAS_FBA;
+  const skusColchon = new Set<string>();
+  for (const [prod, factor] of colchon) {
+    for (const sk of skusPorProducto.get(prod) ?? []) {
+      const D = demandaDiaria.get(sk);
+      if (D === undefined) continue;
+      skusColchon.add(sk);
+      const D2 = D * factor;
+      demandaDiaria.set(sk, D2);
+      const antes = necesidad.get(sk) ?? 0;
+      const falta = Math.ceil(Math.max(0, D2 * horizonteColchon - (posicionPorSku.get(sk) ?? 0)));
+      if (falta > 0) necesidad.set(sk, falta);
+      else necesidad.delete(sk);
+      if (falta !== antes) {
+        ajustesCorrida.push({ sku: sk, regla: "colchon", necesidadOriginal: antes, necesidadAjustada: falta });
+      }
+    }
+  }
+
+  const datosCorrida = new Map(
+    [...demandaDiaria.entries()].map(([sku, d]) => [
+      sku,
+      { posicion: posicionPorSku.get(sku) ?? 0, demandaDiaria: d },
+    ]),
+  );
+  // A un producto NUEVO se le rellena la caja: la corrida no lo recorta.
+  // Y un color en subida se rige por su colchón, no por las hermanas.
+  const exentos = new Set([...skusNuevos, ...skusColchon]);
+  const mitad = new Set<string>();
+  if (reglaHermanas) {
+    // La corrida por HERMANAS de Full, medida contra los días de FBA: el
+    // envío tarda 7 días en volverse vendible, así que los 45 de las
+    // hermanas y los 15 de la talla corta llevan esos 7 encima.
+    for (const a of ajustarCorridaPorHermanas({
+      necesidad,
+      datos: datosCorrida,
+      cajas: catalogo,
+      hermanasMaxDias: p.corridaHermanasMaxDias + RIESGO_DIAS_FBA,
+      objetivoCorto: p.coberturaSinForzarDias + RIESGO_DIAS_FBA,
+      fraccionTallaChica: p.corridaFraccionTallaChica,
+      exentos,
+    })) {
+      ajustesCorrida.push(a);
+    }
+  } else {
+    // La regla vieja de la corrida despareja: la mitad si las hermanas van
+    // al día, 7 días si la corrida ya está dispareja.
+    for (const a of ajustarNecesidadPorCorrida({
+      necesidad,
+      datos: datosCorrida,
+      cajas: catalogo,
+      // El sobrante de las hermanas se mide contra el objetivo REAL de FBA
+      // (30 días + los 7 que tarda en volverse vendible).
+      horizonteDias: horizonte,
+      factorSobrante: p.corridaSobranteFactor,
+      diasDispareja: p.corridaDiasDispareja,
+      faltanteGrande: p.corridaFaltanteGrande,
+      exentos: skusNuevos,
+    })) {
+      ajustesCorrida.push(a);
+      if (a.regla === "mitad_corrida") mitad.add(a.sku);
+    }
+  }
 
   // Una necesidad recortada por la corrida se surte completa (tolerancia
   // 0): el recorte ya es la concesión. Y a un producto NUEVO cualquier
   // faltante le fuerza su caja, sin la tolerancia de rescate de 7 días.
-  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 0]));
+  const toleranciaPorSku = new Map(
+    ajustesCorrida.filter((a) => a.regla !== "colchon").map((a) => [a.sku, 0]),
+  );
   for (const sk of skusNuevos) if (necesidad.has(sk)) toleranciaPorSku.set(sk, 0);
+
+  // El tope del colchón, como en Full: el color no pasa de 60 (+ 7) días a
+  // su ritmo y a lo más `colchonMaxCajasEnvio` cajas por envío; la caja que
+  // cruza el tope sí va. Se mide contra la mejor caja de cada talla.
+  for (const [prod] of colchon) {
+    const skus = [...(skusPorProducto.get(prod) ?? [])].filter((sk) => demandaDiaria.has(sk));
+    const ritmo = skus.reduce((a, sk) => a + (demandaDiaria.get(sk) ?? 0), 0);
+    const pos = skus.reduce((a, sk) => a + (posicionPorSku.get(sk) ?? 0), 0);
+    const caben = (p.colchonTopeColorDias + RIESGO_DIAS_FBA) * ritmo - pos;
+    for (const sk of skus) {
+      const pedida = necesidad.get(sk) ?? 0;
+      if (pedida <= 0) continue;
+      let piezas = 0;
+      let total = 0;
+      for (const c of cajasPorProducto.get(prod) ?? []) {
+        const pz = c.items.find((it) => it.sku === sk)?.piezas ?? 0;
+        if (pz > piezas) {
+          piezas = pz;
+          total = c.items.reduce((a, it) => a + it.piezas, 0);
+        }
+      }
+      if (piezas <= 0 || total <= 0) continue;
+      const porTope = caben > 0 ? Math.ceil(caben / total) : 0;
+      const porEnvio = p.colchonMaxCajasEnvio > 0 ? p.colchonMaxCajasEnvio : Infinity;
+      const tope = Math.min(porTope, porEnvio) * piezas;
+      toleranciaPorSku.set(sk, 0);
+      if (pedida <= tope) continue;
+      if (tope > 0) necesidad.set(sk, tope);
+      else necesidad.delete(sk);
+      ajustesCorrida.push({ sku: sk, regla: "tope_color", necesidadOriginal: pedida, necesidadAjustada: tope });
+    }
+  }
 
   // Holgura sobre el objetivo: quedar en 37 + 2 días no es sobre-surtir.
   // En piezas por SKU, descontando lo que ya traiga arriba de su objetivo.
@@ -376,9 +517,7 @@ export function planFbaConCajas(opts: {
     toleranciaRescatePorSku: toleranciaPorSku,
     // En la MITAD, la caja que completa la fracción va OPCIONAL: medias
     // cajas no existen y el usuario decide si esa fracción viaja.
-    mediaCajaOpcional: new Set(
-      ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
-    ),
+    mediaCajaOpcional: mitad,
     holguraSobrante: holguraPorSku,
     // La caja de un producto NUEVO va firme, nunca opcional.
     sinOpcional: skusNuevos,
