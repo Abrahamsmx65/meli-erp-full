@@ -1696,6 +1696,21 @@ guárdala numerada.
   TikTok las propias `sin_productos` que no han terminado y borra las
   constancias repetidas de «already in use»), reintenta UNA vez con «·2» si
   el título ya existe (`esTituloRepetido`) y acepta `soloIds`.
+  **Una relámpago A MANO no detiene la cíclica** (`esConflictoDeActividad`,
+  `hastaCuandoBloquear`, `MINUTOS_BLOQUEO_SIN_AJENA` 60;
+  `tiktok_promociones_ciclicas.bloqueada_hasta`, migración 0151; dueño,
+  21-oct-2026: «la de GT148 SAHORY es para creador, no es pública ni chocan
+  esas»): el GT148 llevaba desde el 15-oct sin cíclica porque el fondo tomaba
+  «GT148 SAHORY MONSE MARLU» (ONGOING hasta el 22-oct, armada en el Seller
+  Center para creadoras) como ventana viva y esperaba a que terminara. El API
+  no dice si una actividad es de creadores o pública, así que el fondo ya no
+  adivina: solo las ventanas PROPIAS cuentan para `ventanasQueFaltan`, crea
+  la cíclica y, SOLO si TikTok la rechaza con 17029022, deja la cíclica
+  `bloqueada_hasta` el fin de la ajena viva más larga (o una hora si no se
+  ve cuál), la pantalla lo dice («TikTok la rechazó por otra relámpago
+  pública; se reintenta …») y la revisión barata la salta hasta entonces;
+  la actividad vacía la desactiva `limpiarVentanasVacias` como siempre. Las
+  ajenas se siguen enseñando como «creada a mano» y sugieren el precio.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
