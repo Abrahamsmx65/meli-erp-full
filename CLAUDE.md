@@ -2833,7 +2833,12 @@ guárdala numerada.
   IVA trasladado (base = ÷ 1.16). El Excel del contenedor trae una hoja por
   compra: modelo, código SAT (`codigoFiscalDeCategoria`), pares, precio sin
   IVA, IVA y total; lo que no tiene precio o código va en blanco y en
-  «Avisos». **Es PURAMENTE FISCAL** (dueño: «no se debe confundir con el
+  «Avisos». Se ofrecen los contenedores DESDE EL S245
+  (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
+  Contenedores (desde S250, pares del packing list) y, los que nunca se
+  cargaron ahí (S245–S249), del Excel de costeo de la fábrica
+  (`finanzas:costeo-excel`, modelo y pares); si está en los dos, manda
+  Contenedores. **Es PURAMENTE FISCAL** (dueño: «no se debe confundir con el
   corte general»): solo LEE el estado de resultados guardado y Números,
   nunca escribe ni cambia el corte general.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`

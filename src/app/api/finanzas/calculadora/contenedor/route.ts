@@ -14,9 +14,9 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "Falta el contenedor." }, { status: 400 });
-  const archivo = await excelFacturaContenedor(supabase as DB, cuenta, id);
+  const numero = req.nextUrl.searchParams.get("numero");
+  if (!numero) return NextResponse.json({ error: "Falta el contenedor." }, { status: 400 });
+  const archivo = await excelFacturaContenedor(supabase as DB, cuenta, numero);
   if (!archivo) return NextResponse.json({ error: "Contenedor no encontrado." }, { status: 404 });
   return new NextResponse(new Uint8Array(archivo.buffer), {
     headers: {

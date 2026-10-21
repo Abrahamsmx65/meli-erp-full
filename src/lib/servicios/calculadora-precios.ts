@@ -8,7 +8,7 @@
  * masticados: nada pesado en el request.
  */
 import ExcelJS from "exceljs";
-import type { Cuenta, DB } from "../datos/repos";
+import { traerTodo, type Cuenta, type DB } from "../datos/repos";
 import {
   PARAMETROS_CALCULADORA,
   calcularPrecios,
@@ -28,7 +28,9 @@ import { nombreDelPeriodo, periodoActual, periodoAnterior } from "./corte-meli";
 import { listarNumeros } from "./numeros";
 import { CLAVE_TARIFAS, type TarifasGuardadas } from "./tarifas-reales";
 import { codigoFiscalDeCategoria } from "./packing-list-contenedor";
-import { contenedorDeCuenta, datosDeModelos, renglonesDelContenedor } from "./contenedor-datos";
+import { datosDeModelos, renglonesDelContenedor } from "./contenedor-datos";
+import { CLAVE_COSTEO_EXCEL, type ExcelCosteoGuardado } from "./costeo";
+import { numeroDeEmbarque } from "./drive-packing";
 
 export const CLAVE_CONFIG_CALCULADORA = "calculadora-precios:config";
 
@@ -115,15 +117,69 @@ export async function cargarCalculadora(db: DB, cuenta: Cuenta, parametros?: Par
   return { ...res, meses, mesesFaltantes, avisos };
 }
 
-/** Para la pantalla: los contenedores de la cuenta, los más nuevos primero. */
-export async function listaContenedores(db: DB, accountId: string): Promise<{ id: string; numero: string; estado: string | null }[]> {
-  const { data } = await db
-    .from("contenedores")
-    .select("id, numero, estado, creado_en")
-    .eq("account_id", accountId)
-    .order("creado_en", { ascending: false })
-    .limit(200);
-  return ((data ?? []) as any[]).map((c) => ({ id: c.id, numero: c.numero, estado: c.estado ?? null }));
+/** Desde qué embarque se ofrece la factura (dueño, 21-oct-2026: «desde S245»). */
+export const PRIMER_EMBARQUE_FACTURA = 245;
+
+export interface ContenedorFactura {
+  /** S### sin año: la llave con que se pide el Excel */
+  numero: string;
+  /** de dónde salen modelo y pares */
+  fuente: "erp" | "costeo";
+  estado: string | null;
+  /** id en `contenedores` si existe ahí */
+  idErp: string | null;
+  iso: string | null;
+}
+
+const claveEmbarque = (n: number) => `S${String(n).padStart(3, "0")}`;
+
+/**
+ * Los contenedores para la factura: los de Contenedores (desde S250, con su
+ * packing list) y los del Excel de costeo de la fábrica, que trae modelo y
+ * pares de los embarques viejos (S245–S249) que nunca se cargaron en
+ * Contenedores. Si está en los dos, manda Contenedores. Más nuevos primero.
+ */
+export async function listaContenedores(db: DB, accountId: string): Promise<ContenedorFactura[]> {
+  const [erp, excel] = await Promise.all([
+    traerTodo<any>(db, "contenedores", "id, numero, numero_naviera, estado", (q) => q.eq("account_id", accountId)),
+    leerCacheAppGuardado<ExcelCosteoGuardado>(db, accountId, CLAVE_COSTEO_EXCEL),
+  ]);
+  const porNumero = new Map<number, ContenedorFactura>();
+  for (const c of erp) {
+    const n = numeroDeEmbarque(c.numero);
+    if (n == null || n < PRIMER_EMBARQUE_FACTURA || porNumero.has(n)) continue;
+    porNumero.set(n, { numero: claveEmbarque(n), fuente: "erp", estado: c.estado ?? null, idErp: c.id, iso: c.numero_naviera ?? null });
+  }
+  if (excel.estado === "encontrado") {
+    for (const d of excel.valor.datos.contenedores) {
+      const n = numeroDeEmbarque(d.id);
+      if (n == null || n < PRIMER_EMBARQUE_FACTURA || porNumero.has(n) || !d.lineas.length) continue;
+      porNumero.set(n, { numero: claveEmbarque(n), fuente: "costeo", estado: null, idErp: null, iso: d.iso ?? null });
+    }
+  }
+  return [...porNumero.entries()].sort((a, b) => b[0] - a[0]).map(([, c]) => c);
+}
+
+/** Modelo y pares del contenedor: del packing list en Contenedores o, si no está ahí, del Excel de costeo. */
+async function paresDelContenedor(
+  db: DB,
+  accountId: string,
+  numero: string,
+): Promise<{ numero: string; iso: string | null; fuente: ContenedorFactura["fuente"]; pares: { modelo: string; pares: number }[] } | null> {
+  const n = numeroDeEmbarque(numero);
+  if (n == null) return null;
+  const lista = await listaContenedores(db, accountId);
+  const c = lista.find((x) => numeroDeEmbarque(x.numero) === n);
+  if (!c) return null;
+  if (c.fuente === "erp" && c.idErp) {
+    const renglones = await renglonesDelContenedor(db, c.idErp);
+    return { numero: c.numero, iso: c.iso, fuente: "erp", pares: renglones.map((r) => ({ modelo: r.modelo, pares: r.cajas * r.paresPorCaja })) };
+  }
+  const excel = await leerCacheAppGuardado<ExcelCosteoGuardado>(db, accountId, CLAVE_COSTEO_EXCEL);
+  if (excel.estado !== "encontrado") return null;
+  const d = excel.valor.datos.contenedores.find((x) => numeroDeEmbarque(x.id) === n);
+  if (!d) return null;
+  return { numero: c.numero, iso: c.iso, fuente: "costeo", pares: d.lineas.map((l) => ({ modelo: l.modelo.toUpperCase(), pares: l.pares })) };
 }
 
 const HOJAS = {
@@ -137,18 +193,17 @@ const HOJAS = {
  * precio por par con y sin IVA, IVA e importe. Lo que no tiene precio o
  * código SAT va en blanco y en la hoja «Avisos»: no se inventa.
  */
-export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, contenedorId: string): Promise<{ nombre: string; buffer: Buffer } | null> {
-  const contenedor = await contenedorDeCuenta(db, cuenta.id, contenedorId);
+export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: string): Promise<{ nombre: string; buffer: Buffer } | null> {
+  const contenedor = await paresDelContenedor(db, cuenta.id, numero);
   if (!contenedor) return null;
-  const renglones = await renglonesDelContenedor(db, contenedor.id);
+  const pares = contenedor.pares.filter((p) => p.pares > 0);
   const calc = await cargarCalculadora(db, cuenta);
   const precios = new Map(calc.renglones.map((r) => [r.modelo.toUpperCase(), r]));
-  const datos = await datosDeModelos(db, cuenta.id, [...new Set(renglones.map((r) => r.modelo))]);
+  const datos = await datosDeModelos(db, cuenta.id, [...new Set(pares.map((r) => r.modelo))]);
   const datosDe = (modelo: string) => {
     const d = datos.get(modelo);
     return { descripcion: d?.titulo ?? "", codigoSat: codigoFiscalDeCategoria(d?.categoriaMeli) ?? "" };
   };
-  const pares = renglones.map((r) => ({ modelo: r.modelo, pares: r.cajas * r.paresPorCaja }));
 
   const libro = new ExcelJS.Workbook();
   const avisos: string[] = [...calc.avisos];
@@ -162,8 +217,10 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, contenedorI
       datosDe,
     );
     const hoja = libro.addWorksheet(HOJAS[tipo].titulo);
-    hoja.addRow([`${HOJAS[tipo].titulo} · contenedor ${contenedor.numero}${contenedor.numero_naviera ? ` (${contenedor.numero_naviera})` : ""}`]).font = { bold: true, size: 13 };
-    hoja.addRow([`Promedio de ${calc.meses.map(nombreDelPeriodo).join(", ")} · precios con IVA trasladado (16 %)`]);
+    hoja.addRow([`${HOJAS[tipo].titulo} · contenedor ${contenedor.numero}${contenedor.iso ? ` (${contenedor.iso})` : ""}`]).font = { bold: true, size: 13 };
+    hoja.addRow([
+      `Promedio de ${calc.meses.map(nombreDelPeriodo).join(", ")} · precios con IVA trasladado (16 %) · pares del ${contenedor.fuente === "erp" ? "packing list en Contenedores" : "Excel de costeo de la fábrica"}`,
+    ]);
     hoja.addRow([]);
     const enc = hoja.addRow(["MODELO", "CODIGO SAT", "DESCRIPCION", "PARES", "PRECIO POR PAR SIN IVA", "IVA POR PAR", "PRECIO POR PAR CON IVA", "IMPORTE SIN IVA", "IVA", "TOTAL"]);
     enc.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -179,7 +236,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, contenedorI
     if (tipo === "komerline" && f.sinCodigo.length) avisos.push(`Sin categoría de MELI reconocida (CODIGO SAT en blanco): ${f.sinCodigo.join(", ")}.`);
   }
   const relampago = new Set(calc.renglones.filter((r) => r.fuente === "relampago").map((r) => r.modelo.toUpperCase()));
-  const nuevos = [...new Set(renglones.map((r) => r.modelo))].filter((m) => relampago.has(m.toUpperCase()));
+  const nuevos = [...new Set(pares.map((r) => r.modelo))].filter((m) => relampago.has(m.toUpperCase()));
   if (nuevos.length) avisos.push(`Producto nuevo, calculado con el precio relámpago de Números: ${nuevos.join(", ")}.`);
   if (avisos.length) {
     const h = libro.addWorksheet("Avisos");

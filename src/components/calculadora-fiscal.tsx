@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { desgloseIva } from "@/lib/finanzas/calculadora-precios";
-import type { CalculadoraCargada } from "@/lib/servicios/calculadora-precios";
+import type { CalculadoraCargada, ContenedorFactura } from "@/lib/servicios/calculadora-precios";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -21,7 +21,7 @@ export function CalculadoraFiscal({
   contenedores,
 }: {
   calc: CalculadoraCargada;
-  contenedores: { id: string; numero: string; estado: string | null }[];
+  contenedores: ContenedorFactura[];
 }) {
   const router = useRouter();
   const p = calc.parametros;
@@ -33,7 +33,7 @@ export function CalculadoraFiscal({
   const [estado, setEstado] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [soloConPrecio, setSoloConPrecio] = useState(true);
-  const [contenedor, setContenedor] = useState(contenedores[0]?.id ?? "");
+  const [contenedor, setContenedor] = useState(contenedores[0]?.numero ?? "");
 
   async function guardar() {
     setEstado("Guardando…");
@@ -120,9 +120,9 @@ export function CalculadoraFiscal({
           Contenedor
           <select className="rounded border px-2 py-1 text-[13px]" style={estiloEntrada} value={contenedor} onChange={(e) => setContenedor(e.target.value)}>
             {contenedores.map((c) => (
-              <option key={c.id} value={c.id}>
+              <option key={c.numero} value={c.numero}>
                 {c.numero}
-                {c.estado ? ` · ${c.estado}` : ""}
+                {c.fuente === "costeo" ? " · del Excel de costeo" : c.estado ? ` · ${c.estado.replace("_", " ")}` : ""}
               </option>
             ))}
           </select>
@@ -130,7 +130,7 @@ export function CalculadoraFiscal({
         <a
           className="boton-secundario boton-chico"
           aria-disabled={!contenedor}
-          href={contenedor ? `/api/finanzas/calculadora/contenedor?id=${encodeURIComponent(contenedor)}` : undefined}
+          href={contenedor ? `/api/finanzas/calculadora/contenedor?numero=${encodeURIComponent(contenedor)}` : undefined}
         >
           Excel para la factura
         </a>
