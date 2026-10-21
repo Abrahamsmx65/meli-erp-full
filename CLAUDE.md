@@ -63,9 +63,10 @@ guárdala numerada.
   (45), la talla solo se surte a 15 días (`coberturaSinForzarDias`) y se va
   mandando en cada envío (GT135 DK BROWN: 2 cajas, no 14); (2) GOTEO de 1
   caja por envío si la talla trae ≤ 10 % de la caja
-  (`corridaFraccionTallaChica`: 1 de 12, 2 de 24) o si sus hermanas ya
-  pasan todas de 45 días, y solo si le quedan menos de 15 días (GT194 BLK,
-  talla 23 de GT135 TABACO BROWN); (3) si las hermanas no pasan de 45, la
+  (`corridaFraccionTallaChica`: 1 de 12, 2 de 24) o si la MAYORÍA de los
+  pares de la caja van a hermanas que ya pasan de 45 días, y solo si le
+  quedan menos de 15 días (GT194 BLK, GT167 BLK, talla 23 de GT135 TABACO
+  BROWN); (3) si las hermanas no pasan de 45, la
   talla pide su objetivo completo. Se mide contra la mejor caja de la talla:
   una caja de una sola talla no tiene hermanas y no se recorta.
   **COLCHÓN DE SUBIDA** (`engine/colchon.ts`, mismo día; «Daniel manda un

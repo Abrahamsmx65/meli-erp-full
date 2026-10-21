@@ -120,6 +120,35 @@ describe("corrida de Full por hermanas", () => {
     expect(ajustes[0].regla).toBe("goteo");
   });
 
+  it("GT167 BLK: la mayoría de la caja va a tallas sobradas → goteo, no 8 cajas", () => {
+    const necesidad = new Map([
+      ["T26", 55],
+      ["T27", 33],
+    ]);
+    ajustarCorridaPorHermanas({
+      ...REGLA,
+      necesidad,
+      datos: datos([
+        ["T23", 50, 1.244],
+        ["T24", 144, 1.586],
+        ["T25", 116, 1.904],
+        ["T26", 0, 1.481],
+        ["T27", 0, 0.819],
+      ]),
+      cajas: [
+        caja("IN10108-GT167-BLK", 32, [
+          ["T23", 3],
+          ["T24", 8],
+          ["T25", 8],
+          ["T26", 3],
+          ["T27", 2],
+        ]),
+      ],
+    });
+    expect(necesidad.get("T26")).toBe(3); // una caja
+    expect(necesidad.get("T27")).toBe(2);
+  });
+
   it("si las hermanas no pasan de 45 días, la talla pide su objetivo completo", () => {
     const necesidad = new Map([["A", 20]]);
     const ajustes = ajustarCorridaPorHermanas({

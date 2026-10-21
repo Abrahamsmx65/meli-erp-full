@@ -242,8 +242,9 @@ export function ajustarNecesidadPorCorrida(e: {
  *     mandando poco a poco en vez de sobre-surtir. GT135 DK BROWN: la 24
  *     pedía 14 cajas y la 25 quedaba en 66 días; ahora viajan 2.
  *  2. GOTEO de 1 caja por envío cuando la talla trae muy poco en la caja
- *     (≤ `fraccionTallaChica`, 10 %: 1 par de 12, 2 de 24) o cuando sus
- *     hermanas YA están todas arriba de 45 días: GT194 BLK (1 par de
+ *     (≤ `fraccionTallaChica`, 10 %: 1 par de 12, 2 de 24) o cuando la
+ *     MAYORÍA de los pares de la caja van a hermanas que YA pasan de 45
+ *     días (GT167 BLK: 26 y 27 en cero, 24 y 25 en 91 y 61): GT194 BLK (1 par de
  *     talla 23 por caja) y la talla 23 de GT135 TABACO BROWN, que con 15
  *     días pedía 14 cajas «de más por una talla». Solo si a la talla le
  *     quedan menos de `objetivoCorto` días; si no, espera.
@@ -319,20 +320,20 @@ export function ajustarCorridaPorHermanas(e: {
 
     const nCompleto = Math.min(Math.ceil(pedida / piezas), caja.cajasDisponibles);
     let peor = 0;
-    let todasCargadas = true;
+    // Pares de la caja que van a tallas que YA pasan del tope: si son la
+    // mayoría, la caja viaja de lastre y la talla gotea (GT167 BLK: la 26 en
+    // cero, la 24 en 91 días y la 25 en 61 → 16 de 24 pares sobran).
+    let paresCargados = 0;
     for (const h of hermanas) {
       peor = Math.max(peor, dias(h.sku, nCompleto * h.piezas));
-      const hoy = dias(h.sku, 0);
-      // Una hermana vacía y sin venta no cuenta para «ya cargadas».
-      if (hoy <= e.hermanasMaxDias && !(hoy === 0 && (e.datos.get(h.sku)?.posicion ?? 0) <= 0)) {
-        todasCargadas = false;
-      }
+      if (dias(h.sku, 0) > e.hermanasMaxDias) paresCargados += h.piezas;
     }
 
     const chica = total > 0 && piezas / total <= e.fraccionTallaChica + EPS;
+    const cargadas = total > 0 && paresCargados / total >= 0.5;
     let regla: ReglaHermanas;
     let ajustada: number;
-    if (chica || todasCargadas) {
+    if (chica || cargadas) {
       if (cobertura >= e.objetivoCorto) {
         regla = "cobertura_suficiente";
         ajustada = 0;
