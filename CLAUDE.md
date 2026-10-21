@@ -486,6 +486,19 @@ guárdala numerada.
   a cada uno le falta por contenedores. Un pedido que la bodega no conoce
   cuenta completo, como antes; uno que ya llegó completo (aunque siga
   abierto) no suma nada.
+- **Una caja que la bodega capturó con el SKU REVUELTO cuenta igual**
+  (`rescatarFilaMalCapturada` en `importar/cajas.ts`, puro con pruebas; se
+  aplica al leer el API de Industher, en `construirCajas` y en la pantalla
+  de Corridas; dueño, 21-oct-2026: «en cualquier manera lo capte para tomar
+  en cuenta como inventario»): Industher dio de alta 24 cajas de GT114 BLK
+  del IN10057 como «IN10057-24-GT114-BLK» (modelo «IN10057», color
+  «24-GT114-BLK», sin talla, 1 par por caja) y no contaban. Si el modelo
+  es un PEDIDO (IN/AR/RT/S###) pasa a pedido y el color se parte en
+  «talla-modelo-color» o «modelo-color»; si el color empieza con una talla
+  («24-BLK») y la caja no trae talla, la talla sale del color. Un renglón
+  normal no se toca. Y una caja de una talla con 0 o 1 «pares por caja»
+  toma los pares de su corrida con la talla pegada al color (IN10057 ·
+  GT114 · BLK-24 · {24: 24}).
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
