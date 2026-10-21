@@ -2827,6 +2827,33 @@ guárdala numerada.
   $410,966, retiros $3,692,260 y $3,181,615). El sheet NUNCA se escribe;
   si Google no lo entrega (deja de estar compartido) no se toca nada y el
   error queda en la constancia.
+- **CALCULADORA FISCAL: precio de compra entre empresas** (`/finanzas/calculadora`
+  «Calculadora fiscal» en Negocio; `finanzas/calculadora-precios.ts` motor
+  puro con pruebas, `servicios/calculadora-precios.ts`, `POST
+  /api/finanzas/calculadora` guarda los parámetros en `app_cache`
+  `calculadora-precios:config`, `GET /api/finanzas/calculadora/contenedor?id=`
+  el Excel de la factura; dueño, 21-oct-2026). Cadena: proveedor → INDUSTHER
+  (se queda la ganancia) → KOMERLINE (vende en MELI y NO debe quedarse con
+  ganancia). Komerline compra a = depósito real de MELI por par − gastos de
+  Full por par del canal − publicidad por par (la del modelo + la sin amarre
+  del canal), promedio de los meses CERRADOS elegidos (3 por omisión) del
+  estado de resultados guardado (canal calzado en MELI). Producto NUEVO (< 10
+  pares en esos meses): depósito al precio relámpago de Números (real al
+  relámpago o con las tasas de Números) − Full y publicidad promedio del
+  canal. Industher compra a = precio Komerline − gasto de logística y
+  empleados (~$400,000 al mes) ÷ unidades al mes de TODAS las plataformas
+  (promedio real o a mano) − 3 % de lo que le factura a Komerline. Todo CON
+  IVA trasladado (base = ÷ 1.16). El Excel del contenedor trae una hoja por
+  compra: modelo, código SAT (`codigoFiscalDeCategoria`), pares, precio sin
+  IVA, IVA y total; lo que no tiene precio o código va en blanco y en
+  «Avisos». Se ofrecen los contenedores DESDE EL S245
+  (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
+  Contenedores (desde S250, pares del packing list) y, los que nunca se
+  cargaron ahí (S245–S249), del Excel de costeo de la fábrica
+  (`finanzas:costeo-excel`, modelo y pares); si está en los dos, manda
+  Contenedores. **Es PURAMENTE FISCAL** (dueño: «no se debe confundir con el
+  corte general»): solo LEE el estado de resultados guardado y Números,
+  nunca escribe ni cambia el corte general.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
   del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
