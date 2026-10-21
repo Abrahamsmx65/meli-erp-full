@@ -1,7 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { CLAVE_FOTOS_NUEVOS, FOTOS_MINIMAS, servirProductosNuevos } from "@/lib/servicios/productos-nuevos";
-import { fotosGuardadasVigentes, type FotosGuardada } from "@/lib/servicios/productos-nuevos-fotos";
+import { fotosGuardadasVigentes, revisionVieja, type FotosGuardada } from "@/lib/servicios/productos-nuevos-fotos";
 import { leerCacheAppGuardado } from "@/lib/servicios/cache-app";
 import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { Ficha } from "@/components/tiles";
@@ -37,6 +37,12 @@ export default async function Nuevos() {
     productos,
     fotosGuardadas.estado === "encontrado" ? fotosGuardadas.valor.datos?.productos : null,
   );
+  // Lo guardado viejo, o un producto sin revisar, se vuelve a preguntar solo
+  // al abrir (solo lo que falta; lo que ya tiene sus fotos no se toca).
+  const revisarAlAbrir =
+    fotosGuardadas.estado !== "encontrado" ||
+    revisionVieja(fotosGuardadas.valor.generadoEn) ||
+    fotosIniciales.length < productos.length;
   const sinMeli = productos.filter((p) => !p.meli.publicaciones.length).length;
   const sinAmazon = amazonConectado ? productos.filter((p) => !p.amazon.skus.length).length : 0;
   const enBodega = productos.filter((p) => p.enBodega > 0).length;
@@ -79,6 +85,7 @@ export default async function Nuevos() {
         fotosMinimas={FOTOS_MINIMAS}
         amazonConectado={amazonConectado}
         fotosIniciales={fotosIniciales}
+        revisarAlAbrir={revisarAlAbrir}
       />
     </Pagina>
   );

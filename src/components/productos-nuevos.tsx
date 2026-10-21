@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 interface Producto {
   clave: string;
@@ -41,11 +41,14 @@ export function ProductosNuevos({
   fotosMinimas,
   amazonConectado,
   fotosIniciales,
+  revisarAlAbrir = false,
 }: {
   productos: Producto[];
   fotosMinimas: number;
   amazonConectado: boolean;
   fotosIniciales: Fotos[];
+  /** lo guardado es viejo o falta algo: se pregunta solo al abrir */
+  revisarAlAbrir?: boolean;
 }) {
   const [fotos, setFotos] = useState<Map<string, Fotos> | null>(() =>
     fotosIniciales.length ? new Map(fotosIniciales.map((f) => [f.clave, f])) : null,
@@ -80,6 +83,11 @@ export function ProductosNuevos({
       setRevisando(false);
     }
   }
+
+  useEffect(() => {
+    if (revisarAlAbrir) void revisar(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const busquedaDiferida = useDeferredValue(busqueda);
 
