@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import type { Cuenta } from "@/lib/datos/repos";
-import { revisarConfirmacionPedidos } from "@/lib/servicios/confirmacion-pedidos";
+import { revisarConfirmacionPedidos, TAREA_CONFIRMACION } from "@/lib/servicios/confirmacion-pedidos";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,9 +10,7 @@ export const maxDuration = 120;
 /**
  * Las 8:00 de México (14:00Z, vercel.json): ¿China ya subió al sheet los
  * pedidos nuevos? Relee el sheet, lo deja masticado para Órdenes de compra
- * y, si algo falta por confirmar o se confirmó desde ayer, avisa al dueño.
- * Para probarlo a mano: `?forzar=1` (repite el correo del día) o
- * `?sin_correo=1` (solo revisa y guarda); `&para=…` cambia el destinatario.
+ * y anota la revisión en sync_log. Sin correo (decisión del dueño).
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -21,7 +19,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
-  const sp = req.nextUrl.searchParams;
   const admin = clienteAdmin();
   const { data: cuentas } = await admin
     .from("meli_accounts")
@@ -32,16 +29,11 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta de Mercado Libre." }, { status: 404 });
 
   try {
-    const r = await revisarConfirmacionPedidos(admin, cuenta, {
-      forzar: sp.get("forzar") === "1",
-      sinCorreo: sp.get("sin_correo") === "1",
-      para: sp.get("para") || undefined,
-    });
-    return NextResponse.json({ ok: true, ...r });
+    return NextResponse.json({ ok: true, ...(await revisarConfirmacionPedidos(admin, cuenta)) });
   } catch (err) {
     await admin.from("sync_log").insert({
       account_id: cuenta.id,
-      tarea: "confirmacion-pedidos",
+      tarea: TAREA_CONFIRMACION,
       fin: new Date().toISOString(),
       estado: "error",
       detalle: { error: (err as Error).message },
