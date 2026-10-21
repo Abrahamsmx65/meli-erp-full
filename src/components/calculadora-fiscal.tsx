@@ -134,7 +134,7 @@ export function CalculadoraFiscal({
         >
           Excel para la factura
         </a>
-        <span className="texto-tenue text-[12px]">Modelo, código SAT, pares y precio con y sin IVA, para las dos compras.</span>
+        <span className="texto-tenue text-[12px]">Resumen con los dos precios y una hoja de factura para cada compra.</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -193,11 +193,25 @@ export function CalculadoraFiscal({
                   <td className="num cifra">{din(r.recibidoPar)}</td>
                   <td className="num cifra texto-2">{r.precioKomerline != null ? din(r.fullPar) : "—"}</td>
                   <td className="num cifra texto-2">{r.precioKomerline != null ? din(r.publicidadPar) : "—"}</td>
-                  <td className="num cifra font-medium">{din(r.precioKomerline)}</td>
+                  <td className="num cifra font-medium">
+                    {din(r.precioKomerline)}
+                    {r.precioKomerline != null && r.recibidoPar != null ? (
+                      <div className="texto-tenue text-[11px]">
+                        {din(r.recibidoPar)} − {din(r.fullPar)} − {din(r.publicidadPar)}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="num cifra texto-2">{r.precioKomerline != null ? din(desgloseIva(r.precioKomerline).base) : "—"}</td>
                   <td className="num cifra texto-2">{r.precioIndusther != null ? din(r.gastoOperativoPar) : "—"}</td>
                   <td className="num cifra texto-2">{din(r.gananciaIndustherPar)}</td>
-                  <td className="num cifra font-medium">{din(r.precioIndusther)}</td>
+                  <td className="num cifra font-medium">
+                    {din(r.precioIndusther)}
+                    {r.precioIndusther != null && r.precioKomerline != null ? (
+                      <div className="texto-tenue text-[11px]">
+                        {din(r.precioKomerline)} − {din(r.gastoOperativoPar)} − {din(r.gananciaIndustherPar)}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="num cifra texto-2">{r.precioIndusther != null ? din(desgloseIva(r.precioIndusther).base) : "—"}</td>
                   <td className="num cifra texto-2">{din(r.costo)}</td>
                   <td className="num cifra" style={{ color: r.margenProveedor != null && r.margenProveedor < 0 ? "var(--estado-critico)" : undefined }}>

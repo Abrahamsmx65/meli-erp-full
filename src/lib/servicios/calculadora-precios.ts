@@ -183,8 +183,8 @@ async function paresDelContenedor(
 }
 
 const HOJAS = {
-  komerline: { titulo: "Komerline compra a Industher", corto: "KOMERLINE" },
-  industher: { titulo: "Industher compra", corto: "INDUSTHER" },
+  komerline: { titulo: "Factura Industher a Komerline", corto: "KOMERLINE" },
+  industher: { titulo: "Factura a Industher", corto: "INDUSTHER" },
 } as const;
 
 /**
@@ -207,6 +207,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
 
   const libro = new ExcelJS.Workbook();
   const avisos: string[] = [...calc.avisos];
+  hojaResumen(libro, contenedor, calc, pares, precios, datosDe);
   for (const tipo of ["komerline", "industher"] as const) {
     const f = facturaDeContenedor(
       pares,
@@ -246,6 +247,54 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
   const buffer = Buffer.from(await libro.xlsx.writeBuffer());
   const nombre = `factura-${contenedor.numero.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.xlsx`;
   return { nombre, buffer };
+}
+
+/**
+ * Primera hoja: por modelo, la cuenta completa y los DOS precios lado a lado
+ * (dueño, 21-oct-2026: «en el Excel no sale el precio de Industher»; las
+ * facturas van en sus propias hojas).
+ */
+export function hojaResumen(
+  libro: ExcelJS.Workbook,
+  contenedor: { numero: string; iso: string | null },
+  calc: CalculadoraCargada,
+  pares: { modelo: string; pares: number }[],
+  precios: Map<string, CalculadoraCargada["renglones"][number]>,
+  datosDe: (modelo: string) => { descripcion: string; codigoSat: string },
+) {
+  const porModelo = new Map<string, number>();
+  for (const p of pares) porModelo.set(p.modelo, (porModelo.get(p.modelo) ?? 0) + p.pares);
+  const hoja = libro.addWorksheet("Resumen");
+  hoja.addRow([`Resumen · contenedor ${contenedor.numero}${contenedor.iso ? ` (${contenedor.iso})` : ""}`]).font = { bold: true, size: 13 };
+  hoja.addRow([`Promedio de ${calc.meses.map(nombreDelPeriodo).join(", ")} · todos los precios por par con IVA`]);
+  hoja.addRow([]);
+  const enc = hoja.addRow([
+    "MODELO", "CODIGO SAT", "PARES", "RECIBE MELI", "− FULL", "− PUBLICIDAD",
+    "PRECIO KOMERLINE", "− GASTO OPERATIVO", "− GANANCIA INDUSTHER", "PRECIO INDUSTHER",
+    "TOTAL KOMERLINE", "TOTAL INDUSTHER",
+  ]);
+  enc.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  enc.eachCell((c) => (c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F3A5F" } }));
+  let tp = 0, tk = 0, ti = 0;
+  for (const [modelo, n] of [...porModelo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true }))) {
+    const r = precios.get(modelo.toUpperCase());
+    const k = r?.precioKomerline ?? null;
+    const i = r?.precioIndusther ?? null;
+    tp += n;
+    if (k != null) tk += k * n;
+    if (i != null) ti += i * n;
+    hoja.addRow([
+      modelo, datosDe(modelo).codigoSat, n, r?.recibidoPar ?? null,
+      k != null ? r!.fullPar : null, k != null ? r!.publicidadPar : null, k,
+      i != null ? r!.gastoOperativoPar : null, r?.gananciaIndustherPar ?? null, i,
+      k != null ? Math.round(k * n * 100) / 100 : null, i != null ? Math.round(i * n * 100) / 100 : null,
+    ]);
+  }
+  hoja.addRow(["TOTAL", "", tp, null, null, null, null, null, null, null, Math.round(tk * 100) / 100, Math.round(ti * 100) / 100]).font = { bold: true };
+  hoja.getColumn(2).numFmt = "@";
+  hoja.getColumn(3).numFmt = "#,##0";
+  for (let c = 4; c <= 12; c++) hoja.getColumn(c).numFmt = '"$"#,##0.00';
+  [12, 13, 9, 13, 10, 13, 17, 18, 20, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
 }
 
 function agregarFila(hoja: ExcelJS.Worksheet, x: RenglonFactura) {
