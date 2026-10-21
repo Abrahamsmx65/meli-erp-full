@@ -367,12 +367,9 @@ export function PromocionesTikTok({
     if (!c.activo) return { tono: "tenue", texto: "Quitado" };
     if (!c.enTikTok) return { tono: "critico", texto: "Sin producto activo en TikTok" };
     const viva = relampagoViva(c);
-    if (c.ultimoError) {
-      if (viva?.aMano) return { tono: "alerta", texto: `Esperando a que termine la relámpago a mano (${cuandoCorto(viva.hasta)})`, detalle: c.ultimoError };
-      return { tono: "critico", texto: c.ultimoError };
-    }
+    if (c.bloqueadaHasta) return { tono: "alerta", texto: `TikTok la rechazó por otra relámpago pública; se reintenta ${cuandoCorto(c.bloqueadaHasta)}`, detalle: c.ultimoError ?? undefined };
+    if (c.ultimoError) return { tono: "critico", texto: c.ultimoError };
     if (viva && !viva.aMano) return { tono: "bien", texto: "Al día" };
-    if (viva?.aMano) return { tono: "alerta", texto: `Entra cuando termine la relámpago a mano (${cuandoCorto(viva.hasta)})` };
     return { tono: "tenue", texto: "Por programar: el fondo la crea en el siguiente minuto" };
   };
   const tonoPastilla = (tono: "bien" | "alerta" | "critico" | "tenue"): { background: string; color: string } => {
@@ -386,7 +383,7 @@ export function PromocionesTikTok({
     <>
       <Seccion
         titulo="Volver cíclico un modelo"
-        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después (TikTok no deja dos a la vez). El precio viene precargado con el de su última relámpago.`}
+        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después. Una relámpago de creadores armada a mano no la detiene; si TikTok la rechaza por otra pública, espera a que termine. El precio viene precargado con el de su última relámpago.`}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">

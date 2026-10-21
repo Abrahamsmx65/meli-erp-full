@@ -10,7 +10,7 @@
  * días con venta —que es todo lo que el motor mira— quedan idénticos.
  */
 import type { DB } from "../datos/repos";
-import { bloques, type SnapshotDia, type VentaDia } from "./plan";
+import { bloques, type HistoriaPrevia, type SnapshotDia, type VentaDia } from "./plan";
 import { restarDias } from "./db";
 
 interface FilaVentas {
@@ -121,4 +121,37 @@ export async function cargarVentasAgregadas(db: DB, accountId: string, desde: st
   }
 
   return { ventas, snapshots, totales };
+}
+
+/**
+ * La historia PREVIA a la ventana del plan, sumada por SKU (unidades, fotos y
+ * días con stock del rango): con ella el plan repone lo agotado con historia
+ * y estrena lo que nunca ha vendido. Son los mismos dos RPC de los bloques,
+ * sin sintetizar renglones: una fila por SKU.
+ */
+export async function cargarHistoriaPrevia(db: DB, accountId: string, desde: string, hasta: string): Promise<HistoriaPrevia[]> {
+  if (hasta < desde) return [];
+  const bs = bloques(desde, hasta);
+  const args = { p_account: accountId, p_desde: desde, p_hasta: hasta, p_b1: bs[0]?.desde ?? desde, p_b2: bs[1]?.desde ?? desde };
+  const [ventasFilas, fotosFilas] = await Promise.all([
+    rpcTodo<FilaVentas>(db, "yz_ventas_bloques", args),
+    rpcTodo<FilaFotos>(db, "yz_snapshots_bloques", args),
+  ]);
+  const dias = Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000) + 1;
+  const porSku = new Map<string, HistoriaPrevia>();
+  const de = (sku: string) => {
+    let h = porSku.get(sku);
+    if (!h) {
+      h = { sku, unidades: 0, dias, fotos: 0, conStock: 0 };
+      porSku.set(sku, h);
+    }
+    return h;
+  };
+  for (const f of ventasFilas) de(f.sku).unidades += Number(f.u_total ?? 0);
+  for (const f of fotosFilas) {
+    const h = de(f.sku);
+    h.fotos += (f.f1 ?? 0) + (f.f2 ?? 0) + (f.f3 ?? 0);
+    h.conStock += (f.s1 ?? 0) + (f.s2 ?? 0) + (f.s3 ?? 0);
+  }
+  return [...porSku.values()];
 }

@@ -11,8 +11,8 @@ import { guardarCacheYzLote, invalidarYz, leerCacheYzGuardado } from "./cache";
 import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
-import { calcularPlan, type EnCamino, type LineaPlan, type Plan } from "./plan";
-import { cargarVentasAgregadas } from "./agregados";
+import { calcularPlan, DIAS_HISTORIA, type EnCamino, type HistoriaPrevia, type LineaPlan, type Plan } from "./plan";
+import { cargarHistoriaPrevia, cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
 import { agruparGemelas, principalDe, type Gemelas } from "./gemelas";
 
@@ -80,10 +80,15 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   // Hasta AYER: hoy va a medias y contarlo entero baja la venta de todos.
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, parametros.diasVenta - 1);
+  // Los 180 días ANTERIORES a la ventana: con eso se repone lo agotado con
+  // historia y se distingue lo que nunca ha vendido (estreno).
+  const hastaHistoria = restarDias(desde, 1);
+  const desdeHistoria = restarDias(hastaHistoria, DIAS_HISTORIA - 1);
 
-  const [skus, agregadas, stock, inventario, { enCamino }, descontinuados] = await Promise.all([
+  const [skus, agregadas, historia, stock, inventario, { enCamino }, descontinuados] = await Promise.all([
     todo<{ sku: string; titulo: string | null; estado: string | null }>(db, "yz_skus", "sku, titulo, estado", (q) => q.eq("account_id", accountId)),
     cargarVentasAgregadas(db, accountId, desde, hasta),
+    cargarHistoriaPrevia(db, accountId, desdeHistoria, hastaHistoria),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, parametros.diasCaducidadEnvio),
@@ -106,6 +111,9 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
     stock: stock.map((s) => ({ sku: principalDe(gemelas, s.sku), disponible: s.disponible, enTransferencia: s.en_transferencia })),
     bodega: [...inventario.porSkuMeli].map(([skuMeli, unidades]) => ({ skuMeli: principalDe(gemelas, skuMeli), unidades })),
     enCamino: enCamino.map((c) => ({ ...c, skuMeli: principalDe(gemelas, c.skuMeli) })),
+    historia: fusionarHistoria(historia, gemelas),
+    // Un grupo cuya principal está cerrada tiene todas sus gemelas cerradas.
+    cerrados: skus.filter((s) => s.estado === "closed" && principalDe(gemelas, s.sku) === s.sku).map((s) => s.sku),
     parametros,
     hasta,
   });
@@ -118,6 +126,23 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
     parametros,
     descontinuados,
   };
+}
+
+/** La historia previa de las gemelas se suma bajo la principal. */
+function fusionarHistoria(historia: HistoriaPrevia[], gemelas: Gemelas): HistoriaPrevia[] {
+  const porPrincipal = new Map<string, HistoriaPrevia>();
+  for (const h of historia) {
+    const sku = principalDe(gemelas, h.sku);
+    const acc = porPrincipal.get(sku);
+    if (!acc) {
+      porPrincipal.set(sku, { ...h, sku });
+    } else {
+      acc.unidades += h.unidades;
+      acc.fotos += h.fotos;
+      acc.conStock += h.conStock;
+    }
+  }
+  return [...porPrincipal.values()];
 }
 
 /** Las fotos diarias de las gemelas se suman por día bajo la principal. */

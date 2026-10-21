@@ -9,6 +9,8 @@ import { confirmar } from "@/components/ui/confirmar";
 
 const MOTIVO: Record<MotivoNoEnviar, string> = {
   ok: "",
+  historia: "Agotado en Full toda la ventana: se repone con su venta de cuando tenía stock",
+  estreno: "Nunca ha vendido: va una decena de prueba",
   sin_faltante: "Full ya cubre el objetivo",
   sin_inventario: "No hay en bodega (o el SKU no está amarrado)",
   menos_de_una_decena: "Hay menos de una decena en bodega",
@@ -210,9 +212,9 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                     {l.titulo ?? ""}
                   </td>
                   <td className="num px-3 py-1.5 text-right">{n(l.vendidas)}</td>
-                  <td className="num px-3 py-1.5 text-right" title={l.porCalendario ? "Sin fotos suficientes: días de calendario" : `${l.diasConStock} días con stock`}>
+                  <td className="num px-3 py-1.5 text-right" title={l.ventaDeHistoria ? "Sin venta ni stock en la ventana: venta de los 180 días anteriores, por día con stock" : l.porCalendario ? "Sin fotos suficientes: días de calendario" : `${l.diasConStock} días con stock`}>
                     {l.ventaDiaria.toFixed(1)}
-                    {l.porCalendario ? "" : "*"}
+                    {l.ventaDeHistoria ? "ᴴ" : l.porCalendario ? "" : "*"}
                   </td>
                   <td
                     className="num px-3 py-1.5 text-right text-xs"

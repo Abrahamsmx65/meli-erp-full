@@ -17,6 +17,20 @@ export interface FotosProducto {
   revisadoEn?: string | null;
 }
 
+/**
+ * Pasado este rato desde la última revisión, la pantalla vuelve a preguntar
+ * sola lo que falta al abrirse (el cron lo hace cada hora). Hasta el
+ * 21-oct-2026 solo se preguntaba con el botón y Lanzamientos enseñaba las
+ * fotos del 13-oct: lo que ya tenía fotos seguía «Sin fotos».
+ */
+export const MINUTOS_REVISION_FOTOS = 30;
+
+export function revisionVieja(revisadoEn: string | null | undefined, ahora = Date.now()): boolean {
+  if (!revisadoEn) return true;
+  const t = Date.parse(revisadoEn);
+  return !Number.isFinite(t) || ahora - t > MINUTOS_REVISION_FOTOS * 60_000;
+}
+
 export type FotosGuardada = FotosProducto & { huella: string };
 
 /** Huella de lo publicado: si cambia, se vuelve a revisar. */
