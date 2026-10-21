@@ -79,6 +79,9 @@ export async function middleware(request: NextRequest) {
     // La tienda en línea (otro despliegue) avisa que apartó o soltó pares;
     // la ruta valida el bearer TIENDA_SECRET.
     ruta === "/api/tiktok/tienda/aviso" ||
+    // Industher lee las corridas (solo lectura); la ruta valida la llave
+    // x-api-key = CORRIDAS_API_KEY.
+    ruta === "/api/integracion/corridas" ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
     // La sonda de fotos de Amazon se dispara también desde la base con el

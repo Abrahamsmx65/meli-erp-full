@@ -3269,6 +3269,7 @@ login, la base y el deploy.
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
+| Industher LEE las corridas del ERP (solo lectura; dueño, 21-oct-2026: «que jale nuestra información, solo lo de las corridas»): `GET /api/integracion/corridas?limit&offset&desde`, llave `x-api-key` = `CORRIDAS_API_KEY` (ruta pública en el middleware), orden estable por `actualizado_en`; la caja unitalla sale con la talla separada del color y el `barcode` de `codigoDeCaja`. Instrucciones para el sistema de Industher en `docs/INDUSTHER-CORRIDAS.md` | `src/lib/servicios/corridas-integracion.ts` + `src/app/api/integracion/corridas` |
 | Vista de inventario precalculada (`inventario_cache`, como `plan_cache`: la invalida `invalidar()` y el latido la deja lista para Bodega y Planificación China) | `src/lib/servicios/inventario.ts` (`cargarInventario`/`recalcularInventario`) |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
