@@ -740,14 +740,16 @@ async function programarCiclicasSinCandado(
   // Revisión barata: con ventana propia viva y lejos de terminar, nada que
   // hacer; una que TikTok rechazó por conflicto espera su `bloqueada_hasta`.
   const umbral = Date.now() + MARGEN_ESPERA_MS;
+  const bloqueada = (c: any) => Boolean(c.bloqueada_hasta) && Date.parse(c.bloqueada_hasta) > Date.now();
   const conTrabajo = ciclicas.filter((c: any) => {
-    if (c.bloqueada_hasta && Date.parse(c.bloqueada_hasta) > Date.now()) return false;
+    if (bloqueada(c)) return false;
     const propias = vivas.get(Number(c.id)) ?? [];
     const fin = finDeLaViva(propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })));
     return !fin || fin.getTime() <= umbral;
   });
-  // Un aviso viejo en una cíclica que ya tiene su relámpago viva sobra.
-  const alDia = ciclicas.filter((c: any) => !conTrabajo.includes(c)).map((c: any) => Number(c.id));
+  // Un aviso viejo en una cíclica que ya tiene su relámpago viva sobra (la
+  // bloqueada conserva el suyo: dice por qué espera y hasta cuándo).
+  const alDia = ciclicas.filter((c: any) => !conTrabajo.includes(c) && !bloqueada(c)).map((c: any) => Number(c.id));
   if (alDia.length) {
     await admin
       .from("tiktok_promociones_ciclicas")
@@ -756,9 +758,12 @@ async function programarCiclicasSinCandado(
       .not("ultimo_error", "is", null)
       .then(() => undefined, () => undefined);
   }
+  // La limpieza va antes del «nada que hacer»: una actividad que quedó vacía
+  // por conflicto se desactiva en el siguiente minuto, no hasta que a otra
+  // cíclica le toque trabajo (es una lectura a la base; TikTok solo si hay).
+  salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
   if (!conTrabajo.length) return salida;
 
-  salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
   const { modelos: catalogo } = await modelosParaOferta(admin, accountId, { sinPrecios: true });
   const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
   // Lo que el producto YA tiene en TikTok a mano NO detiene la cíclica: una
