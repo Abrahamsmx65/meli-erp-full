@@ -2845,7 +2845,10 @@ guárdala numerada.
   (promedio real o a mano) − 3 % de lo que le factura a Komerline. Todo CON
   IVA trasladado (base = ÷ 1.16). El Excel del contenedor trae una hoja por
   compra: modelo, código SAT (`codigoFiscalDeCategoria`), pares, precio sin
-  IVA, IVA y total; lo que no tiene precio o código va en blanco y en
+  IVA, IVA y total, y ANTES una hoja «Resumen» con la cuenta completa y los
+  DOS precios lado a lado por modelo (`hojaResumen`; dueño, 21-oct-2026: «en
+  el Excel no sale el precio de Industher»); la pantalla enseña la resta
+  debajo de cada precio; lo que no tiene precio o código va en blanco y en
   «Avisos». Se ofrecen los contenedores DESDE EL S245
   (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
   Contenedores (desde S250, pares del packing list) y, los que nunca se
