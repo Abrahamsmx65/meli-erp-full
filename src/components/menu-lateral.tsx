@@ -110,6 +110,7 @@ const GRUPOS: Grupo[] = [
       { href: "/gastos", texto: "Gastos", icono: Wallet, ayuda: "Nómina, fletes, renta y 3PL: fijos cada mes y sueltos" },
       { href: "/finanzas/costeo", texto: "Costeo", icono: Calculator, ayuda: "Costo real por par de cada contenedor" },
       { href: "/finanzas/numeros", texto: "Números", icono: CircleDollarSign, ayuda: "Precios por modelo en MELI, Amazon y TikTok" },
+      { href: "/finanzas/calculadora", texto: "Calculadora fiscal", icono: Scale, ayuda: "Precio de compra entre Industher y Komerline, por producto y por contenedor" },
       { href: "/finanzas/cuenta", texto: "Cuenta del año", icono: Landmark, ayuda: "Mayo a abril: transferencias, contenedores, Joanne, Shein y socios" },
     ],
   },

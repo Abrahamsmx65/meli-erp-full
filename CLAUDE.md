@@ -2827,6 +2827,33 @@ guárdala numerada.
   $410,966, retiros $3,692,260 y $3,181,615). El sheet NUNCA se escribe;
   si Google no lo entrega (deja de estar compartido) no se toca nada y el
   error queda en la constancia.
+- **CALCULADORA FISCAL: precio de compra entre empresas** (`/finanzas/calculadora`
+  «Calculadora fiscal» en Negocio; `finanzas/calculadora-precios.ts` motor
+  puro con pruebas, `servicios/calculadora-precios.ts`, `POST
+  /api/finanzas/calculadora` guarda los parámetros en `app_cache`
+  `calculadora-precios:config`, `GET /api/finanzas/calculadora/contenedor?id=`
+  el Excel de la factura; dueño, 21-oct-2026). Cadena: proveedor → INDUSTHER
+  (se queda la ganancia) → KOMERLINE (vende en MELI y NO debe quedarse con
+  ganancia). Komerline compra a = depósito real de MELI por par − gastos de
+  Full por par del canal − publicidad por par (la del modelo + la sin amarre
+  del canal), promedio de los meses CERRADOS elegidos (3 por omisión) del
+  estado de resultados guardado (canal calzado en MELI). Producto NUEVO (< 10
+  pares en esos meses): depósito al precio relámpago de Números (real al
+  relámpago o con las tasas de Números) − Full y publicidad promedio del
+  canal. Industher compra a = precio Komerline − gasto de logística y
+  empleados (~$400,000 al mes) ÷ unidades al mes de TODAS las plataformas
+  (promedio real o a mano) − 3 % de lo que le factura a Komerline. Todo CON
+  IVA trasladado (base = ÷ 1.16). El Excel del contenedor trae una hoja por
+  compra: modelo, código SAT (`codigoFiscalDeCategoria`), pares, precio sin
+  IVA, IVA y total; lo que no tiene precio o código va en blanco y en
+  «Avisos». Se ofrecen los contenedores DESDE EL S245
+  (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
+  Contenedores (desde S250, pares del packing list) y, los que nunca se
+  cargaron ahí (S245–S249), del Excel de costeo de la fábrica
+  (`finanzas:costeo-excel`, modelo y pares); si está en los dos, manda
+  Contenedores. **Es PURAMENTE FISCAL** (dueño: «no se debe confundir con el
+  corte general»): solo LEE el estado de resultados guardado y Números,
+  nunca escribe ni cambia el corte general.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
   del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
@@ -3165,6 +3192,18 @@ login, la base y el deploy.
   guardado, lo guardado sobre el navegador, cada cambio se guarda medio
   segundo después del último clic y la elección NUNCA se recorta contra el
   catálogo: un diseño que el resumen no trae sigue elegido y reaparece.
+  **A China se pide SOLO lo que falta de verdad, en números cerrados**
+  (`redondearPedido`, `multiploDeDiseno` en `yapanizcel/compras.ts`, puros con
+  pruebas; `yz_parametros.pedido_minimo` 50, `pedido_multiplo` 10 y
+  `pedido_multiplos` por diseño `{"662": 20}`, migración 0151; campos en
+  Configuración de fundas; dueño, 21-oct-2026: «solamente modelos que
+  necesitan mínimo 50 unidades y todo con números cerrados redondeando hacia
+  arriba en 10 y 10; de la fábrica 662 es 40 o 60, no 50»): por SKU, la
+  FALTA = objetivo de 120 días − posición (`VarianteCompra.necesidad`); si
+  es menor al mínimo no se pide nada (la pantalla la enseña en gris entre
+  paréntesis y el Excel en «Falta»), y si llega, se sube al múltiplo cerrado
+  del diseño (el 662 de 20 en 20: una falta de 50 se pide como 60). Los
+  totales por diseño y el Excel suman lo ya redondeado.
   **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
   (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
   diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`

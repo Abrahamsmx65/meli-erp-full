@@ -413,7 +413,20 @@ export function PedidosChina({
                       <td className="num px-3 py-1.5 text-right" style={{ color: v.cobertura != null && v.cobertura < 45 ? "var(--estado-critico)" : undefined }}>
                         {dias(v.cobertura)}
                       </td>
-                      <td className="num px-3 py-1.5 text-right font-semibold">{v.sugerido ? n(v.sugerido) : "—"}</td>
+                      <td
+                        className="num px-3 py-1.5 text-right font-semibold"
+                        title={
+                          v.necesidad == null
+                            ? undefined
+                            : v.sugerido
+                              ? `Faltan ${n(v.necesidad)}; se pide en múltiplo cerrado`
+                              : v.necesidad > 0
+                                ? `Faltan ${n(v.necesidad)}: menos del mínimo por SKU, no se pide`
+                                : "No falta nada"
+                        }
+                      >
+                        {v.sugerido ? n(v.sugerido) : v.necesidad ? <span className="font-normal texto-tenue">({n(v.necesidad)})</span> : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

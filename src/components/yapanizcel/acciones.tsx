@@ -228,7 +228,17 @@ export function SubirCostos() {
 export function FormularioParametros({
   valores,
 }: {
-  valores: { diasVenta: number; diasObjetivo: number; multiploEnvio: number; minimoEnvio: number; diasCaducidadEnvio: number };
+  valores: {
+    diasVenta: number;
+    diasObjetivo: number;
+    multiploEnvio: number;
+    minimoEnvio: number;
+    diasCaducidadEnvio: number;
+    pedidoMinimo: number;
+    pedidoMultiplo: number;
+    /** Múltiplos por diseño como texto: «662=20, 714=50». */
+    pedidoMultiplos: string;
+  };
 }) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
@@ -258,10 +268,10 @@ export function FormularioParametros({
     }
   }
 
-  const campo = (nombre: keyof typeof valores, etiqueta: string, ayuda: string) => (
+  const campo = (nombre: keyof typeof valores, etiqueta: string, ayuda: string, min = 1) => (
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium">{etiqueta}</span>
-      <input type="number" name={nombre} defaultValue={valores[nombre]} min={1} className="w-28 rounded-lg border px-2 py-1" style={estiloInput} />
+      <input type="number" name={nombre} defaultValue={valores[nombre]} min={min} className="w-28 rounded-lg border px-2 py-1" style={estiloInput} />
       {ayuda ? <span className="text-xs texto-tenue">{ayuda}</span> : null}
     </label>
   );
@@ -274,6 +284,15 @@ export function FormularioParametros({
         {campo("multiploEnvio", "Múltiplo de envío", "10 = decenas cerradas.")}
         {campo("minimoEnvio", "Mínimo por SKU", "")}
         {campo("diasCaducidadEnvio", "Días que cuenta un envío", "Después deja de contar como en camino.")}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {campo("pedidoMinimo", "Pedido a China: mínimo por SKU", "Si faltan menos unidades, no se pide (50).", 0)}
+        {campo("pedidoMultiplo", "Pedido a China: múltiplo", "Lo pedido sube al múltiplo cerrado (10).")}
+        <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+          <span className="font-medium">Pedido a China: múltiplo por diseño</span>
+          <input type="text" name="pedidoMultiplos" defaultValue={valores.pedidoMultiplos} placeholder="662=20, 714=50" className="w-full max-w-md rounded-lg border px-2 py-1" style={estiloInput} />
+          <span className="text-xs texto-tenue">Diseños que la fábrica hace en otro múltiplo (el 662 va de 20 en 20). Vacío = todos con el múltiplo general.</span>
+        </label>
       </div>
       <div>
         <button type="submit" disabled={ocupado} className="boton boton-primario">

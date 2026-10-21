@@ -120,6 +120,12 @@ export interface ParametrosYz {
   multiploEnvio: number;
   minimoEnvio: number;
   diasCaducidadEnvio: number;
+  /** Pedidos a China: un SKU solo se pide si le faltan al menos estas unidades. */
+  pedidoMinimo: number;
+  /** Pedidos a China: lo pedido se redondea hacia arriba a este múltiplo. */
+  pedidoMultiplo: number;
+  /** Pedidos a China: múltiplo por diseño cuando difiere del general ({ "662": 20 }). */
+  pedidoMultiplos: Record<string, number>;
 }
 
 export const PARAMETROS_POR_OMISION: ParametrosYz = {
@@ -133,12 +139,31 @@ export const PARAMETROS_POR_OMISION: ParametrosYz = {
   multiploEnvio: 10,
   minimoEnvio: 10,
   diasCaducidadEnvio: 10,
+  // A China solo se pide lo que de verdad hace falta: un SKU al que le
+  // faltan menos de 50 unidades no se pide, y lo que se pide va en números
+  // cerrados de 10 en 10 (el 662 de 20 en 20: «es 40 o 60, no 50»).
+  // Decisión del dueño, 21-oct-2026.
+  pedidoMinimo: 50,
+  pedidoMultiplo: 10,
+  pedidoMultiplos: { "662": 20 },
 };
+
+/** Los múltiplos por diseño tal como vienen de la base: solo enteros ≥ 1. */
+export function multiplosPorDiseno(crudo: unknown): Record<string, number> {
+  if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(crudo as Record<string, unknown>)) {
+    const n = Math.round(Number(v));
+    const clave = k.trim().toUpperCase();
+    if (clave && Number.isFinite(n) && n >= 1) out[clave] = n;
+  }
+  return out;
+}
 
 export async function leerParametros(db: DB, accountId: string): Promise<ParametrosYz> {
   const { data } = await db
     .from("yz_parametros")
-    .select("dias_venta, dias_objetivo, multiplo_envio, minimo_envio, dias_caducidad_envio")
+    .select("dias_venta, dias_objetivo, multiplo_envio, minimo_envio, dias_caducidad_envio, pedido_minimo, pedido_multiplo, pedido_multiplos")
     .eq("account_id", accountId)
     .maybeSingle();
 
@@ -150,6 +175,10 @@ export async function leerParametros(db: DB, accountId: string): Promise<Paramet
     minimoEnvio: data.minimo_envio ?? PARAMETROS_POR_OMISION.minimoEnvio,
     diasCaducidadEnvio:
       data.dias_caducidad_envio ?? PARAMETROS_POR_OMISION.diasCaducidadEnvio,
+    pedidoMinimo: data.pedido_minimo ?? PARAMETROS_POR_OMISION.pedidoMinimo,
+    pedidoMultiplo: data.pedido_multiplo ?? PARAMETROS_POR_OMISION.pedidoMultiplo,
+    pedidoMultiplos:
+      data.pedido_multiplos == null ? { ...PARAMETROS_POR_OMISION.pedidoMultiplos } : multiplosPorDiseno(data.pedido_multiplos),
   };
 }
 
@@ -169,4 +198,29 @@ export async function guardarDisenosElegidos(db: DB, accountId: string, disenos:
     .from("yz_parametros")
     .upsert({ account_id: accountId, pedidos_disenos: disenos, actualizado_en: new Date().toISOString() }, { onConflict: "account_id" });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Los múltiplos por diseño como los escribe el dueño en Configuración:
+ * «662=20, 714=50» (también «662:20» o uno por renglón). Vacío = ninguno.
+ */
+export function multiplosDeTexto(texto: string): { ok: true; valor: Record<string, number> } | { ok: false; malo: string } {
+  const valor: Record<string, number> = {};
+  for (const pedazo of texto.split(/[,;\n]+/)) {
+    const t = pedazo.trim();
+    if (!t) continue;
+    const m = /^([A-Za-z0-9-]+)\s*[=:]\s*(\d+)$/.exec(t);
+    const n = m ? Number(m[2]) : NaN;
+    if (!m || !Number.isFinite(n) || n < 1) return { ok: false, malo: t };
+    valor[m[1].toUpperCase()] = n;
+  }
+  return { ok: true, valor };
+}
+
+/** Lo inverso: para pintar el campo del formulario. */
+export function textoDeMultiplos(m: Record<string, number>): string {
+  return Object.entries(m)
+    .sort(([a], [b]) => a.localeCompare(b, "es", { numeric: true }))
+    .map(([d, n]) => `${d}=${n}`)
+    .join(", ");
 }
