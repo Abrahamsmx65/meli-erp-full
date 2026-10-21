@@ -9,6 +9,7 @@ import {
   type FaltantesSheet,
 } from "@/lib/servicios/pedidos-sheet";
 import { servirConCacheApp } from "@/lib/servicios/cache-app";
+import { ultimaRevisionConfirmacion } from "@/lib/servicios/confirmacion-pedidos";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido } from "@/components/cargar-pedido";
 import { CargarPedidosLote } from "@/components/cargar-pedidos-lote";
@@ -21,6 +22,12 @@ export const maxDuration = 60;
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
+}
+
+function fechaHora(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -41,7 +48,7 @@ export default async function CargarPedidos() {
   // descarga de Google en el clic: vive masticado en app_cache y, pasados
   // 10 minutos, se sirve lo guardado y se relee por atrás (la pestaña de
   // pendientes cambia unas veces al día). Solo sin renglón se lee en vivo.
-  const [pedidos, sheet] = await Promise.all([
+  const [pedidos, sheet, revision] = await Promise.all([
     listarPedidos(supabase, cuenta.id),
     servirConCacheApp(supabase, cuenta.id, "pedidos-sheet", 10 * 60_000, () => faltantesDelSheet(supabase, cuenta.id)).then(
       (r): { ok: true; datos: FaltantesSheet; generadoEn: string | null; refrescando: boolean } => ({
@@ -52,6 +59,7 @@ export default async function CargarPedidos() {
       }),
       (e: Error): { ok: false; error: string } => ({ ok: false, error: e.message }),
     ),
+    ultimaRevisionConfirmacion(supabase, cuenta.id).catch(() => null),
   ]);
 
   const vivos = pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado").length;
@@ -110,8 +118,12 @@ export default async function CargarPedidos() {
 
       {sheet.ok ? (
         <p className="texto-tenue -mt-2 text-xs">
-          Sheet de China leído <Frescura generadoEn={sheet.generadoEn} refrescando={sheet.refrescando} />. Se revisa solo
-          todos los días a las 8:00 y, si algo falta por confirmar, llega un correo.
+          Sheet de China leído <Frescura generadoEn={sheet.generadoEn} refrescando={sheet.refrescando} />.{" "}
+          {revision
+            ? revision.error
+              ? `La revisión automática de las 8:00 falló (${revision.error}).`
+              : `Última revisión automática: ${fechaHora(revision.revisadoEn)} (${revision.faltan.length} por confirmar, ${revision.confirmados.length} confirmados).`
+            : "La revisión automática corre todos los días a las 8:00."}
         </p>
       ) : null}
 
