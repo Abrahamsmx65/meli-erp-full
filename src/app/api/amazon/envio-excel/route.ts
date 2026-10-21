@@ -9,9 +9,11 @@ import {
   OBJETIVO_DIAS_FBA,
   URGENTE_DIAS_FBA,
   mapaCorridas,
+  etiquetaAjusteFba,
   sugerirEnvioFba,
 } from "@/lib/servicios/fba";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
+import { ventasRecientesFba } from "@/lib/servicios/plan-fba-cache";
 import { separarEnvios } from "@/lib/servicios/envios";
 import type { CajaGuardada } from "@/lib/servicios/cache";
 import { catalogoBodega } from "@/lib/servicios/inventario";
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones: renglonesCrudos }, corridasRaw, skusMeli, bodega, paramsBd, enCamino] = await Promise.all([
+  const [{ renglones: renglonesCrudos }, corridasRaw, skusMeli, bodega, paramsBd, enCamino, recientes] = await Promise.all([
     cargarAmazon(supabase, dias, "", SIN_LIMITE),
     cuentaMeli
       ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
@@ -78,12 +80,11 @@ export async function GET(request: NextRequest) {
       ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
       : Promise.resolve({ data: null }),
     enCaminoFba(supabase, cuenta.id),
+    ventasRecientesFba(supabase, cuenta.id),
   ]);
   // El mismo "en camino" real que la pantalla: los envíos atorados no cuentan.
   const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
   const indiceMeli = indexarCatalogo(skusMeli);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
-  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
 
   // Las cajas REALES de bodega, con el mismo motor que los envíos a Full.
   const planFba = planFbaConCajas({
@@ -92,7 +93,11 @@ export async function GET(request: NextRequest) {
     catalogo: bodega?.catalogo.cajas ?? [],
     indiceMeli,
     parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+    ventasRecientes: recientes.ventas ?? undefined,
   });
+  // «Por producto» dice lo mismo que el plan de cajas.
+  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli, planFba);
+  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
   // `?grupo=` limita el Excel a UN envío (una dirección de bodega:
   // Caseshop + Industher juntos, EnvioPack aparte), igual que en Full.
   const grupo = (request.nextUrl.searchParams.get("grupo") ?? "").trim();
@@ -284,12 +289,7 @@ export async function GET(request: NextRequest) {
       porCaja: s.paresPorCaja ?? "sin corrida",
       cajas: s.tieneCorrida ? s.cajas : "?",
       pares: s.pares,
-      ajuste:
-        s.ajusteCorrida === "mitad_corrida"
-          ? "resto al día: viaja la mitad de las cajas"
-          : s.ajusteCorrida === "solo_7_dias"
-            ? "corrida dispareja: solo 7 días"
-            : "",
+      ajuste: s.ajusteCorrida ? etiquetaAjusteFba(s.ajusteCorrida) : "",
     });
   }
 

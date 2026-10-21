@@ -1,5 +1,5 @@
 import type { SugerenciaFba } from "@/lib/servicios/fba";
-import { DIAS_CORRIDA_DISPAREJA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
+import { etiquetaAjusteFba, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -82,9 +82,7 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
                     ) : null}
                     {s.ajusteCorrida ? (
                       <div className="texto-2 text-[11px]">
-                        {s.ajusteCorrida === "mitad_corrida"
-                          ? "tallas agotadas con el resto al día: viaja la mitad de las cajas"
-                          : `corrida dispareja: solo ${DIAS_CORRIDA_DISPAREJA} días de las tallas agotadas`}
+                        {etiquetaAjusteFba(s.ajusteCorrida)}
                       </div>
                     ) : null}
                   </td>

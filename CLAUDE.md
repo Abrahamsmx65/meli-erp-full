@@ -135,6 +135,19 @@ guárdala numerada.
   se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
   pantalla enseña cada envío por bodega en su propia sección (Caseshop +
   Industher, EnvioPack) con el Excel de ese envío.
+  **Y la corrida por HERMANAS, el goteo y el COLCHÓN DE SUBIDA también**
+  (`planFbaConCajas`; dueño, 21-oct-2026: «FBA va a estar con las mismas
+  reglas que aquí»): `ajustarCorridaPorHermanas` en vez de la mitad / 7
+  días (que vuelve solo con `corridaHermanasMaxDias` = 0), con los 7 días de
+  FBA encima de cada número (hermanas 45 + 7, talla corta 15 + 7, colchón
+  45 + 7, tope del color 60 + 7) y a lo más 5 cajas del color por envío.
+  El colchón compara la venta de Amazon de los últimos 14 días
+  (`amazon_ventas_diarias`, `ventasRecientesFba`; sin ella el plan sale sin
+  colchón y lo dice) contra la del periodo, las dos crudas (Amazon no tiene
+  la venta corregida por agotamiento). La pestaña «Por producto»
+  (`sugerirEnvioFba(…, plan)`) ya no lleva su propia cuenta: enseña las
+  cajas del plan y la regla que tocó al color (`etiquetaAjusteFba`), igual
+  que el Excel. `VERSION_MOTOR` 2026-10-21.1.
   **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
   «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
   trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo
