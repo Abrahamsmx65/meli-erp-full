@@ -437,3 +437,70 @@ export async function confirmarRelampagosPendientes(
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
+
+export interface ConteoRelampagos {
+  publicaciones: number;
+  propuestas: number;
+  programadas: number;
+  conProgramada: number;
+  /** propuestas por día de inicio (México) */
+  porFecha: Record<string, number>;
+  /** propuestas que empiezan antes de que termine la programada: el API no las alcanza */
+  sePierden: { itemId: string; nombre: string; inicio: string; programadaHasta: string }[];
+  sinFecha: number;
+}
+
+/**
+ * Cuántas relámpago propuestas siguen sin confirmar (dueño, 21-oct-2026:
+ * «creo que no está funcionando, ¿cuántas tenemos con opción pendiente de
+ * confirmar?»). Solo lee: de cada publicación con relámpago, el listado de
+ * la promoción da las fechas de las propuestas y de la programada, y una
+ * propuesta que empieza antes de que termine la programada no la alcanza
+ * el cron (MELI deja una por el API).
+ */
+export async function contarRelampagosPendientes(admin: DB, cliente: MeliClient, accountId: string): Promise<ConteoRelampagos> {
+  const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
+    q.eq("account_id", accountId).not("precio_relampago", "is", null),
+  );
+  const revision = await revisarPrecios(admin, admin, cliente, accountId, normalizarModelos(filas.map((f) => f.modelo)), {}, { soloMeli: true });
+  const relampagos = revision.meli.filter((r) => r.tipo.toUpperCase() === "LIGHTNING");
+  const nombres = new Map(relampagos.map((r) => [r.itemId, r.nombre]));
+  const items = [...new Set(relampagos.map((r) => r.itemId))];
+  const dia = (x: string) => new Date(new Date(x).getTime() - 6 * 3600_000).toISOString().slice(0, 10);
+  const conteo: ConteoRelampagos = { publicaciones: items.length, propuestas: 0, programadas: 0, conProgramada: 0, porFecha: {}, sePierden: [], sinFecha: 0 };
+  await enLotes(items, 5, async (itemId) => {
+    const promo = relampagos.find((r) => r.itemId === itemId)?.promoId ?? "LGH-MLM1000";
+    let lista: { id?: string; status?: string; start_date?: string; finish_date?: string }[] = [];
+    try {
+      const r = await cliente.get<{ results?: typeof lista }>(
+        `/seller-promotions/promotions/${promo}/items`,
+        { app_version: "v2", promotion_type: "LIGHTNING", item_id: itemId, limit: 50 },
+        { reintentos: 1 },
+      );
+      lista = (r?.results ?? []).filter((x) => !x.id || x.id === itemId);
+    } catch {
+      const n = relampagos.filter((r) => r.itemId === itemId && r.estado.toLowerCase() === "candidate").length;
+      conteo.propuestas += n;
+      conteo.sinFecha += n;
+      return;
+    }
+    const programadas = lista.filter((x) => ["pending", "started", "active", "programmed"].includes((x.status ?? "").toLowerCase()));
+    const propuestas = lista.filter((x) => (x.status ?? "").toLowerCase() === "candidate");
+    conteo.programadas += programadas.length;
+    conteo.propuestas += propuestas.length;
+    if (programadas.length) conteo.conProgramada++;
+    const hasta = programadas.map((x) => x.finish_date ?? "").sort().pop() ?? "";
+    for (const p of propuestas) {
+      if (!p.start_date) {
+        conteo.sinFecha++;
+        continue;
+      }
+      const d = dia(p.start_date);
+      conteo.porFecha[d] = (conteo.porFecha[d] ?? 0) + 1;
+      if (hasta && p.start_date < hasta)
+        conteo.sePierden.push({ itemId, nombre: nombres.get(itemId) ?? "", inicio: p.start_date, programadaHasta: hasta });
+    }
+  });
+  conteo.porFecha = Object.fromEntries(Object.entries(conteo.porFecha).sort());
+  return conteo;
+}
