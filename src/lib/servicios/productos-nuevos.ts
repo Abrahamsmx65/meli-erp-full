@@ -296,6 +296,74 @@ function trozos<T>(arr: T[], n: number): T[][] {
   return out;
 }
 
+/**
+ * Las lecturas posibles de un SKU como modelo + pedazos de color. Además de la
+ * directa, la de los modelos con guion que MELI y Amazon parten mal
+ * («GT104-1-BLK-25-MX» es GT104 + «1-BLK»; el pedido dice GT104-1 + BLK;
+ * `numeroAlFrenteDelColor`). Hasta el 21-oct-2026 Lanzamientos no la probaba
+ * y los nueve colores del GT104 salían sin publicar.
+ */
+export function lecturasDeSku(sku: string): { modelo: string; color: string[] }[] {
+  if (!claveProductoDeSku(sku)) return [];
+  const tokens = claveComparacion(sku).split("-").filter(Boolean);
+  const esTalla = (t: string) => /^\d{1,2}(\.\d)?$/.test(t) && Number(t) >= 14 && Number(t) <= 50;
+  const color = tokens.filter((t, i) => i > 0 && !esTalla(t));
+  const salida = [{ modelo: tokens[0], color }];
+  if (color.length > 1 && /^\d{1,2}$/.test(color[0])) {
+    salida.push({ modelo: `${tokens[0]}-${color[0]}`, color: color.slice(1) });
+  }
+  return salida;
+}
+
+/**
+ * SKU → productos del pedido. Niveles: exacto, laxo (color sin anotación y
+ * sin repetidos; un SKU puede caer en varios productos laxos y se le da a
+ * todos, que son el mismo zapato), por CONTENCIÓN en las dos direcciones y
+ * dedazo de una letra. Puro, para probarse.
+ */
+export function buscadorDeProductos(productos: Map<string, ProductoNuevo>): (sku: string) => ProductoNuevo[] {
+  const porLaxa = new Map<string, ProductoNuevo[]>();
+  for (const p of productos.values()) {
+    const k = claveProductoLaxa(p.modelo, p.color);
+    porLaxa.set(k, [...(porLaxa.get(k) ?? []), p]);
+  }
+  const porModelo = new Map<string, { p: ProductoNuevo; tokens: string[] }[]>();
+  for (const p of productos.values()) {
+    const tokens = tokensColorLaxos(p.color);
+    if (!tokens.length) continue;
+    porModelo.set(p.modelo, [...(porModelo.get(p.modelo) ?? []), { p, tokens }]);
+  }
+  const deLectura = (modelo: string, crudo: string[]): ProductoNuevo[] => {
+    const exacto = productos.get(`${modelo}|${crudo.join("")}`);
+    if (exacto) return [exacto];
+    const color = tokensLaxos(crudo);
+    const laxos = porLaxa.get(`${modelo}|${color.join("")}`) ?? [];
+    if (laxos.length) return laxos;
+    const delModelo = porModelo.get(modelo) ?? [];
+    // La proforma del GT157 dice "BROWN" y la publicación "DK BROWN": UN
+    // solo producto del modelo cuyos pedazos caben todos en los del SKU.
+    const contenidos = delModelo.filter(({ tokens }) => tokens.every((t) => color.includes(t)));
+    if (contenidos.length === 1) return [contenidos[0].p];
+    // Al revés: la proforma del GT229 dice «BLK / GREY FUR» y MELI «BLK»
+    // (21-oct-2026). UN solo producto del modelo que contenga todo el color
+    // del SKU; con dos candidatos no se adivina.
+    if (color.length) {
+      const contienen = delModelo.filter(({ tokens }) => color.every((t) => tokens.includes(t)));
+      if (contienen.length === 1) return [contienen[0].p];
+    }
+    // Dedazo de una letra, solo si hay UN producto del modelo así de cerca.
+    const cerca = delModelo.filter(({ p }) => colorAUnaLetra(p.color, color));
+    return cerca.length === 1 ? [cerca[0].p] : [];
+  };
+  return (sku: string) => {
+    for (const l of lecturasDeSku(sku)) {
+      const r = deLectura(l.modelo, l.color);
+      if (r.length) return r;
+    }
+    return [];
+  };
+}
+
 export async function productosNuevos(db: DB, accountId: string): Promise<ResumenProductosNuevos> {
   const corte = new Date(Date.now() - DIAS_RECIBIDO_VISIBLE * 86_400_000).toISOString();
 
@@ -317,44 +385,12 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
 
   const alias = await cargarAliasColores(db, accountId);
   const productos = agruparProductosDePedidos(pedidos, lineasRaw, alias);
+  // Un renglón en cero no es producto que venga (IN10085 trae GT229 DK BROWN y
+  // TABACO BROWN con 0 cajas: salían en Lanzamientos sin nada que lanzar).
+  for (const [k, p] of productos) if (p.cajas <= 0 && p.pares <= 0) productos.delete(k);
   if (!productos.size) return { productos: [], amazonConectado: false };
 
-  // Dos niveles de amarre SKU → producto: exacto y, si no hay, laxo (color
-  // sin anotación y sin repetidos). Un SKU puede caer en varios productos
-  // laxos; se le da a todos, que para esto son el mismo zapato.
-  const porLaxa = new Map<string, ProductoNuevo[]>();
-  for (const p of productos.values()) {
-    const k = claveProductoLaxa(p.modelo, p.color);
-    porLaxa.set(k, [...(porLaxa.get(k) ?? []), p]);
-  }
-  // Tercer nivel, POR CONTENCIÓN: la proforma del GT157 dice "BROWN" y la
-  // publicación "DK BROWN". Si dentro del mismo modelo hay UN solo producto
-  // del pedido cuyos pedazos de color caben todos en los del SKU, es ese.
-  // Con dos candidatos (BROWN y DK BROWN los dos pedidos) no se adivina.
-  const porModelo = new Map<string, { p: ProductoNuevo; tokens: string[] }[]>();
-  for (const p of productos.values()) {
-    const tokens = tokensColorLaxos(p.color);
-    if (!tokens.length) continue;
-    porModelo.set(p.modelo, [...(porModelo.get(p.modelo) ?? []), { p, tokens }]);
-  }
-  const productosDeSku = (sku: string): ProductoNuevo[] => {
-    const estricta = claveProductoDeSku(sku);
-    if (!estricta) return [];
-    const exacto = productos.get(estricta);
-    if (exacto) return [exacto];
-    const laxa = claveProductoLaxaDeSku(sku);
-    const laxos = laxa ? (porLaxa.get(laxa) ?? []) : [];
-    if (laxos.length) return laxos;
-    const partes = partesLaxasDeSku(sku);
-    if (!partes) return [];
-    const contenidos = (porModelo.get(partes.modelo) ?? []).filter(({ tokens }) =>
-      tokens.every((t) => partes.color.includes(t)),
-    );
-    if (contenidos.length === 1) return [contenidos[0].p];
-    // Dedazo de una letra, solo si hay UN producto del modelo así de cerca.
-    const cerca = (porModelo.get(partes.modelo) ?? []).filter(({ p }) => colorAUnaLetra(p.color, partes.color));
-    return cerca.length === 1 ? [cerca[0].p] : [];
-  };
+  const productosDeSku = buscadorDeProductos(productos);
 
   // --- Publicaciones de MELI, por producto --------------------------------
   const skus = await traerTodo<{

@@ -472,6 +472,11 @@ guárdala numerada.
   «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
   esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
   ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
+  Lanzamientos también la prueba (`lecturasDeSku`, `buscadorDeProductos`;
+  21-oct-2026: los nueve colores del GT104 salían sin publicar) y amarra
+  por contención AL REVÉS: el pedido «GT229 BLK / GREY FUR» con el «GT229-BLK»
+  de MELI cuando es el ÚNICO color del modelo que lo contiene. Un renglón
+  del pedido en 0 cajas y 0 pares no sale en Lanzamientos.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el
