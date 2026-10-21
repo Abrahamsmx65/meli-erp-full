@@ -375,7 +375,12 @@ export function generarPlan(e: EntradaPlan): Plan {
         }
       }
       if (piezas <= 0 || total <= 0) continue;
-      const maxCajas = caben > 0 ? Math.ceil(caben / total) : 0;
+      const porTope = caben > 0 ? Math.ceil(caben / total) : 0;
+      // Y nunca más de `colchonMaxCajasEnvio` (5) cajas del color por envío:
+      // el colchón ve subidas de 2 a 3 veces que Daniel no persigue de un
+      // jalón (GT252, GT122, GT229 DK BROWN); lo demás va en los siguientes.
+      const porEnvio = p.colchonMaxCajasEnvio > 0 ? p.colchonMaxCajasEnvio : Infinity;
+      const maxCajas = Math.min(porTope, porEnvio);
       const tope = maxCajas * piezas;
       toleranciaPorSku.set(l.sku, 0);
       if (pedida <= tope) continue;
@@ -385,7 +390,10 @@ export function generarPlan(e: EntradaPlan): Plan {
       l.sugerido = tope;
       l.faltanteBodega = Math.max(0, tope - l.inventarioPropio);
       l.ajusteCorrida = "tope_color";
-      l.explicacion += ` El color va en subida pero no pasa de ${p.colchonTopeColorDias} días a su ritmo (${Math.round(ritmo * 10) / 10}/día): caben ${maxCajas} caja(s), así que viajan ${tope} de ${pedida} pzas.`;
+      l.explicacion +=
+        porEnvio < porTope
+          ? ` El color va en subida, pero con colchón viajan a lo más ${porEnvio} cajas del color por envío: ${tope} de ${pedida} pzas; lo demás en los siguientes envíos.`
+          : ` El color va en subida pero no pasa de ${p.colchonTopeColorDias} días a su ritmo (${Math.round(ritmo * 10) / 10}/día): caben ${maxCajas} caja(s), así que viajan ${tope} de ${pedida} pzas.`;
     }
   }
 

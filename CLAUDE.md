@@ -76,9 +76,13 @@ guárdala numerada.
   para que entraran GT205 NAVY 1.25× y GT229 DK BROWN 1.23×), se usa ese ritmo sin el tope de
   +50 % de la tendencia, el objetivo es de 45 días (`colchonObjetivoDias`)
   y la corrida se fuerza mientras el color completo no pase de 60 días a
-  ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va). Sin
-  la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4);
-  GT150 M BROWN ~25 (Daniel 20); GT266 LEOPARD 7–8 (Daniel 5).
+  ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va), y
+  nunca más de 5 cajas del color por envío (`colchonMaxCajasEnvio`; dueño,
+  mismo día: el colchón veía subidas de 2 a 3× en GT252, GT122 y GT229 DK
+  BROWN que Daniel no persiguió; se descartó topar por días, por % y por
+  cajas en bodega, y una «apuesta» a mano por modelo; GT150 M BROWN, donde
+  Daniel mandó 20 porque «sabe que se va a vender más», queda en 5). Sin
+  la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4).
   **Una variante con DOS nombres de SKU se une por `inventory_id`**
   (`datos/alias-inventario.ts`, en `cargarInsumos`): el sync diario de
   stock escribe a veces en el nombre APAGADO («GT134-BLK / BLK-25-MX») y las

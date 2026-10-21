@@ -128,6 +128,13 @@ const CAMPOS: {
     min: 1,
   },
   {
+    clave: "colchonMaxCajasEnvio",
+    etiqueta: "Colchón de subida: máximo de cajas por envío",
+    ayuda: "Con colchón, a lo más estas cajas de un mismo color en cada envío; lo demás va en los siguientes. 0 = sin máximo.",
+    corta: "0 = sin máximo.",
+    min: 0,
+  },
+  {
     clave: "cajasMinimasSinEstreno",
     etiqueta: "Cajas mínimas sin venta",
     ayuda:

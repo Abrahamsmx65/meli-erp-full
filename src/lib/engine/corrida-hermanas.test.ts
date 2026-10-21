@@ -261,4 +261,49 @@ describe("colchón de subida", () => {
     expect(plan.cajas.totalCajas).toBeLessThanOrEqual(Math.ceil(caben / 12));
     expect(plan.cajas.totalCajas).toBeGreaterThan(0);
   });
+
+  it("GT150 M BROWN: con colchón viajan a lo más 5 cajas del color por envío", () => {
+    const HOY = "2026-10-21";
+    const fechas = rangoFechas(sumarDias(HOY, -89), HOY);
+    const snapshots: SnapshotStock[] = [];
+    const ventas: VentaDiaria[] = [];
+    fechas.forEach((f, i) => {
+      for (const t of ["24", "25"]) {
+        snapshots.push({ sku: `GT150-MB-${t}`, fecha: f, disponible: 10 });
+        // Subida fuerte: 1 al día y las últimas dos semanas 6.
+        ventas.push({ sku: `GT150-MB-${t}`, fecha: f, unidades: i >= fechas.length - 15 ? 6 : 1 });
+      }
+    });
+    const plan = generarPlan({
+      skus: [{ sku: "GT150-MB-24" }, { sku: "GT150-MB-25" }],
+      stockActual: ["24", "25"].map((t) => ({
+        sku: `GT150-MB-${t}`,
+        disponible: 10,
+        enTransferencia: 0,
+        noDisponible: 0,
+        total: 10,
+      })),
+      ventas,
+      snapshots,
+      operaciones: [],
+      inventarioPropio: [],
+      cajas: [
+        {
+          codigo: "IN10079-GT150-M BROWN",
+          producto: "GT150-M BROWN",
+          cajasDisponibles: 200,
+          items: [
+            { sku: "GT150-MB-24", piezas: 7 },
+            { sku: "GT150-MB-25", piezas: 7 },
+          ],
+        },
+      ],
+      skusConVentaPrevia: new Set(["GT150-MB-24", "GT150-MB-25"]),
+      parametros: { diasHistoria: 90 },
+      hoy: HOY,
+    });
+    expect(plan.lineas[0].colchonSubida).toBeGreaterThanOrEqual(1.2);
+    expect(plan.cajas.totalCajas).toBe(5);
+    expect(plan.lineas.some((l) => l.explicacion.includes("por envío"))).toBe(true);
+  });
 });

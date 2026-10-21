@@ -170,6 +170,8 @@ export interface Parametros {
   colchonVentanaDias: number;
   colchonObjetivoDias: number;
   colchonTopeColorDias: number;
+  /** con colchón, máximo de cajas del color por envío (5). 0 = sin máximo */
+  colchonMaxCajasEnvio: number;
 }
 
 export type OrigenDia =

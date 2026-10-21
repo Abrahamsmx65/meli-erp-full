@@ -33,6 +33,7 @@ export const PARAMETROS_DEFAULT: Parametros = {
   colchonVentanaDias: 14,
   colchonObjetivoDias: 45,
   colchonTopeColorDias: 60,
+  colchonMaxCajasEnvio: 5,
 };
 
 export function normalizarParametros(p: Partial<Parametros> | null | undefined): Parametros {
@@ -64,6 +65,7 @@ export function normalizarParametros(p: Partial<Parametros> | null | undefined):
   out.colchonVentanaDias = Math.max(7, Math.round(out.colchonVentanaDias));
   out.colchonObjetivoDias = Math.max(1, out.colchonObjetivoDias);
   out.colchonTopeColorDias = Math.max(out.colchonObjetivoDias, out.colchonTopeColorDias);
+  out.colchonMaxCajasEnvio = Math.max(0, Math.round(out.colchonMaxCajasEnvio));
 
   return out;
 }
