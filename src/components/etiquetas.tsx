@@ -276,6 +276,9 @@ export function Etiquetas({
   const [lista, setLista] = useState<Etiqueta[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [resultados, setResultados] = useState<Resultado[]>([]);
+  // SKUs marcados en la lista desplegable: se juntan aunque se cambie la
+  // búsqueda y se agregan todos de un clic.
+  const [marcados, setMarcados] = useState<string[]>([]);
   const [pegado, setPegado] = useState("");
   const [tamano, setTamano] = useState<Tamano>("rollo2x1");
   const [tipoElegido, setTipo] = useState<TipoEtiqueta>("meli");
@@ -427,34 +430,85 @@ export function Etiquetas({
             />
 
             {resultados.length ? (
-              <ul
-                className="mt-2 max-h-56 overflow-auto rounded-lg border"
-                style={{ borderColor: "var(--borde)" }}
-              >
-                {resultados.map((r) => (
-                  <li key={r.sku}>
-                    <button
-                      onClick={() => {
-                        resolver([{ sku: r.sku, cantidad: 1 }]);
-                        setBusqueda("");
-                      }}
-                      className="w-full px-2 py-1.5 text-left text-sm hover:opacity-80"
-                    >
-                      <span className="font-medium">{r.sku}</span>
-                      <span className="texto-tenue">
-                        {r.codigoFull
-                          ? ` · ${r.codigoFull}`
-                          : r.fnsku
-                            ? ` · Amazon · FNSKU ${r.fnsku}`
-                            : " · sin código Full"}
-                      </span>
-                      <div className="truncate text-xs texto-2">
-                        {r.titulo}
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div className="mt-2 flex items-center gap-3 text-xs">
+                  <button
+                    onClick={() => {
+                      const skus = resultados.map((r) => r.sku);
+                      const todos = skus.every((k) => marcados.includes(k));
+                      setMarcados((m) =>
+                        todos
+                          ? m.filter((k) => !skus.includes(k))
+                          : [...m, ...skus.filter((k) => !m.includes(k))],
+                      );
+                    }}
+                    className="enlace"
+                  >
+                    {resultados.every((r) => marcados.includes(r.sku))
+                      ? "Quitar todos"
+                      : `Marcar los ${resultados.length}`}
+                  </button>
+                </div>
+                <ul
+                  className="mt-1 max-h-56 overflow-auto rounded-lg border"
+                  style={{ borderColor: "var(--borde)" }}
+                >
+                  {resultados.map((r) => {
+                    const marcado = marcados.includes(r.sku);
+                    return (
+                      <li key={r.sku}>
+                        <label className="flex w-full cursor-pointer items-start gap-2 px-2 py-1.5 text-left text-sm hover:opacity-80">
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={() =>
+                              setMarcados((m) =>
+                                marcado ? m.filter((k) => k !== r.sku) : [...m, r.sku],
+                              )
+                            }
+                            className="mt-1"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium">{r.sku}</span>
+                            <span className="texto-tenue">
+                              {r.codigoFull
+                                ? ` · ${r.codigoFull}`
+                                : r.fnsku
+                                  ? ` · Amazon · FNSKU ${r.fnsku}`
+                                  : " · sin código Full"}
+                            </span>
+                            <span className="block truncate text-xs texto-2">
+                              {r.titulo}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            ) : null}
+
+            {marcados.length ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => {
+                    resolver(marcados.map((sku) => ({ sku, cantidad: 1 })));
+                    setMarcados([]);
+                    setBusqueda("");
+                  }}
+                  disabled={cargando}
+                  className="boton boton-primario boton-chico"
+                >
+                  Agregar {marcados.length} {marcados.length === 1 ? "SKU" : "SKUs"}
+                </button>
+                <button
+                  onClick={() => setMarcados([])}
+                  className="boton boton-fantasma boton-chico"
+                >
+                  Desmarcar
+                </button>
+              </div>
             ) : null}
           </div>
 
