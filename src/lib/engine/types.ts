@@ -160,7 +160,7 @@ export interface Parametros {
   corridaFraccionTallaChica: number;
   /**
    * COLCHÓN DE SUBIDA (21-oct-2026): si el modelo + color vende en las
-   * últimas `colchonVentanaDias` (con stock) al menos este múltiplo de lo
+   * últimas `colchonVentanaDias` (con stock) al menos este múltiplo (1.2) de lo
    * que usa el plan, se usa ese ritmo (sin el tope de tendencia), el
    * objetivo pasa a `colchonObjetivoDias` y la corrida se fuerza mientras el
    * color no pase de `colchonTopeColorDias` (la caja que cruza el tope sí

@@ -71,8 +71,9 @@ guárdala numerada.
   una caja de una sola talla no tiene hermanas y no se recorta.
   **COLCHÓN DE SUBIDA** (`engine/colchon.ts`, mismo día; «Daniel manda un
   poco de más cuando va en tendencia de alta por la temporada»): si el
-  modelo + color vende en sus últimos 14 días con stock al menos 1.3× lo
-  que usa el plan (`colchonSubidaFactor`), se usa ese ritmo sin el tope de
+  modelo + color vende en sus últimos 14 días con stock al menos 1.2× lo
+  que usa el plan (`colchonSubidaFactor`; era 1.3 y se bajó el mismo día
+  para que entraran GT205 NAVY 1.25× y GT229 DK BROWN 1.23×), se usa ese ritmo sin el tope de
   +50 % de la tendencia, el objetivo es de 45 días (`colchonObjetivoDias`)
   y la corrida se fuerza mientras el color completo no pase de 60 días a
   ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va). Sin

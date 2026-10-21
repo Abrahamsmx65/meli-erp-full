@@ -29,7 +29,7 @@ export const PARAMETROS_DEFAULT: Parametros = {
   coberturaSinForzarDias: 15,
   corridaHermanasMaxDias: 45,
   corridaFraccionTallaChica: 0.1,
-  colchonSubidaFactor: 1.3,
+  colchonSubidaFactor: 1.2,
   colchonVentanaDias: 14,
   colchonObjetivoDias: 45,
   colchonTopeColorDias: 60,

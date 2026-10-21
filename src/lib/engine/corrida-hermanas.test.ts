@@ -253,7 +253,7 @@ describe("colchón de subida", () => {
       hoy: HOY,
     });
     const l = plan.lineas.find((x) => x.sku === "GT156-BLK-26")!;
-    expect(l.colchonSubida).toBeGreaterThanOrEqual(1.3);
+    expect(l.colchonSubida).toBeGreaterThanOrEqual(1.2);
     const ritmo = plan.lineas.reduce((a, x) => a + x.demanda.demandaDiaria, 0);
     const posicion = plan.lineas.reduce((a, x) => a + x.posicion, 0);
     const caben = 60 * ritmo - posicion;

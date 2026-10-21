@@ -8,7 +8,8 @@
  *    tallas en las últimas `colchonVentanaDias` (14, sin hoy, que va a
  *    medias), cada talla entre sus días CON stock, contra la venta diaria
  *    que el plan usa para esas mismas tallas.
- *  - Si eso es al menos `colchonSubidaFactor` (1.3) veces, el producto va
+ *  - Si eso es al menos `colchonSubidaFactor` (1.2 veces; era 1.3 y se bajó
+ *    el mismo día para que entraran GT205 NAVY y GT229 DK BROWN), el producto va
  *    en subida: el factor (SIN el tope de +50 % de la tendencia) multiplica
  *    la venta diaria de todas sus tallas.
  *
