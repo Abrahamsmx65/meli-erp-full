@@ -44,6 +44,7 @@ import {
   ultimaRelampago,
   esConflictoDeActividad,
   hastaCuandoBloquear,
+  type NivelProducto,
   type RelampagoDeProducto,
 } from "../tiktok/promociones";
 
@@ -171,6 +172,8 @@ export async function listarOfertas(admin: any, accountId: string, opciones: { f
 }
 
 export interface PedidoDeOferta {
+  /** por VARIANTE (lo de siempre) o por PRODUCTO, como las relámpagos a mano del Seller Center */
+  nivelProducto?: NivelProducto | null;
   /** la cíclica de la que nace esta ventana (queda en `tiktok_promociones.ciclico_id`) */
   ciclicoId?: number | null;
   titulo?: string | null;
@@ -227,8 +230,9 @@ export async function crearOferta(admin: any, accountId: string, pedido: PedidoD
     else modelos.push({ modelo, productId: p.productId, precio, skuIds: p.skuIds });
   }
   if (sinProducto.length) throw new Error(`Sin producto activo en TikTok: ${sinProducto.join(", ")}.`);
-  const lotes = lotesDeProductos(modelos, topes);
-  const cuerpo = cuerpoDeActividad(titulo, ventana);
+  const nivelProducto: NivelProducto = pedido.nivelProducto === "PRODUCT" ? "PRODUCT" : "VARIATION";
+  const lotes = lotesDeProductos(modelos, topes, nivelProducto);
+  const cuerpo = cuerpoDeActividad(titulo, ventana, nivelProducto);
 
   try {
     return await conCandado(admin, accountId, RECURSO_OFERTA, 180, async () => {
@@ -254,7 +258,7 @@ export async function crearOferta(admin: any, accountId: string, pedido: PedidoD
         .single();
       if (error || !fila) throw new Error(`No se pudo guardar la constancia: ${error?.message ?? "sin id"}`);
       const id = Number(fila.id);
-      const respuesta: Record<string, unknown> = { cuerpo, lotes: [] as unknown[] };
+      const respuesta: Record<string, unknown> = { cuerpo, nivelProducto, lotes: [] as unknown[] };
       const errores: string[] = [];
       const avisos: string[] = [];
       let activityId = "";
@@ -655,6 +659,8 @@ export async function quitarCiclica(admin: any, accountId: string, id: number): 
 export interface ResultadoProgramacion {
   revisadas: number;
   creadas: number;
+  /** cuántas se crearon por PRODUCTO porque por variante chocaron con otra actividad */
+  porProducto?: number;
   errores: string[];
   sinTiempo: boolean;
   /** actividades vacías (sin productos) que se desactivaron en TikTok para que no estorben */
@@ -853,6 +859,13 @@ async function programarCiclicasSinCandado(
             r = await crearOferta(admin, accountId, pedido(tituloDeCiclica(modelo, inicio), inicio), null);
           } else throw err;
         }
+        if (r.errores.length && esConflictoDeActividad(r.errores.join(" | "))) {
+          // Por variante chocó con otra actividad. Las relámpagos públicas que
+          // el dueño arma a mano son por PRODUCTO y conviven con las de
+          // creadoras, así que se prueba UNA vez a ese nivel antes de bloquear.
+          r = await crearOferta(admin, accountId, { ...pedido(`${titulo} · producto`, v.inicio), nivelProducto: "PRODUCT" }, null);
+          if (!r.errores.length) salida.porProducto = (salida.porProducto ?? 0) + 1;
+        }
         if (r.errores.length) {
           errorCrudo = r.errores.join(" | ");
           errorDeEsta = explicarErrorDeCiclica(modelo, errorCrudo);
@@ -875,6 +888,8 @@ async function programarCiclicasSinCandado(
       // termine la ajena más larga (o una hora si no se ve cuál) en vez de
       // crear y desactivar una actividad vacía cada minuto.
       const hasta = hastaCuandoBloquear(ajenas);
+      // Constancia cruda de con qué chocó, para afinar la lectura sin abrir nada a mano.
+      await anotarDiagnosticoDeConflicto(admin, accountId, modelo, errorCrudo, ajenas).catch(() => undefined);
       errorDeEsta = `${errorDeEsta} Se vuelve a intentar ${hasta.toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`;
       salida.errores.push(`${modelo}: ${errorDeEsta}`);
       await anotar(errorDeEsta, hasta.toISOString());
@@ -884,6 +899,36 @@ async function programarCiclicasSinCandado(
     await anotar(errorDeEsta);
   }
   return salida;
+}
+
+/**
+ * Cuando TikTok rechaza una cíclica por conflicto, guarda en la bitácora el
+ * DETALLE crudo de las actividades ajenas vivas del producto (hasta 3): es la
+ * única forma de ver si el API distingue una relámpago de creadores de una
+ * pública (21-oct-2026, dueño: «siempre vamos a tener relámpagos de
+ * creadores»).
+ */
+async function anotarDiagnosticoDeConflicto(admin: any, accountId: string, modelo: string, error: string | null, ajenas: RelampagoDeProducto[]) {
+  const cliente = await clienteDeCuenta(admin, accountId, 60_000);
+  const detalles: unknown[] = [];
+  if (cliente?.tienda.shopCipher) {
+    for (const a of ajenas.slice(0, 3)) {
+      try {
+        detalles.push({ activityId: a.activityId, titulo: a.titulo, detalle: await actividad(cliente, a.activityId) });
+      } catch (err) {
+        detalles.push({ activityId: a.activityId, titulo: a.titulo, error: (err as Error).message });
+      }
+    }
+  }
+  const ahora = new Date().toISOString();
+  await admin.from("tiktok_sync_log").insert({
+    account_id: accountId,
+    tarea: "diagnostico-promociones",
+    inicio: ahora,
+    fin: ahora,
+    estado: "ok",
+    detalle: { modelo, error, ajenas, detalles },
+  });
 }
 
 /** TikTok rechazó la HORA DE INICIO (muy cercana o en el pasado). */
