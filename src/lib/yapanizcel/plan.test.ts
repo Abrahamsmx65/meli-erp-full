@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bajarADecena, bloques, calcularPlan, subirADecena, ventana, type ParametrosPlan } from "./plan";
+import { bajarADecena, bloques, calcularPlan, subirADecena, ventaDiariaDeHistoria, ventana, type ParametrosPlan } from "./plan";
 
 const P: ParametrosPlan = { diasVenta: 30, diasObjetivo: 30, multiploEnvio: 10, minimoEnvio: 10 };
 const HOY = "2026-09-01";
@@ -322,5 +322,110 @@ describe("renglones equivalentes desde bloques agregados", () => {
     expect(b.ventaDiaria).toBeCloseTo(a.ventaDiaria, 6);
     expect(b.vendidas).toBeCloseTo(a.vendidas, 6);
     expect(b.tendencia).toBeCloseTo(a.tendencia!, 6);
+  });
+});
+
+describe("agotado con historia y estreno (21-oct-2026)", () => {
+  const base = { ventas: [], snapshots: [], enCamino: [], parametros: P, hasta: HOY };
+
+  it("un SKU sin venta ni stock en la ventana se repone con su venta de los 180 días anteriores", () => {
+    // 567-i11-purple: 58 vendidas hasta julio, 0 en Full, 10 en bodega. Sin
+    // historia pedía 0 para siempre.
+    const plan = calcularPlan({
+      ...base,
+      skus: ["567-i11-purple"],
+      stock: [{ sku: "567-i11-purple", disponible: 0, enTransferencia: 0 }],
+      bodega: [{ skuMeli: "567-i11-purple", unidades: 40 }],
+      historia: [{ sku: "567-i11-purple", unidades: 58, dias: 180, fotos: 180, conStock: 100 }],
+    });
+    const l = plan.lineas[0];
+    expect(l.ventaDeHistoria).toBe(true);
+    expect(l.ventaDiaria).toBeCloseTo(0.58, 2);
+    // 0.58 × 30 días = 17.4 → 20.
+    expect(l.mandar).toBe(20);
+    expect(l.motivo).toBe("historia");
+
+    // Con solo 10 en bodega sale lo que alcanza, y se dice.
+    const topado = calcularPlan({
+      ...base,
+      skus: ["567-i11-purple"],
+      stock: [],
+      bodega: [{ skuMeli: "567-i11-purple", unidades: 10 }],
+      historia: [{ sku: "567-i11-purple", unidades: 58, dias: 180, fotos: 180, conStock: 100 }],
+    });
+    expect(topado.lineas[0].mandar).toBe(10);
+    expect(topado.lineas[0].motivo).toBe("topado_por_bodega");
+    expect(topado.lineas[0].ventaDeHistoria).toBe(true);
+  });
+
+  it("la historia no se usa si el SKU sí vendió o sí tiene algo en Full o en camino", () => {
+    const plan = calcularPlan({
+      ...base,
+      skus: ["A", "B"],
+      ventas: [{ sku: "A", fecha: HOY, unidades: 1 }],
+      stock: [{ sku: "B", disponible: 5, enTransferencia: 0 }],
+      bodega: [{ skuMeli: "A", unidades: 100 }, { skuMeli: "B", unidades: 100 }],
+      historia: [{ sku: "A", unidades: 900, dias: 180, fotos: 0, conStock: 0 }, { sku: "B", unidades: 900, dias: 180, fotos: 0, conStock: 0 }],
+    });
+    for (const l of plan.lineas) expect(l.ventaDeHistoria).toBeUndefined();
+  });
+
+  it("un SKU que nunca ha vendido, sin nada en Full y con una decena en bodega, recibe UNA decena de prueba", () => {
+    // 567-i11-transparent: publicado en junio, 0 ventas en la vida, 49 en bodega.
+    const plan = calcularPlan({
+      ...base,
+      skus: ["567-i11-transparent"],
+      stock: [],
+      bodega: [{ skuMeli: "567-i11-transparent", unidades: 49 }],
+      historia: [],
+    });
+    const l = plan.lineas[0];
+    expect(l.mandar).toBe(10);
+    expect(l.falta).toBe(10);
+    expect(l.motivo).toBe("estreno");
+    expect(plan.unidades).toBe(10);
+  });
+
+  it("el estreno no se repite: con la decena en camino o en Full ya no es estreno", () => {
+    const plan = calcularPlan({
+      ...base,
+      skus: ["X", "Y"],
+      stock: [{ sku: "Y", disponible: 10, enTransferencia: 0 }],
+      bodega: [{ skuMeli: "X", unidades: 49 }, { skuMeli: "Y", unidades: 49 }],
+      enCamino: [{ skuMeli: "X", unidades: 10 }],
+      historia: [],
+    });
+    for (const l of plan.lineas) {
+      expect(l.mandar).toBe(0);
+      expect(l.motivo).toBe("sin_faltante");
+    }
+  });
+
+  it("sin una decena en bodega, cerrado en MELI o sin historia cargada, no hay estreno", () => {
+    const plan = calcularPlan({
+      ...base,
+      skus: ["POCO", "CERRADO"],
+      stock: [],
+      bodega: [{ skuMeli: "POCO", unidades: 7 }, { skuMeli: "CERRADO", unidades: 50 }],
+      historia: [],
+      cerrados: ["CERRADO"],
+    });
+    const por = new Map(plan.lineas.map((l) => [l.sku, l]));
+    expect(por.get("POCO")?.mandar).toBe(0);
+    expect(por.get("POCO")?.motivo).toBe("menos_de_una_decena");
+    expect(por.get("CERRADO")?.mandar).toBe(0);
+    expect(por.get("CERRADO")?.motivo).toBe("sin_faltante");
+
+    const sinHistoria = calcularPlan({ ...base, skus: ["NUEVO"], stock: [], bodega: [{ skuMeli: "NUEVO", unidades: 50 }] });
+    expect(sinHistoria.lineas[0].mandar).toBe(0);
+    expect(sinHistoria.lineas[0].motivo).toBe("sin_faltante");
+  });
+
+  it("la venta diaria de la historia va por días con stock, con calendario si faltan fotos y con piso", () => {
+    expect(ventaDiariaDeHistoria({ sku: "a", unidades: 58, dias: 180, fotos: 180, conStock: 100 })).toBeCloseTo(0.58, 2);
+    expect(ventaDiariaDeHistoria({ sku: "a", unidades: 36, dias: 180, fotos: 10, conStock: 5 })).toBeCloseTo(0.2, 2);
+    // 2 días con stock no disparan la cuenta: piso de 180 ÷ 3 = 60 días.
+    expect(ventaDiariaDeHistoria({ sku: "a", unidades: 60, dias: 180, fotos: 180, conStock: 2 })).toBe(1);
+    expect(ventaDiariaDeHistoria({ sku: "a", unidades: 0, dias: 180, fotos: 180, conStock: 100 })).toBe(0);
   });
 });

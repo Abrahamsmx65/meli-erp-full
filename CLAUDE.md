@@ -3038,6 +3038,23 @@ login, la base y el deploy.
   de la ventana (cada bloque ÷ sus días con stock; un bloque sin stock no
   cuenta como cero, se deja fuera), y la ventana termina AYER: hoy va a
   medias. Verificado con 601-iPad10 (pasó de 35 a 65 al día a media ventana).
+  **Lo AGOTADO con historia se repone y lo que NUNCA vendió se estrena**
+  (`HistoriaPrevia`, `ventaDiariaDeHistoria`, `DIAS_HISTORIA` 180, motivos
+  `historia` y `estreno`, `LineaPlan.ventaDeHistoria` en `yapanizcel/plan.ts`;
+  `cargarHistoriaPrevia` en `agregados.ts` con los mismos dos RPC de los
+  bloques sobre los 180 días ANTERIORES a la ventana; dueño, 21-oct-2026:
+  «no me pide mandar 567-i11-transparent pero no hay stock»): un SKU sin
+  venta en la ventana y con NADA en Full ni en camino no le dice nada a la
+  ventana, así que se decide con la historia: si vendió en esos 180 días, su
+  venta diaria sale de ahí (unidades ÷ días con stock, calendario sin fotos,
+  mismo piso) y se repone con eso (567-i11-purple: 58 vendidas hasta julio,
+  10 en bodega, 0 en Full, pedía 0 para siempre; ese día eran 123 SKU con
+  7,619 piezas en bodega); si NUNCA ha vendido y la bodega tiene al menos una
+  decena, va UNA decena de prueba (`minimoEnvio`), salvo publicación cerrada
+  en MELI (31 SKU ese día). No se repite: con la decena en camino o en Full ya
+  no es estreno y, si no vende, Full ya cubre el objetivo. La pantalla lo dice
+  en la columna de motivo y marca la venta diaria con «ᴴ». Sin historia
+  cargada el motor no aplica ninguna de las dos (las pruebas viejas siguen).
 - **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
   una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
   encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se
