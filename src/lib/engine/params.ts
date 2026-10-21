@@ -27,6 +27,12 @@ export const PARAMETROS_DEFAULT: Parametros = {
   holguraObjetivoDias: 2,
   cajasMinimasSinEstreno: 2,
   coberturaSinForzarDias: 15,
+  corridaHermanasMaxDias: 45,
+  corridaFraccionTallaChica: 0.1,
+  colchonSubidaFactor: 1.3,
+  colchonVentanaDias: 14,
+  colchonObjetivoDias: 45,
+  colchonTopeColorDias: 60,
 };
 
 export function normalizarParametros(p: Partial<Parametros> | null | undefined): Parametros {
@@ -52,6 +58,12 @@ export function normalizarParametros(p: Partial<Parametros> | null | undefined):
   out.holguraObjetivoDias = Math.max(0, out.holguraObjetivoDias);
   out.cajasMinimasSinEstreno = Math.max(0, Math.round(out.cajasMinimasSinEstreno));
   out.coberturaSinForzarDias = Math.max(0, out.coberturaSinForzarDias);
+  out.corridaHermanasMaxDias = Math.max(0, out.corridaHermanasMaxDias);
+  out.corridaFraccionTallaChica = Math.min(1, Math.max(0, out.corridaFraccionTallaChica));
+  out.colchonSubidaFactor = Math.max(0, out.colchonSubidaFactor);
+  out.colchonVentanaDias = Math.max(7, Math.round(out.colchonVentanaDias));
+  out.colchonObjetivoDias = Math.max(1, out.colchonObjetivoDias);
+  out.colchonTopeColorDias = Math.max(out.colchonObjetivoDias, out.colchonTopeColorDias);
 
   return out;
 }

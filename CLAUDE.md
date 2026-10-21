@@ -54,6 +54,36 @@ guárdala numerada.
   regla de la mitad / 7 días sigue igual. El rescate del optimizador
   obedece lo mismo (tolerancia infinita para esas tallas). Los productos
   NUEVOS quedan fuera: a ellos se les rellena la caja.
+  **En FULL, desde el 21-oct-2026, la corrida se decide por HERMANAS**
+  (`ajustarCorridaPorHermanas` en `engine/corrida.ts`; el dueño con Daniel,
+  revisando el envío MELI-121 de EnvioPack; lo de arriba —mitad, 7 días,
+  faltante grande— queda SOLO para FBA y para Full con
+  `corridaHermanasMaxDias` = 0): (1) si las cajas que pide la talla corta
+  para sus 30 días dejan a una hermana arriba de `corridaHermanasMaxDias`
+  (45), la talla solo se surte a 15 días (`coberturaSinForzarDias`) y se va
+  mandando en cada envío (GT135 DK BROWN: 2 cajas, no 14); (2) GOTEO de 1
+  caja por envío si la talla trae ≤ 10 % de la caja
+  (`corridaFraccionTallaChica`: 1 de 12, 2 de 24) o si sus hermanas ya
+  pasan todas de 45 días, y solo si le quedan menos de 15 días (GT194 BLK,
+  talla 23 de GT135 TABACO BROWN); (3) si las hermanas no pasan de 45, la
+  talla pide su objetivo completo. Se mide contra la mejor caja de la talla:
+  una caja de una sola talla no tiene hermanas y no se recorta.
+  **COLCHÓN DE SUBIDA** (`engine/colchon.ts`, mismo día; «Daniel manda un
+  poco de más cuando va en tendencia de alta por la temporada»): si el
+  modelo + color vende en sus últimos 14 días con stock al menos 1.3× lo
+  que usa el plan (`colchonSubidaFactor`), se usa ese ritmo sin el tope de
+  +50 % de la tendencia, el objetivo es de 45 días (`colchonObjetivoDias`)
+  y la corrida se fuerza mientras el color completo no pase de 60 días a
+  ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va). Sin
+  la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4);
+  GT150 M BROWN ~25 (Daniel 20); GT266 LEOPARD 7–8 (Daniel 5).
+  **Una variante con DOS nombres de SKU se une por `inventory_id`**
+  (`datos/alias-inventario.ts`, en `cargarInsumos`): el sync diario de
+  stock escribe a veces en el nombre APAGADO («GT134-BLK / BLK-25-MX») y las
+  ventas caen en el activo («GT134-BLK-BLK-25-MX»); el plan veía la talla
+  vendiendo sin stock y le inflaba la demanda (52 variantes, 1,324 pares el
+  21-oct-2026). Stock: gana la lectura más reciente; fotos: la de esa
+  fuente; ventas: se suman.
 - **Tres reglas de producto en el plan de Full** (decididas por el dueño el
   9-sep-2026 al revisar por qué EnvioPack aportaba pocas cajas; la
   preferencia Industher → Caseshop → EnvioPack de `prioridadAlmacen` se

@@ -230,3 +230,134 @@ export function ajustarNecesidadPorCorrida(e: {
 
   return ajustes;
 }
+
+/**
+ * Regla de la corrida de Full por HERMANAS (dueño con Daniel, 21-oct-2026,
+ * revisando el envío MELI-121 de EnvioPack). Reemplaza en Full a la mitad /
+ * 7 días / faltante grande de arriba, que sigue rigiendo el plan de FBA.
+ *
+ *  1. Si mandar las cajas que la talla corta pide para su objetivo de 30
+ *     días deja a alguna hermana de la caja ARRIBA de `hermanasMaxDias`
+ *     (45), la talla solo se surte a `objetivoCorto` (15) días: se va
+ *     mandando poco a poco en vez de sobre-surtir. GT135 DK BROWN: la 24
+ *     pedía 14 cajas y la 25 quedaba en 66 días; ahora viajan 2.
+ *  2. GOTEO de 1 caja por envío cuando la talla trae muy poco en la caja
+ *     (≤ `fraccionTallaChica`, 10 %: 1 par de 12, 2 de 24) o cuando sus
+ *     hermanas YA están todas arriba de 45 días: GT194 BLK (1 par de
+ *     talla 23 por caja) y la talla 23 de GT135 TABACO BROWN, que con 15
+ *     días pedía 14 cajas «de más por una talla». Solo si a la talla le
+ *     quedan menos de `objetivoCorto` días; si no, espera.
+ *  3. Si las hermanas no pasan de 45 días, la talla pide su objetivo
+ *     completo: la caja se justifica sola.
+ *
+ * Se mide contra la MEJOR caja que trae la talla (la que más pares le da):
+ * con una caja de una sola talla no hay hermanas y nada se recorta.
+ */
+export type ReglaHermanas = "quince_dias" | "goteo" | "cobertura_suficiente";
+
+export interface AjusteHermanas {
+  sku: string;
+  regla: ReglaHermanas;
+  necesidadOriginal: number;
+  necesidadAjustada: number;
+  /** días de la hermana más cargada si viajaran las cajas del objetivo completo */
+  peorHermanaDias: number;
+}
+
+export function ajustarCorridaPorHermanas(e: {
+  necesidad: Map<string, number>;
+  datos: Map<string, DatosSkuCorrida>;
+  cajas: Caja[];
+  hermanasMaxDias: number;
+  objetivoCorto: number;
+  fraccionTallaChica: number;
+  exentos?: Set<string>;
+}): AjusteHermanas[] {
+  const original = new Map(e.necesidad);
+  const cajasPorSku = new Map<string, Caja[]>();
+  for (const c of e.cajas) {
+    if (c.cajasDisponibles <= 0) continue;
+    for (const it of c.items) {
+      const l = cajasPorSku.get(it.sku);
+      if (l) l.push(c);
+      else cajasPorSku.set(it.sku, [c]);
+    }
+  }
+  const dias = (sku: string, extra: number): number => {
+    const d = e.datos.get(sku);
+    if (!d) return Infinity; // talla sin amarre: no hay venta comprobada
+    const pos = d.posicion + extra;
+    if (d.demandaDiaria > EPS) return pos / d.demandaDiaria;
+    return pos > 0 ? Infinity : 0; // parada sin venta / vacía sin venta
+  };
+
+  const ajustes: AjusteHermanas[] = [];
+  for (const [sku, pedida] of original) {
+    if (pedida <= 0 || e.exentos?.has(sku)) continue;
+    const propias = cajasPorSku.get(sku);
+    if (!propias?.length) continue;
+
+    // La mejor caja: la que más pares le da a esta talla.
+    let caja = propias[0];
+    let piezas = 0;
+    for (const c of propias) {
+      const p = c.items.find((it) => it.sku === sku)?.piezas ?? 0;
+      if (p > piezas) {
+        caja = c;
+        piezas = p;
+      }
+    }
+    if (piezas <= 0) continue;
+    const hermanas = caja.items.filter((it) => it.sku !== sku);
+    if (!hermanas.length) continue; // caja de una sola talla
+
+    const total = caja.items.reduce((a, it) => a + it.piezas, 0);
+    const d = e.datos.get(sku);
+    const D = d?.demandaDiaria ?? 0;
+    const pos = d?.posicion ?? 0;
+    const cobertura = D > EPS ? pos / D : Infinity;
+
+    const nCompleto = Math.min(Math.ceil(pedida / piezas), caja.cajasDisponibles);
+    let peor = 0;
+    let todasCargadas = true;
+    for (const h of hermanas) {
+      peor = Math.max(peor, dias(h.sku, nCompleto * h.piezas));
+      const hoy = dias(h.sku, 0);
+      // Una hermana vacía y sin venta no cuenta para «ya cargadas».
+      if (hoy <= e.hermanasMaxDias && !(hoy === 0 && (e.datos.get(h.sku)?.posicion ?? 0) <= 0)) {
+        todasCargadas = false;
+      }
+    }
+
+    const chica = total > 0 && piezas / total <= e.fraccionTallaChica + EPS;
+    let regla: ReglaHermanas;
+    let ajustada: number;
+    if (chica || todasCargadas) {
+      if (cobertura >= e.objetivoCorto) {
+        regla = "cobertura_suficiente";
+        ajustada = 0;
+      } else {
+        regla = "goteo";
+        ajustada = Math.min(pedida, piezas);
+      }
+    } else if (peor > e.hermanasMaxDias) {
+      ajustada = Math.min(pedida, Math.max(0, Math.ceil(e.objetivoCorto * D - pos)));
+      regla = ajustada > 0 ? "quince_dias" : "cobertura_suficiente";
+    } else {
+      continue;
+    }
+    // El goteo se anota aunque no recorte: su caja va FIRME (tolerancia 0),
+    // si no la tolerancia de rescate de 7 días se la comería.
+    if (ajustada >= pedida && regla !== "goteo") continue;
+    if (ajustada > 0) e.necesidad.set(sku, ajustada);
+    else e.necesidad.delete(sku);
+    ajustes.push({
+      sku,
+      regla,
+      necesidadOriginal: pedida,
+      necesidadAjustada: ajustada,
+      peorHermanaDias: peor,
+    });
+  }
+  return ajustes;
+}

@@ -98,6 +98,36 @@ const CAMPOS: {
     min: 0,
   },
   {
+    clave: "corridaHermanasMaxDias",
+    etiqueta: "Tope de las tallas hermanas (días)",
+    ayuda:
+      "Si las cajas que pide una talla corta dejan a una hermana arriba de estos días, esa talla solo se surte a la cobertura para no forzar caja (15). 0 = regla vieja (mitad / 7 días).",
+    corta: "0 = regla vieja.",
+    min: 0,
+  },
+  {
+    clave: "colchonSubidaFactor",
+    etiqueta: "Colchón de subida: se activa desde (×)",
+    ayuda:
+      "Si el modelo + color vende en sus últimas 2 semanas con stock al menos este múltiplo de lo que usa el plan, se usa ese ritmo y el objetivo sube. 0 = apagado.",
+    corta: "0 = apagado.",
+    paso: 0.05,
+    min: 0,
+  },
+  {
+    clave: "colchonObjetivoDias",
+    etiqueta: "Colchón de subida: objetivo (días)",
+    ayuda: "Días que se surten de un color que va en subida, en vez de 30.",
+    min: 1,
+  },
+  {
+    clave: "colchonTopeColorDias",
+    etiqueta: "Colchón de subida: tope del color (días)",
+    ayuda:
+      "La corrida de un color en subida se fuerza mientras el color completo no pase de estos días a su ritmo. La caja que cruza el tope sí va.",
+    min: 1,
+  },
+  {
     clave: "cajasMinimasSinEstreno",
     etiqueta: "Cajas mínimas sin venta",
     ayuda:
