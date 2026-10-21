@@ -659,8 +659,6 @@ export async function quitarCiclica(admin: any, accountId: string, id: number): 
 export interface ResultadoProgramacion {
   revisadas: number;
   creadas: number;
-  /** cuántas se crearon por PRODUCTO porque por variante chocaron con otra actividad */
-  porProducto?: number;
   errores: string[];
   sinTiempo: boolean;
   /** actividades vacías (sin productos) que se desactivaron en TikTok para que no estorben */
@@ -859,13 +857,9 @@ async function programarCiclicasSinCandado(
             r = await crearOferta(admin, accountId, pedido(tituloDeCiclica(modelo, inicio), inicio), null);
           } else throw err;
         }
-        if (r.errores.length && esConflictoDeActividad(r.errores.join(" | "))) {
-          // Por variante chocó con otra actividad. Las relámpagos públicas que
-          // el dueño arma a mano son por PRODUCTO y conviven con las de
-          // creadoras, así que se prueba UNA vez a ese nivel antes de bloquear.
-          r = await crearOferta(admin, accountId, { ...pedido(`${titulo} · producto`, v.inicio), nivelProducto: "PRODUCT" }, null);
-          if (!r.errores.length) salida.porProducto = (salida.porProducto ?? 0) + 1;
-        }
+        // Probado el 21-oct-2026: cuando choca por variante, por PRODUCTO
+        // también choca (17029022 las dos veces). No se reintenta: cada
+        // intento deja una actividad vacía en TikTok.
         if (r.errores.length) {
           errorCrudo = r.errores.join(" | ");
           errorDeEsta = explicarErrorDeCiclica(modelo, errorCrudo);

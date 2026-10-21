@@ -1793,6 +1793,16 @@ guárdala numerada.
   pública; se reintenta …») y la revisión barata la salta hasta entonces;
   la actividad vacía la desactiva `limpiarVentanasVacias` como siempre. Las
   ajenas se siguen enseñando como «creada a mano» y sugieren el precio.
+  **Probado en vivo ese día, dos veces (14:37 y 14:58 México)**: TikTok
+  rechazó la cíclica del GT148 con 17029022 por variante Y por producto
+  (`NivelProducto` «PRODUCT» queda en el motor, probado, sin uso), y el
+  detalle crudo de la de creadoras (bitácora `diagnostico-promociones`)
+  es una FLASHSALE `duration_type NORMAL`, `product_level PRODUCT`, sin
+  ninguna marca de creador: el API no la distingue y SÍ la cuenta como
+  conflicto. El Seller Center sí deja encimar una pública sobre la de
+  creadoras («gt148 16 a 19 oct» corrió sobre SAHORY), pero por API no hay
+  camino: mientras un modelo tenga una relámpago de creadores viva, su
+  cíclica queda bloqueada hasta que termine y la pantalla lo dice.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
