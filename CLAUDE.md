@@ -486,6 +486,19 @@ guárdala numerada.
   a cada uno le falta por contenedores. Un pedido que la bodega no conoce
   cuenta completo, como antes; uno que ya llegó completo (aunque siga
   abierto) no suma nada.
+- **Una caja que la bodega capturó con el SKU REVUELTO cuenta igual**
+  (`rescatarFilaMalCapturada` en `importar/cajas.ts`, puro con pruebas; se
+  aplica al leer el API de Industher, en `construirCajas` y en la pantalla
+  de Corridas; dueño, 21-oct-2026: «en cualquier manera lo capte para tomar
+  en cuenta como inventario»): Industher dio de alta 24 cajas de GT114 BLK
+  del IN10057 como «IN10057-24-GT114-BLK» (modelo «IN10057», color
+  «24-GT114-BLK», sin talla, 1 par por caja) y no contaban. Si el modelo
+  es un PEDIDO (IN/AR/RT/S###) pasa a pedido y el color se parte en
+  «talla-modelo-color» o «modelo-color»; si el color empieza con una talla
+  («24-BLK») y la caja no trae talla, la talla sale del color. Un renglón
+  normal no se toca. Y una caja de una talla con 0 o 1 «pares por caja»
+  toma los pares de su corrida con la talla pegada al color (IN10057 ·
+  GT114 · BLK-24 · {24: 24}).
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
@@ -3179,6 +3192,18 @@ login, la base y el deploy.
   guardado, lo guardado sobre el navegador, cada cambio se guarda medio
   segundo después del último clic y la elección NUNCA se recorta contra el
   catálogo: un diseño que el resumen no trae sigue elegido y reaparece.
+  **A China se pide SOLO lo que falta de verdad, en números cerrados**
+  (`redondearPedido`, `multiploDeDiseno` en `yapanizcel/compras.ts`, puros con
+  pruebas; `yz_parametros.pedido_minimo` 50, `pedido_multiplo` 10 y
+  `pedido_multiplos` por diseño `{"662": 20}`, migración 0151; campos en
+  Configuración de fundas; dueño, 21-oct-2026: «solamente modelos que
+  necesitan mínimo 50 unidades y todo con números cerrados redondeando hacia
+  arriba en 10 y 10; de la fábrica 662 es 40 o 60, no 50»): por SKU, la
+  FALTA = objetivo de 120 días − posición (`VarianteCompra.necesidad`); si
+  es menor al mínimo no se pide nada (la pantalla la enseña en gris entre
+  paréntesis y el Excel en «Falta»), y si llega, se sube al múltiplo cerrado
+  del diseño (el 662 de 20 en 20: una falta de 50 se pide como 60). Los
+  totales por diseño y el Excel suman lo ya redondeado.
   **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
   (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
   diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`

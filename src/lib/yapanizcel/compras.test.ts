@@ -3,6 +3,8 @@ import { leerCacheYzGuardado } from "./cache";
 import {
   derivadasDeCompras,
   detalleDesdeCompras,
+  multiploDeDiseno,
+  redondearPedido,
   obtenerCompras,
   obtenerDetalleCompras,
   obtenerResumenCompras,
@@ -124,5 +126,40 @@ describe("derivadasDeCompras", () => {
   it("guarda el resumen y un renglón por diseño vivo, nada más", () => {
     const filas = derivadasDeCompras(compras);
     expect(filas.map((f) => f.clave)).toEqual(["compras:resumen", "compras:d:499"]);
+  });
+});
+
+describe("redondearPedido: mínimo de 50 y múltiplos cerrados hacia arriba", () => {
+  const general = { minimo: 50, multiplo: 10 };
+  it.each([
+    [0, 0],
+    [-5, 0],
+    [49, 0],
+    [50, 50],
+    [51, 60],
+    [123, 130],
+    [200, 200],
+  ])("falta %i → pide %i", (necesidad, esperado) => {
+    expect(redondearPedido(necesidad, general)).toBe(esperado);
+  });
+
+  it("el 662 va de 20 en 20: una falta de 50 se pide como 60, no 50", () => {
+    const del662 = { minimo: 50, multiplo: 20 };
+    expect(redondearPedido(50, del662)).toBe(60);
+    expect(redondearPedido(61, del662)).toBe(80);
+    expect(redondearPedido(40, del662)).toBe(0);
+  });
+
+  it("un múltiplo inválido no rompe: cuenta como 1", () => {
+    expect(redondearPedido(57, { minimo: 50, multiplo: 0 })).toBe(57);
+  });
+});
+
+describe("multiploDeDiseno", () => {
+  const p = { pedidoMultiplo: 10, pedidoMultiplos: { "662": 20 } };
+  it("usa el del diseño cuando la fábrica lo hace distinto y el general para los demás", () => {
+    expect(multiploDeDiseno("662", p)).toBe(20);
+    expect(multiploDeDiseno(" 662 ", p)).toBe(20);
+    expect(multiploDeDiseno("499", p)).toBe(10);
   });
 });
