@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
+import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -140,5 +140,20 @@ describe("aporte de MELI y el envío arriba de $299", () => {
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 298.99 }, { ...obj, normal: 298.99 }).accion).toBe("inscribir");
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 220, meli_percentage: 3 }, { ...obj, normal: 199.99 }).accion).toBe("inscribir");
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 700, meli_percentage: 5 }, obj).accion).toBe("inscribir");
+  });
+});
+
+describe("minimoCreible", () => {
+  it("toma el mínimo de MELI arriba del nuestro y lo sube al .99", () => {
+    expect(minimoCreible({ min_discounted_price: 312.37 }, 298.99)).toBe(312.99);
+  });
+  it("sin mínimo útil cae al sugerido", () => {
+    expect(minimoCreible({ min_discounted_price: 250, suggested_discounted_price: 330 }, 298.99)).toBe(330.99);
+  });
+  it("no se pasa del máximo por el .99", () => {
+    expect(minimoCreible({ min_discounted_price: 312.37, max_discounted_price: 312.5 }, 298.99)).toBe(312.37);
+  });
+  it("sin precio arriba del nuestro no dice nada", () => {
+    expect(minimoCreible({ min_discounted_price: 200 }, 298.99)).toBeNull();
   });
 });

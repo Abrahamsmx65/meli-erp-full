@@ -133,6 +133,8 @@ export interface RenglonPromo {
   nuevo: number | null;
   minimo: number | null;
   maximo: number | null;
+  /** el precio que MELI sugiere para la promoción */
+  sugerido: number | null;
   /**
    * El precio nuevo queda fuera del min–max que MELI mandó. Solo AVISA: el
    * 14-oct-2026 el dueño vio «fuera del rango» en Buen Fin 26 con un precio
@@ -193,6 +195,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     nuevo,
     minimo,
     maximo,
+    sugerido: p.suggested_discounted_price ?? null,
     aporte: aporteMeli(p) || null,
     fueraDeRango:
       nuevo != null && ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)),
@@ -306,4 +309,25 @@ export function ofertaAmazon(actual: Oferta[] | undefined, marketplaceId: string
   const maximo = valorDe(nueva.maximum_seller_allowed_price);
   if (maximo != null && maximo < precio) delete nueva.maximum_seller_allowed_price;
   return [...otras, nueva];
+}
+
+/**
+ * El precio MÁS BAJO que MELI acepta en una promoción que rechazó el nuestro
+ * por «no creíble» (dueño, 22-oct-2026: «ponme el precio que pide como mínimo
+ * MELI y poder aceptarlas»): su `min_discounted_price` y, si no lo manda o no
+ * pasa del nuestro, el sugerido. Se sube al .99 mientras no se pase del
+ * máximo. Null = MELI no dijo un precio arriba del nuestro.
+ */
+export function minimoCreible(
+  p: { min_discounted_price?: number | null; suggested_discounted_price?: number | null; max_discounted_price?: number | null },
+  queriamos: number,
+): number | null {
+  const candidatos = [p.min_discounted_price, p.suggested_discounted_price].filter(
+    (x): x is number => typeof x === "number" && Number.isFinite(x) && x > queriamos,
+  );
+  if (!candidatos.length) return null;
+  const base = Math.min(...candidatos);
+  const r = redondear99(base) as number;
+  const max = p.max_discounted_price;
+  return max != null && max > 0 && r > max ? Math.round(base * 100) / 100 : r;
 }

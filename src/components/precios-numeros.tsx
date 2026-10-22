@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promociones";
 import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/lib/precios/promociones";
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 import { confirmar } from "@/components/ui/confirmar";
-import { ResultadoRelampagos, pedirConfirmarBuenFin, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
+import { ResultadoBuenFin, ResultadoRelampagos, leerUltimoBuenFin, pedirConfirmarBuenFin, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -62,12 +62,25 @@ export function PreciosNumeros() {
   };
 
   const [buenFin, setBuenFin] = useState<ConfirmacionRelampagos | null>(null);
+  const [finBuenFin, setFinBuenFin] = useState<string | undefined>(undefined);
+  // La última corrida de Buen Fin (del cron o a mano) con sus rechazos por precio.
+  useEffect(() => {
+    void leerUltimoBuenFin().then((u) => {
+      if (u && !u.error) {
+        setBuenFin((b) => b ?? u.r);
+        setFinBuenFin((f) => f ?? u.fin);
+      }
+    });
+  }, []);
   const confirmarBuenFin = async () => {
     setError(null);
     try {
       setCargando("buen-fin");
       const r = await pedirConfirmarBuenFin();
-      if (r) setBuenFin(r);
+      if (r) {
+        setBuenFin(r);
+        setFinBuenFin(new Date().toISOString());
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -226,7 +239,7 @@ export function PreciosNumeros() {
       </form>
 
       {relampagos ? <ResultadoRelampagos r={relampagos} /> : null}
-      {buenFin ? <ResultadoRelampagos r={buenFin} que="de Buen Fin activadas o corregidas" /> : null}
+      {buenFin ? <ResultadoBuenFin key={finBuenFin} r={buenFin} fin={finBuenFin} /> : null}
 
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
       {revision?.avisos.map((a, i) => (
