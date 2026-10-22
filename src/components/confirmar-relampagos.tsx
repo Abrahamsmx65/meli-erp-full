@@ -101,7 +101,20 @@ export async function pedirConfirmarBuenFin(): Promise<ConfirmacionRelampagos | 
   const r = await fetch("/api/finanzas/numeros/buen-fin", { method: "POST" });
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error(j?.error ?? "No se pudo activar Buen Fin.");
-  return j as ConfirmacionRelampagos;
+  const iniciado = String(j?.iniciado ?? new Date().toISOString());
+  // Trabaja por atrás: se pregunta por la bitácora hasta que aparezca esta corrida.
+  const limite = Date.now() + 20 * 60_000;
+  while (Date.now() < limite) {
+    await new Promise((listo) => setTimeout(listo, 10_000));
+    const u = await fetch("/api/finanzas/numeros/buen-fin").catch(() => null);
+    const ultima = u?.ok ? await u.json().catch(() => null) : null;
+    if (ultima?.fin && Date.parse(ultima.fin) >= Date.parse(iniciado)) {
+      const d = ultima.detalle ?? {};
+      if (d.error) throw new Error(d.error);
+      return { modelos: d.modelos ?? 0, inscritas: d.inscritas ?? [], fallidas: d.fallidas ?? [], omitidas: d.omitidas ?? [], avisos: d.avisos ?? [] };
+    }
+  }
+  throw new Error("Sigue trabajando por atrás; vuelve a abrir Números en unos minutos para ver el resultado.");
 }
 
 /** Botón «Confirmar Buen Fin» con su resultado (Ofertas MELI y Números). */
