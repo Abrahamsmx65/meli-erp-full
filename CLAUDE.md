@@ -231,12 +231,14 @@ guárdala numerada.
   (`skuMeliDeCaja`; IN10079-GT221-LT BROWN, IN10079-GT221-BLK; con talla si
   la caja es unitalla), amarrado con `amarreDeLineas` (amarres a mano
   incluidos; `conSkusMeli` en `contenedor-datos.ts`); sin variante en MELI
-  lleva el color del pedido y se avisa. Barcode = PEDIDO-MODELO-COLOR(-TALLA)
-  con el color del PEDIDO (BLACK) y cada espacio convertido en GUION
-  (`codigoDeCaja`; IN10079-GT221-LT-BROWN): la almacenadora no acepta
-  espacios, aunque la caja de origen venga con ellos. PRODUCTOS no repite
-  lo que ya viajó en un contenedor ANTERIOR con el mismo barcode (embarque
-  de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
+  lleva el color del pedido y se avisa. Barcode = ESE MISMO SKU de MELI con
+  cada espacio convertido en GUION (`barcodeDeSku`; IN10079-GT221-LT-BROWN):
+  la almacenadora no acepta espacios. Hasta el 22-oct-2026 llevaba el color
+  de la PROFORMA y salía «IN10164-GT297-BLK-WITH-RED» o
+  «IN10147-GT170-LT.BROWN» contra el SKU de MELI (dueño: «no debe ser
+  diferente a eso»). PRODUCTOS no repite lo que ya viajó en un contenedor
+  ANTERIOR (misma caja por pedido + modelo + color + talla, `codigoDeCaja`;
+  embarque de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
   costo por par × pares (`FACTOR_VALOR_REPOSICION`); Atributos = pares por caja; Paquete 1 = medidas del packing list
   de la fábrica en el orden de «Means» (las que faltan salen de otro
   contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
@@ -3036,10 +3038,14 @@ guárdala numerada.
   IN10128_GT125.zip (carpeta `PEDIDO (MODELO)`, un "…, 2 LABEL.pdf" por
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
   AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras: una
-  etiqueta por color para las cajas de corrida y UNA POR TALLA
-  (`PEDIDO-MODELO-COLOR-TALLA`, `etiquetas/carton.ts`) para las cajas de una
-  sola talla, como el IN10172 de GT148 con 48 pares de la misma talla por
-  caja; pedido del dueño el 22-sep-2026).
+  etiqueta por color para las cajas de corrida y UNA POR TALLA para las
+  cajas de una sola talla, como el IN10172 de GT148 con 48 pares de la misma
+  talla por caja; pedido del dueño el 22-sep-2026). **El texto del BOX LABEL
+  es el SKU de MELI de la caja con guiones** (`barcodeDeSku(skuMeliDeCaja(…))`
+  en `etiquetas-pedido.ts`), EL MISMO barcode de «Bodega: productos» (dueño,
+  22-oct-2026: «tiene que coincidir 100 % con las etiquetas que se crearon
+  cuando se hizo el pedido»): hasta ese día llevaba el color de la proforma
+  sin espacios («IN10164-GT297-BLKWITHRED»).
 
 ## Regla de arquitectura: datos ya masticados, decidida por el dueño
 

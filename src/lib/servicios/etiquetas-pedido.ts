@@ -16,7 +16,8 @@ import {
 } from "../etiquetas/resolver";
 import { varianteMeli } from "../etiquetas/zpl";
 import { generarPdf2Etiquetas, generarPdfCarton } from "../etiquetas/pdf";
-import { ordenarTallas, textosDeCarton } from "../etiquetas/carton";
+import { ordenarTallas } from "../etiquetas/carton";
+import { barcodeDeSku, skuMeliDeCaja } from "./bodega-contenedor";
 import { cargarAliasColores, colorEfectivo } from "./alias-color";
 
 /** Sin espacios y en mayúsculas: "blk/brown " → "BLK/BROWN". */
@@ -103,17 +104,32 @@ export async function zipEtiquetasDePedido(
     hoja.getColumn(3).width = 14;
 
     // Etiquetas del cartón: una por color para las cajas de corrida y una
-    // por color + talla para las cajas de una sola talla.
-    const cartones = new Map<string, { color: string; tallas: Set<string>; corrida: boolean }>();
+    // por color + talla para las cajas de una sola talla. El texto es el SKU
+    // de MELI de la caja con guiones (`barcodeDeSku`), EL MISMO que el
+    // barcode del archivo de la bodega (dueño, 22-oct-2026: «tiene que
+    // coincidir 100 %»); antes llevaba el color de la proforma sin espacios
+    // («IN10164-GT297-BLKWITHRED» contra «GT297-BLK-RED» de MELI).
+    const cartones = new Map<string, { corrida: string | null; tallas: Map<string, string> }>();
     // Un color puede venir en varios renglones (la corrida + sus cajas de
     // una sola talla): cada etiqueta de par va UNA vez.
     const tallasHechas = new Set<string>();
 
     for (const l of lineasModelo) {
       const color = pegado(sinAnotacion(l.color ?? ""));
-      const carton = cartones.get(color) ?? { color, tallas: new Set<string>(), corrida: false };
-      if (l.talla) carton.tallas.add(String(l.talla));
-      else carton.corrida = true;
+      const carton = cartones.get(color) ?? { corrida: null, tallas: new Map<string, string>() };
+      const colorMeli = colorEfectivo(aliasColores, l.modelo, l.color ?? "");
+      if (l.talla) {
+        const t = String(l.talla);
+        const sku = buscarVariante(indice, l.modelo, colorMeli, t).encontrado?.sku ?? null;
+        carton.tallas.set(t, barcodeDeSku(skuMeliDeCaja(numeroPedido, l.modelo, l.color ?? "", t, sku)));
+      } else if (!carton.corrida) {
+        let sku: string | null = null;
+        for (const t of Object.keys(l.tallas ?? {})) {
+          sku = buscarVariante(indice, l.modelo, colorMeli, t).encontrado?.sku ?? null;
+          if (sku) break;
+        }
+        carton.corrida = barcodeDeSku(skuMeliDeCaja(numeroPedido, l.modelo, l.color ?? "", "", sku));
+      }
       cartones.set(color, carton);
 
       for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
@@ -167,7 +183,12 @@ export async function zipEtiquetasDePedido(
 
     carpeta.file(
       nombreArchivo(`${numeroPedido} - BOX LABEL.pdf`),
-      await generarPdfCarton(textosDeCarton(numeroPedido, modelo, [...cartones.values()])),
+      await generarPdfCarton(
+        [...cartones.values()].flatMap((c) => [
+          ...(c.corrida ? [c.corrida] : []),
+          ...ordenarTallas([...c.tallas.keys()]).map((t) => c.tallas.get(t)!),
+        ]),
+      ),
     );
     carpeta.file(nombreArchivo(`${modelo}.xlsx`), Buffer.from(await libro.xlsx.writeBuffer()));
   }
