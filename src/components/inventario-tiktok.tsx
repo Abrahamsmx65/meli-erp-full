@@ -13,7 +13,7 @@ function n(x: number): string {
 
 interface ResultadoRetiroVista {
   referencia: string;
-  detalle: { sku: string; retirados: number; apartados: number }[];
+  detalle: { sku: string; retirados: number; apartados: number; recortados?: number }[];
   sinDisponible: string[];
   paresRetirados: number;
   avisos: string[];
@@ -50,6 +50,12 @@ export function InventarioTikTok({
   const [retirando, setRetirando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoRetiroVista | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Descontar una CANTIDAD de un SKU (dueño, 22-oct-2026: «una barra en la
+  // que se pone una cantidad y descuenta las piezas»): lo tecleado por SKU,
+  // cuál espera confirmación y cuál se está descontando.
+  const [descuentos, setDescuentos] = useState<Record<string, string>>({});
+  const [confirmando, setConfirmando] = useState<string | null>(null);
+  const [descontando, setDescontando] = useState<string | null>(null);
 
   const ordenados = useMemo(() => ordenarPorSku(renglones), [renglones]);
   const vistos = useMemo(() => {
@@ -117,7 +123,32 @@ export function InventarioTikTok({
     }
   }
 
-  const columnas = esDueno ? 8 : 7;
+  async function descontar(r: RenglonTikTok) {
+    const n = Math.round(Number(descuentos[r.sku]));
+    if (!Number.isFinite(n) || n <= 0 || descontando) return;
+    setDescontando(r.sku);
+    setConfirmando(null);
+    setError(null);
+    setResultado(null);
+    try {
+      const res = await fetch("/api/tiktok/retiro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: [r.sku], cantidades: { [r.sku]: n } }),
+      });
+      const datos = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(datos?.error ?? `Error ${res.status}`);
+      setResultado(datos as ResultadoRetiroVista);
+      setDescuentos((prev) => ({ ...prev, [r.sku]: "" }));
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDescontando(null);
+    }
+  }
+
+  const columnas = esDueno ? 9 : 7;
 
   return (
     <Seccion
@@ -211,12 +242,13 @@ export function InventarioTikTok({
         </Aviso>
       ) : null}
       {resultado ? (
-        <Aviso tono={resultado.paresRetirados > 0 ? "bien" : "alerta"} titulo={resultado.paresRetirados > 0 ? `Retirados ${n(resultado.paresRetirados)} pares (${resultado.referencia})` : "No se retiró nada"} className="mx-4 mt-3">
+        <Aviso tono={resultado.paresRetirados > 0 ? "bien" : "alerta"} titulo={resultado.paresRetirados > 0 ? `Descontados ${n(resultado.paresRetirados)} pares (${resultado.referencia})` : "No se descontó nada"} className="mx-4 mt-3">
           {resultado.detalle.length ? (
             <ul className="text-xs">
               {resultado.detalle.map((d) => (
                 <li key={d.sku}>
                   {d.sku}: {n(d.retirados)} pares fuera{d.apartados > 0 ? ` · ${n(d.apartados)} apartados se quedan` : ""}
+                  {d.recortados ? ` · se pidieron ${n(d.retirados + d.recortados)} pero solo había ${n(d.retirados)} disponibles` : ""}
                 </li>
               ))}
             </ul>
@@ -255,6 +287,7 @@ export function InventarioTikTok({
               <th className="num">En TikTok</th>
               <th className="num">Venta {diasVenta}d</th>
               <th className="num">Cobertura</th>
+              {esDueno ? <th>Descontar</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -315,6 +348,61 @@ export function InventarioTikTok({
                 <td className="num cifra texto-2">
                   {r.diasCobertura == null ? "—" : `${Math.round(r.diasCobertura)} d`}
                 </td>
+                {esDueno ? (
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {r.disponible > 0 ? (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={1}
+                          max={r.disponible}
+                          step={1}
+                          inputMode="numeric"
+                          value={descuentos[r.sku] ?? ""}
+                          onChange={(e) => {
+                            setDescuentos((prev) => ({ ...prev, [r.sku]: e.target.value }));
+                            if (confirmando === r.sku) setConfirmando(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && Number(descuentos[r.sku]) > 0) setConfirmando(r.sku);
+                          }}
+                          placeholder="pares"
+                          aria-label={`Pares a descontar de ${r.sku}`}
+                          className="w-16 rounded-lg border px-1.5 py-0.5 text-sm text-right"
+                          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                          disabled={descontando !== null}
+                        />
+                        {confirmando === r.sku ? (
+                          <>
+                            <button
+                              type="button"
+                              className="boton boton-peligro-lleno boton-chico"
+                              onClick={() => descontar(r)}
+                              disabled={descontando !== null}
+                              title={`Saca ${Math.min(Math.round(Number(descuentos[r.sku])), r.disponible)} pares del kardex, se lo manda a Industher como salida y TikTok recibe el nuevo disponible`}
+                            >
+                              Sí, −{Math.min(Math.round(Number(descuentos[r.sku])), r.disponible)}
+                            </button>
+                            <button type="button" className="boton boton-borde boton-chico" onClick={() => setConfirmando(null)} disabled={descontando !== null}>
+                              No
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="boton boton-peligro boton-chico"
+                            onClick={() => setConfirmando(r.sku)}
+                            disabled={descontando !== null || !(Math.round(Number(descuentos[r.sku])) > 0)}
+                          >
+                            {descontando === r.sku ? "Descontando…" : "Descontar"}
+                          </button>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-xs texto-tenue">sin disponible</span>
+                    )}
+                  </td>
+                ) : null}
               </tr>
             ))}
             {!renglones.length ? (

@@ -1488,6 +1488,15 @@ guárdala numerada.
   publica el cero pasando por `sincronizarTikTok` con `soloPedidos` (regla
   de oro). Lo de David no se retira por aquí. Un SKU sin disponible no
   cambia y se declara. Para que el par vuelva, una entrada o un conteo.
+  **Y por CANTIDAD, renglón por renglón** (`SkuARetirar.cantidad`,
+  `MOTIVO_DESCUENTO`, `detalle[].recortados`; `cantidades` en el cuerpo de
+  `POST /api/tiktok/retiro` y en `retirarDelAlmacenTikTok`; columna
+  «Descontar» de la tabla con campo de pares, «Descontar» y confirmación
+  «Sí, −N»; dueño, 22-oct-2026: «una barra en la cual se puede poner una
+  cantidad y descontar las piezas»): el mismo camino (salida del kardex con
+  referencia `RETIRO-…`, salida a Industher, cero o disponible nuevo a
+  TikTok), pero solo los pares tecleados, topados a lo disponible (lo
+  apartado nunca se toca; si se pidió de más, el resultado lo dice).
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
   `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
   del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
