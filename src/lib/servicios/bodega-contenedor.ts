@@ -14,12 +14,12 @@
  * El SKU es el de MERCADO LIBRE (dueño, 16-oct-2026: «los SKUs idénticos a
  * los que vienen en Mercado Libre»): PEDIDO + el SKU de la variante de MELI
  * sin la talla ni el «-MX» (IN10079-GT221-LT BROWN, IN10079-GT221-BLK), con
- * la talla si la caja es de una sola. Los dos BARCODES son la etiqueta de
- * caja que se mandó a China (el color del PEDIDO, IN10079-GT221-BLACK), y
- * como la almacenadora no acepta códigos con espacios, el espacio se vuelve
- * GUION aunque la caja de origen no venga así (IN10079-GT221-LT-BROWN). Un
+ * la talla si la caja es de una sola. Los dos BARCODES son ese MISMO SKU
+ * con cada espacio convertido en GUION, porque la almacenadora no acepta
+ * espacios (IN10079-GT221-LT-BROWN; dueño, 22-oct-2026: «no debe ser
+ * diferente» al SKU de MELI). Un
  * color que no amarra con MELI lleva el color del pedido en el SKU y se
- * avisa. Un producto que ya viajó en un contenedor ANTERIOR (mismo barcode)
+ * avisa. Un producto que ya viajó en un contenedor ANTERIOR (misma caja: pedido, modelo, color y talla)
  * ya se dio de alta: no se repite en PRODUCTOS (sí va en el packing list,
  * que es lo que llega). Lo que falte se deja en blanco y se declara en
  * `avisos`: nunca se inventa.
@@ -34,28 +34,36 @@ function conGuiones(s: string): string {
   return s.toUpperCase().trim().replace(/\s+/g, "-");
 }
 
-/**
- * Pedidos cuyas etiquetas de caja hizo el dueño A MANO, como en MELI: sin el
- * punto que la proforma le pone al color («LT.BROWN», «DK.BROWN»). En los
- * demás la etiqueta la generó el sistema con el color tal cual y el barcode
- * lo conserva (S268, 22-oct-2026: «es solo en estos, en los demás sí toma lo
- * que hay en las etiquetas»).
- */
-export const PEDIDOS_ETIQUETA_A_MANO = new Set(["IN10147"]);
-
-function colorSinPunto(pedido: string, s: string): string {
-  return PEDIDOS_ETIQUETA_A_MANO.has(pedido.toUpperCase().trim()) ? s.replace(/\./g, " ") : s;
-}
-
 /** Mayúsculas y espacios sencillos, como los escribe MELI. */
 function limpio(s: string): string {
   return s.toUpperCase().replace(/\s+/g, " ").trim();
 }
 
-/** El BARCODE de la caja: la etiqueta que se mandó a China, PEDIDO-MODELO-COLOR(-TALLA), sin espacios. */
+/**
+ * La CLAVE de la caja con el color del pedido, PEDIDO-MODELO-COLOR(-TALLA):
+ * junta los renglones de la misma caja y reconoce lo que ya viajó en un
+ * contenedor anterior. NO es el barcode que se le manda a la bodega.
+ */
 export function codigoDeCaja(pedido: string, modelo: string, color: string, talla?: string | null): string {
-  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(colorSinPunto(pedido, sinAnotacion(color ?? "")))}`;
+  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(sinAnotacion(color ?? ""))}`;
   return talla ? `${base}-${conGuiones(String(talla))}` : base;
+}
+
+/**
+ * El BARCODE que se le manda a la bodega: el MISMO SKU de MELI de la caja
+ * (`skuMeliDeCaja`) con cada espacio convertido en guion, porque la
+ * almacenadora no acepta espacios (dueño, 22-oct-2026: «la idea es que
+ * saques lo mismo que está en SKU en MELI, no debe ser diferente»; salía
+ * «IN10164-GT297-BLK-WITH-RED» con el color de la proforma contra el
+ * «IN10164-GT297-BLK-RED» de MELI). Sin variante en MELI el SKU ya trae el
+ * color del pedido.
+ */
+export function barcodeDeSku(sku: string): string {
+  return sku
+    .toUpperCase()
+    .trim()
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, "-");
 }
 
 /**
@@ -109,7 +117,7 @@ export interface RenglonBodega {
 export interface ProductoBodega {
   /** el SKU como lo escribe MELI */
   sku: string;
-  /** la etiqueta de caja que se mandó a China, sin espacios */
+  /** el SKU de MELI sin espacios (`barcodeDeSku`) */
   barcode: string;
   nombre: string;
   categoria: string;
@@ -136,7 +144,7 @@ const natural = (a: string, b: string) => a.localeCompare(b, "es", { numeric: tr
 export function armarArchivosBodega(
   renglones: RenglonBodega[],
   modelos: Map<string, DatosModelo>,
-  /** barcodes (etiqueta de caja) de los contenedores anteriores */
+  /** claves de caja (`codigoDeCaja`) de los contenedores anteriores */
   enviadosAntes: Set<string>,
 ): ArchivosBodega {
   const porSku = new Map<string, { r: RenglonBodega; cajas: number; sku: string }>();
@@ -144,8 +152,8 @@ export function armarArchivosBodega(
     .filter((r) => r.cajas > 0)
     .sort((a, b) => natural(a.pedido, b.pedido) || natural(a.modelo, b.modelo) || natural(a.color, b.color) || natural(a.talla, b.talla));
   for (const r of ordenados) {
-    const barcode = codigoDeCaja(r.pedido, r.modelo, r.color, r.talla);
-    const ya = porSku.get(barcode);
+    const clave = codigoDeCaja(r.pedido, r.modelo, r.color, r.talla);
+    const ya = porSku.get(clave);
     if (ya) {
       ya.cajas += r.cajas;
       // Dos renglones con la misma etiqueta: las medidas del primero que las traiga.
@@ -155,7 +163,7 @@ export function armarArchivosBodega(
         ya.sku = skuMeliDeCaja(r.pedido, r.modelo, r.color, r.talla, r.skuMeli);
       }
     } else {
-      porSku.set(barcode, { r, cajas: r.cajas, sku: skuMeliDeCaja(r.pedido, r.modelo, r.color, r.talla, r.skuMeli) });
+      porSku.set(clave, { r, cajas: r.cajas, sku: skuMeliDeCaja(r.pedido, r.modelo, r.color, r.talla, r.skuMeli) });
     }
   }
 
@@ -165,9 +173,9 @@ export function armarArchivosBodega(
   const sinCategoria = new Set<string>();
   const sinMedidas: string[] = [];
   const sinMeli = new Set<string>();
-  for (const [barcode, { r, sku }] of porSku) {
+  for (const [clave, { r, sku }] of porSku) {
     if (!r.skuMeli) sinMeli.add(`${r.modelo} ${sinAnotacion(r.color)}`);
-    if (enviadosAntes.has(barcode)) {
+    if (enviadosAntes.has(clave)) {
       yaDadosDeAlta.push(sku);
       continue;
     }
@@ -181,7 +189,7 @@ export function armarArchivosBodega(
     if (r.largoCm == null || r.anchoCm == null || r.altoCm == null || r.pesoKg == null) sinMedidas.push(sku);
     productos.push({
       sku,
-      barcode,
+      barcode: barcodeDeSku(sku),
       nombre: (codigoFiscal && NOMBRES_BODEGA[codigoFiscal]) || "CALZADO",
       categoria: CATEGORIA_BODEGA,
       codigoFiscal,

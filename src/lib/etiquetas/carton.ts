@@ -1,31 +1,9 @@
 /**
  * Etiquetas del CARTÓN (10 × 5 cm, código de barras) del paquete de
- * etiquetas de un pedido: qué texto lleva cada una.
+ * etiquetas de un pedido. Su texto es el SKU de MELI de la caja con guiones
+ * (`barcodeDeSku` en `servicios/bodega-contenedor.ts`), el mismo barcode que
+ * recibe la bodega; aquí queda el orden de las tallas.
  */
-
-/** Sin espacios y en mayúsculas: "blk/brown " → "BLK/BROWN". */
-function pegado(s: string): string {
-  return s.toUpperCase().replace(/\s+/g, "");
-}
-
-/**
- * Los textos de las etiquetas del cartón de un modelo: PEDIDO-MODELO-COLOR
- * para las cajas de corrida y PEDIDO-MODELO-COLOR-TALLA por cada caja de
- * una sola talla, en el orden de los colores y con las tallas naturales.
- */
-export function textosDeCarton(
-  pedido: string,
-  modelo: string,
-  cartones: { color: string; tallas: Iterable<string>; corrida: boolean }[],
-): string[] {
-  const textos: string[] = [];
-  for (const c of cartones) {
-    const base = `${pedido}-${modelo}-${c.color}`;
-    if (c.corrida) textos.push(base);
-    for (const t of ordenarTallas([...c.tallas])) textos.push(`${base}-${pegado(t)}`);
-  }
-  return textos;
-}
 
 /** Tallas en orden natural: 21, 21.5, 22 … y lo no numérico al final. */
 export function ordenarTallas(tallas: string[]): string[] {
