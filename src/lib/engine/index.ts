@@ -486,6 +486,11 @@ export function generarPlan(e: EntradaPlan): Plan {
     pisoPorCaja,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
+    // Con colchón, a lo más `colchonMaxCajasEnvio` cajas del COLOR completo.
+    maxCajasPorProducto:
+      p.colchonMaxCajasEnvio > 0
+        ? new Map([...colchon.keys()].map((prod) => [prod, p.colchonMaxCajasEnvio]))
+        : undefined,
   });
 
   // 5. Resumen.

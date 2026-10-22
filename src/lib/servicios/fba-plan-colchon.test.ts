@@ -117,4 +117,42 @@ describe("colchón de subida en FBA", () => {
     expect(sug[0].pares).toBe(60);
     expect(sug[0].ajusteCorrida).toBe("tope_color");
   });
+
+  it("el máximo de 5 cajas es por COLOR completo, aunque haya cajas de una talla", () => {
+    // GT142 PINK en FBA pedía 6: una caja de una talla por talla, 5 de cada una.
+    const existencias = ["26", "27"].map((t) => ({
+      ...EXISTENCIAS[0],
+      skuCaja: `IN10078-GT156-BLK-${t}`,
+      talla: t,
+      paresPorCaja: 6,
+    }));
+    const catalogo = construirCajas(existencias as any, [], {
+      indice: construirIndice(SKUS.map((s) => s.sku)),
+      mapeoManual: new Map(),
+      almacenes: ["Caseshop", "EnvioPack", "Industher"],
+    }).cajas;
+    const p = planFbaConCajas({
+      renglones: [renglon("26"), renglon("27")],
+      dias: 30,
+      catalogo,
+      indiceMeli: indexarCatalogo(SKUS as any),
+      parametros: normalizarParametros({}),
+      hoy: HOY,
+      ventasRecientes: ventas(2),
+    });
+    expect(new Set(catalogo.map((c) => c.producto)).size).toBe(1);
+    expect(p.cajas.reduce((a, c) => a + c.cantidad, 0)).toBe(5);
+  });
+
+  it("«Por producto» enseña lo que se manda a probar aunque no tenga venta en Amazon", () => {
+    const sug = sugerirEnvioFba([], 30, new Map(), undefined, indexarCatalogo(SKUS as any), {
+      cajas: [
+        { cantidad: 2, paresTotales: 24, modelo: "GT156", color: "BLK", aporta: [{ sku: "GT156-BLK-26-MX" }] },
+      ],
+      ajustesCorrida: [],
+    });
+    expect(sug).toHaveLength(1);
+    expect(sug[0]).toMatchObject({ producto: "GT156 BLK", cajas: 2, pares: 24, aProbar: true });
+  });
 });
+

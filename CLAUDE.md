@@ -81,7 +81,10 @@ guárdala numerada.
   mismo día: el colchón veía subidas de 2 a 3× en GT252, GT122 y GT229 DK
   BROWN que Daniel no persiguió; se descartó topar por días, por % y por
   cajas en bodega, y una «apuesta» a mano por modelo; GT150 M BROWN, donde
-  Daniel mandó 20 porque «sabe que se va a vender más», queda en 5). Sin
+  Daniel mandó 20 porque «sabe que se va a vender más», queda en 5; el
+  máximo es del COLOR completo en el optimizador, `maxCajasPorProducto`,
+  no por talla: el 22-oct-2026 GT142 PINK y PURPLE en FBA pedían 6 con cajas
+  de una talla de distintos pedidos). Sin
   la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4).
   **Una variante con DOS nombres de SKU se une por `inventory_id`**
   (`datos/alias-inventario.ts`, en `cargarInsumos`): el sync diario de
@@ -147,7 +150,9 @@ guárdala numerada.
   la venta corregida por agotamiento). La pestaña «Por producto»
   (`sugerirEnvioFba(…, plan)`) ya no lleva su propia cuenta: enseña las
   cajas del plan y la regla que tocó al color (`etiquetaAjusteFba`), igual
-  que el Excel. `VERSION_MOTOR` 2026-10-21.1.
+  que el Excel, y también lo que se manda a PROBAR sin venta en Amazon
+  (`SugerenciaFba.aProbar`; el 22-oct-2026 faltaban 80 de 368 cajas).
+  `VERSION_MOTOR` 2026-10-22.1.
   **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
   «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
   trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo

@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
   });
   // «Por producto» dice lo mismo que el plan de cajas.
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli, planFba);
-  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
+  const urgentes = sugerencias.filter((s) => s.cobertura !== null && s.cobertura < URGENTE_DIAS_FBA).length;
   // `?grupo=` limita el Excel a UN envío (una dirección de bodega:
   // Caseshop + Industher juntos, EnvioPack aparte), igual que en Full.
   const grupo = (request.nextUrl.searchParams.get("grupo") ?? "").trim();
@@ -289,7 +289,11 @@ export async function GET(request: NextRequest) {
       porCaja: s.paresPorCaja ?? "sin corrida",
       cajas: s.tieneCorrida ? s.cajas : "?",
       pares: s.pares,
-      ajuste: s.ajusteCorrida ? etiquetaAjusteFba(s.ajusteCorrida) : "",
+      ajuste: s.ajusteCorrida
+        ? etiquetaAjusteFba(s.ajusteCorrida)
+        : s.aProbar
+          ? "sin venta en Amazon: se manda a probar"
+          : "",
     });
   }
 
