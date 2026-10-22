@@ -6,7 +6,7 @@ import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 import { confirmar } from "@/components/ui/confirmar";
-import { ResultadoRelampagos, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
+import { ResultadoRelampagos, pedirConfirmarBuenFin, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -38,7 +38,7 @@ function Accion({ a }: { a: string }) {
  */
 export function PreciosNumeros() {
   const [modelos, setModelos] = useState("");
-  const [cargando, setCargando] = useState<"revisar" | "aplicar" | "relampagos" | null>(null);
+  const [cargando, setCargando] = useState<"revisar" | "aplicar" | "relampagos" | "buen-fin" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState<RevisionPrecios | null>(null);
   const [resultados, setResultados] = useState<ResultadoPrecio[] | null>(null);
@@ -54,6 +54,20 @@ export function PreciosNumeros() {
       setCargando("relampagos");
       const r = await pedirConfirmarRelampagos();
       if (r) setRelampagos(r);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCargando(null);
+    }
+  };
+
+  const [buenFin, setBuenFin] = useState<ConfirmacionRelampagos | null>(null);
+  const confirmarBuenFin = async () => {
+    setError(null);
+    try {
+      setCargando("buen-fin");
+      const r = await pedirConfirmarBuenFin();
+      if (r) setBuenFin(r);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -200,9 +214,19 @@ export function PreciosNumeros() {
         >
           {cargando === "relampagos" ? "Confirmando relámpagos… (tarda unos minutos)" : "Confirmar relámpagos"}
         </button>
+        <button
+          type="button"
+          className="boton boton-secundario"
+          disabled={!!cargando}
+          onClick={() => void confirmarBuenFin()}
+          title="Activa o corrige todas las promociones de Buen Fin al PV normal de Números"
+        >
+          {cargando === "buen-fin" ? "Activando Buen Fin… (tarda unos minutos)" : "Confirmar Buen Fin"}
+        </button>
       </form>
 
       {relampagos ? <ResultadoRelampagos r={relampagos} /> : null}
+      {buenFin ? <ResultadoRelampagos r={buenFin} que="de Buen Fin activadas o corregidas" /> : null}
 
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
       {revision?.avisos.map((a, i) => (

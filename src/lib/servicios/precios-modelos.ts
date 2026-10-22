@@ -21,6 +21,7 @@ import {
   ofertaAmazon,
   precioMinimoAmazon,
   stockParaRelampago,
+  estaInscrita,
   type Asignaciones,
   type Objetivos,
   type PromoMeli,
@@ -309,6 +310,19 @@ async function inscribirRelampago(
 }
 
 export const TAREA_RELAMPAGOS = "relampagos-auto";
+export const TAREA_BUEN_FIN = "buen-fin-auto";
+
+export interface RevisionDeNumeros {
+  modelos: string[];
+  revision: RevisionPrecios;
+}
+
+/** Las promociones de MELI de TODOS los modelos de Números (lo comparten relámpagos y Buen Fin). */
+export async function revisarTodoNumeros(admin: DB, cliente: MeliClient, accountId: string): Promise<RevisionDeNumeros> {
+  const filas = await traerTodo<{ modelo: string }>(admin, "numeros_modelos", "modelo", (q) => q.eq("account_id", accountId));
+  const modelos = normalizarModelos(filas.map((f) => f.modelo));
+  return { modelos, revision: await revisarPrecios(admin, admin, cliente, accountId, modelos, {}, { soloMeli: true }) };
+}
 
 /**
  * Cron de las 10:00 de México (dueño, 14-oct-2026: «un cron que todos los
@@ -328,12 +342,9 @@ export async function confirmarRelampagosPendientes(
   cliente: MeliClient,
   accountId: string,
   origen: "cron" | "manual" = "cron",
+  previa?: RevisionDeNumeros,
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
-  const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
-    q.eq("account_id", accountId).not("precio_relampago", "is", null),
-  );
-  const modelos = normalizarModelos(filas.map((f) => f.modelo));
-  const revision = await revisarPrecios(admin, admin, cliente, accountId, modelos, {}, { soloMeli: true });
+  const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
 
   const inscritas: ResultadoPrecio[] = [];
   const fallidas: ResultadoPrecio[] = [];
@@ -503,4 +514,97 @@ export async function contarRelampagosPendientes(admin: DB, cliente: MeliClient,
   });
   conteo.porFecha = Object.fromEntries(Object.entries(conteo.porFecha).sort());
   return conteo;
+}
+
+/**
+ * Buen Fin de golpe (dueño, 22-oct-2026: «quiero activar todo lo de Buen Fin
+ * de golpe, que el sistema revise todo lo que tengo de Buen Fin y lo active
+ * si cumple con los criterios, igual que con las relámpago»): en TODOS los
+ * modelos de Números, cada promoción reconocida como Buen Fin
+ * (`clasificarPromo`) se inscribe o se corrige al PV NORMAL a .99, con las
+ * mismas reglas de «Llevar precios»: lo que ya está a ese precio no se toca,
+ * ni la que con el aporte de MELI cruza los $299 (`pagarias_envio`), ni un
+ * modelo sin precio en Números. Luego se relee cada publicación: la que MELI
+ * dijo que sí pero sigue como propuesta, o con otro precio, pasa a fallida.
+ * Corre en el cron de relámpagos y con el botón; bitácora `buen-fin-auto`.
+ */
+export async function confirmarBuenFinPendientes(
+  admin: DB,
+  cliente: MeliClient,
+  accountId: string,
+  origen: "cron" | "manual" = "cron",
+  previa?: RevisionDeNumeros,
+): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
+  const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
+  const inscritas: ResultadoPrecio[] = [];
+  const fallidas: ResultadoPrecio[] = [];
+  const omitidas: string[] = [];
+  const hechas: { r: RenglonPromo; res: ResultadoPrecio }[] = [];
+  const buenFin = revision.meli.filter((r) => r.clase === "buen_fin");
+  const porMandar: RenglonPromo[] = [];
+  for (const r of buenFin) {
+    const donde = `${r.itemId} · ${r.nombre}`;
+    if (r.accion === "igual") continue;
+    if (r.accion === "pagarias_envio") omitidas.push(`${donde}: con el aporte de MELI se cobra como ≥ $299 y pagarías el envío`);
+    else if (r.accion === "sin_precio" || r.nuevo == null) omitidas.push(`${donde}: el modelo no tiene PV normal en Números`);
+    else if (r.accion === "inscribir" || r.accion === "cambiar") porMandar.push(r);
+  }
+  // De cinco en cinco, como la lectura: en serie no cabe con las relámpago en el cron.
+  await enLotes(porMandar, 5, async (r) => {
+    const donde = `${r.itemId} · ${r.nombre}`;
+    const nuevo = r.nuevo as number;
+    const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
+    const cuerpo: Record<string, unknown> = { promotion_type: r.tipo, deal_price: nuevo };
+    if (r.promoId) cuerpo.promotion_id = r.promoId;
+    try {
+      if (r.accion === "cambiar") await cliente.put(ruta, cuerpo, { reintentos: 1 });
+      else {
+        try {
+          await cliente.post(ruta, r.offerId ? { ...cuerpo, offer_id: r.offerId } : cuerpo);
+        } catch (err) {
+          // Si MELI no acepta el folio, como «Llevar precios»: sin él.
+          if (!r.offerId || !/offer/i.test(mensajeMeli(err))) throw err;
+          await cliente.post(ruta, cuerpo);
+        }
+      }
+      const res = { donde, ok: true, detalle: `${r.accion === "cambiar" ? "cambiado" : "inscrito"} a $${nuevo.toFixed(2)}` };
+      inscritas.push(res);
+      hechas.push({ r, res });
+    } catch (err) {
+      fallidas.push({ donde, ok: false, detalle: mensajeMeli(err) });
+    }
+  });
+
+  // MELI a veces contesta «sí» sin hacerlo: se relee y lo que no quedó, falla.
+  const porItem = new Map<string, { r: RenglonPromo; res: ResultadoPrecio }[]>();
+  for (const h of hechas) porItem.set(h.r.itemId, [...(porItem.get(h.r.itemId) ?? []), h]);
+  await enLotes([...porItem], 5, async ([itemId, lista]) => {
+    let promos: PromoMeli[];
+    try {
+      promos = await promosDe(cliente, itemId);
+    } catch {
+      return;
+    }
+    for (const { r, res } of lista) {
+      const p = promos.find((x) => (x.id ?? null) === r.promoId && (x.type ?? "") === r.tipo);
+      if (!p) continue;
+      const quedo = estaInscrita(p) && p.price != null && Math.round(p.price * 100) === Math.round((r.nuevo as number) * 100);
+      if (quedo) continue;
+      inscritas.splice(inscritas.indexOf(res), 1);
+      fallidas.push({
+        ...res,
+        ok: false,
+        detalle: `MELI contestó que sí pero quedó ${estaInscrita(p) ? `a $${p.price ?? "?"}` : "como propuesta"} (${res.detalle})`,
+      });
+    }
+  });
+
+  await admin.from("sync_log").insert({
+    account_id: accountId,
+    tarea: TAREA_BUEN_FIN,
+    estado: fallidas.length ? "error" : "ok",
+    fin: new Date().toISOString(),
+    detalle: { origen, modelos: modelos.length, buenFin: buenFin.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
+  });
+  return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
