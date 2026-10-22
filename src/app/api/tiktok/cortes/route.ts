@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       sinDefensa: body?.sinDefensa === true,
       // Corte por MODELO: solo los paquetes de un solo modelo de esta lista.
       soloModelos: normalizarModelos(body?.soloModelos),
+      // Corte de MUESTRAS: solo las muestras gratis (dueño, 22-oct-2026).
+      soloMuestras: body?.soloMuestras === true,
       // De quién es el corte: null = el dueño; 'david' = los pedidos del vendedor externo.
       vendedor: normalizarVendedor(body?.vendedor),
     };

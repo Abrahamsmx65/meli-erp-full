@@ -25,6 +25,8 @@ export interface PendienteConFecha {
   estado: string;
   /** cuándo lo hizo el cliente (ISO); sin fecha se trata como urgente */
   creadoEn?: string | null;
+  /** muestra gratis (`tiktok_ordenes.es_muestra`): entra al corte de MUESTRAS; en uno normal va revuelta */
+  esMuestra?: boolean;
 }
 
 export interface Tandas<T> {
