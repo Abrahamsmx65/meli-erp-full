@@ -131,8 +131,8 @@ export async function leerUltimoBuenFin(): Promise<{ fin: string; error?: string
 const din = (x: number) => "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * Resultado de Buen Fin con lo que MELI rechazó por precio: el mínimo que
- * acepta, cuánto se aleja del precio de Números y un botón para aceptarla
+ * Resultado de Buen Fin con lo que MELI rechazó por precio: el precio más
+ * alto que acepta, cuánto se aleja del precio de Números y un botón para aceptarla
  * ahí mismo (dueño, 22-oct-2026).
  */
 export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: string }) {
@@ -188,7 +188,7 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
             <strong>MELI no aceptó el precio por «no creíble» ({porAceptar.length})</strong>
             {pendientes.length ? (
               <button type="button" className="boton boton-primario" disabled={!!ocupado} onClick={() => void aceptar(pendientes, "todas")}>
-                {ocupado === "todas" ? "Aceptando…" : `Aceptar todas a su mínimo (${pendientes.length})`}
+                {ocupado === "todas" ? "Aceptando…" : `Aceptar todas a su máximo (${pendientes.length})`}
               </button>
             ) : null}
           </div>
@@ -201,7 +201,7 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
                   <span className="cifra">{f.donde}</span>
                   <span className="texto-tenue">querías {din(a.queriamos)}</span>
                   <span>
-                    MELI acepta desde <strong>{din(a.precio as number)}</strong>{" "}
+                    MELI acepta hasta <strong>{din(a.precio as number)}</strong>{" "}
                     <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.precio as number)}</span>
                   </span>
                   {hecho ? (
@@ -246,7 +246,7 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
           {otras.map((x, i) => (
             <li key={i}>
               <span className="cifra">{x.donde}</span> <span style={{ color: "var(--estado-critico)" }}>✗ {x.detalle}</span>
-              {x.aceptar?.razon === "credibilidad" ? <span className="texto-tenue"> · MELI no dijo su precio mínimo</span> : null}
+              {x.aceptar?.razon === "credibilidad" ? <span className="texto-tenue"> · MELI no dijo hasta qué precio acepta</span> : null}
             </li>
           ))}
         </ul>

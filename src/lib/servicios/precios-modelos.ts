@@ -608,7 +608,7 @@ export async function confirmarBuenFinPendientes(
           ...base,
           razon: "credibilidad",
           precio: minimoCreible(
-            { min_discounted_price: r.minimo, suggested_discounted_price: r.sugerido, max_discounted_price: r.maximo },
+            { min_discounted_price: r.minimo, max_discounted_price: r.maximo },
             nuevo,
           ),
         };

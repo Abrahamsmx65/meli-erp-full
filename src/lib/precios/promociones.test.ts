@@ -144,16 +144,17 @@ describe("aporte de MELI y el envío arriba de $299", () => {
 });
 
 describe("minimoCreible", () => {
-  it("toma el mínimo de MELI arriba del nuestro y lo sube al .99", () => {
-    expect(minimoCreible({ min_discounted_price: 312.37 }, 298.99)).toBe(312.99);
+  it("toma el .99 más alto que no pasa del máximo de MELI (GT130 Buen Fin 26)", () => {
+    expect(minimoCreible({ min_discounted_price: 99.8, max_discounted_price: 242.49 }, 249.99)).toBe(241.99);
   });
-  it("sin mínimo útil cae al sugerido", () => {
-    expect(minimoCreible({ min_discounted_price: 250, suggested_discounted_price: 330 }, 298.99)).toBe(330.99);
+  it("un máximo que ya es .99 se toma tal cual", () => {
+    expect(minimoCreible({ max_discounted_price: 242.99 }, 249.99)).toBe(242.99);
   });
-  it("no se pasa del máximo por el .99", () => {
-    expect(minimoCreible({ min_discounted_price: 312.37, max_discounted_price: 312.5 }, 298.99)).toBe(312.37);
+  it("sin bajar del piso", () => {
+    expect(minimoCreible({ min_discounted_price: 242.2, max_discounted_price: 242.49 }, 249.99)).toBe(242.49);
   });
-  it("sin precio arriba del nuestro no dice nada", () => {
+  it("si el nuestro no pasa del máximo, o no hay máximo, no dice nada", () => {
+    expect(minimoCreible({ max_discounted_price: 300 }, 298.99)).toBeNull();
     expect(minimoCreible({ min_discounted_price: 200 }, 298.99)).toBeNull();
   });
 });
