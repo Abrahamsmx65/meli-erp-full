@@ -22,6 +22,7 @@ import {
   precioMinimoAmazon,
   stockParaRelampago,
   estaInscrita,
+  minimoCreible,
   type Asignaciones,
   type Objetivos,
   type PromoMeli,
@@ -52,6 +53,26 @@ export interface ResultadoPrecio {
   donde: string;
   detalle: string;
   ok: boolean;
+  /** Buen Fin que MELI rechazó por precio: con qué aceptarla a su mínimo */
+  aceptar?: AceptarBuenFin;
+}
+
+/**
+ * Lo que hace falta para aceptar a mano una promoción de Buen Fin que MELI
+ * rechazó por precio (dueño, 22-oct-2026): `credibilidad` = el nuestro es
+ * «no creíble» y `precio` es el mínimo que MELI acepta (null si no lo dijo);
+ * `mayor_que_actual` = ya está inscrita más barata y MELI no deja subirla.
+ */
+export interface AceptarBuenFin {
+  razon: "credibilidad" | "mayor_que_actual";
+  itemId: string;
+  promoId: string | null;
+  tipo: string;
+  offerId: string | null;
+  accion: "inscribir" | "cambiar";
+  queriamos: number;
+  precio: number | null;
+  actual: number | null;
 }
 
 const PLAZO_MS = 240_000;
@@ -571,7 +592,42 @@ export async function confirmarBuenFinPendientes(
       inscritas.push(res);
       hechas.push({ r, res });
     } catch (err) {
-      fallidas.push({ donde, ok: false, detalle: mensajeMeli(err) });
+      const detalle = mensajeMeli(err);
+      const base = {
+        itemId: r.itemId,
+        promoId: r.promoId,
+        tipo: r.tipo,
+        offerId: r.offerId,
+        accion: r.accion as "inscribir" | "cambiar",
+        queriamos: nuevo,
+        actual: r.actual,
+      };
+      let aceptar: AceptarBuenFin | undefined;
+      if (/CREDIBILITY/i.test(detalle)) {
+        aceptar = {
+          ...base,
+          razon: "credibilidad",
+          precio: minimoCreible(
+            { min_discounted_price: r.minimo, suggested_discounted_price: r.sugerido, max_discounted_price: r.maximo },
+            nuevo,
+          ),
+        };
+      } else if (/PRICE_GT_CURRENT/i.test(detalle)) {
+        aceptar = { ...base, razon: "mayor_que_actual", precio: r.actual };
+      }
+      fallidas.push({ donde, ok: false, detalle, ...(aceptar ? { aceptar } : {}) });
+    }
+  });
+
+  // Sin mínimo en la lectura, se le vuelve a preguntar a MELI por esa promoción.
+  const sinMinimo = fallidas.filter((f) => f.aceptar?.razon === "credibilidad" && f.aceptar.precio == null);
+  await enLotes(sinMinimo, 5, async (f) => {
+    const a = f.aceptar as AceptarBuenFin;
+    try {
+      const p = (await promosDe(cliente, a.itemId)).find((x) => (x.id ?? null) === a.promoId && (x.type ?? "") === a.tipo);
+      if (p) a.precio = minimoCreible(p, a.queriamos);
+    } catch {
+      // sin dato: se queda sin precio y la pantalla lo dice
     }
   });
 
@@ -607,4 +663,46 @@ export async function confirmarBuenFinPendientes(
     detalle: { origen, modelos: modelos.length, buenFin: buenFin.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
+}
+
+/**
+ * Acepta a mano, al precio que el dueño eligió (el mínimo de MELI), las
+ * promociones de Buen Fin que MELI rechazó por «no creíble» (dueño,
+ * 22-oct-2026). De cinco en cinco; cada una contesta lo que dijo MELI.
+ */
+export async function aceptarBuenFinAMinimo(
+  admin: DB,
+  cliente: MeliClient,
+  accountId: string,
+  renglones: { itemId: string; promoId: string | null; tipo: string; offerId: string | null; accion: string; precio: number; donde?: string }[],
+): Promise<ResultadoPrecio[]> {
+  const resultados: ResultadoPrecio[] = [];
+  await enLotes(renglones, 5, async (r) => {
+    const donde = r.donde ?? r.itemId;
+    const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
+    const cuerpo: Record<string, unknown> = { promotion_type: r.tipo, deal_price: r.precio };
+    if (r.promoId) cuerpo.promotion_id = r.promoId;
+    try {
+      if (r.accion === "cambiar") await cliente.put(ruta, cuerpo, { reintentos: 1 });
+      else {
+        try {
+          await cliente.post(ruta, r.offerId ? { ...cuerpo, offer_id: r.offerId } : cuerpo);
+        } catch (err) {
+          if (!r.offerId || !/offer/i.test(mensajeMeli(err))) throw err;
+          await cliente.post(ruta, cuerpo);
+        }
+      }
+      resultados.push({ donde, ok: true, detalle: `aceptada a $${r.precio.toFixed(2)}` });
+    } catch (err) {
+      resultados.push({ donde, ok: false, detalle: mensajeMeli(err) });
+    }
+  });
+  await admin.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "buen-fin-aceptar",
+    estado: resultados.some((x) => !x.ok) ? "error" : "ok",
+    fin: new Date().toISOString(),
+    detalle: { resultados },
+  });
+  return resultados;
 }
