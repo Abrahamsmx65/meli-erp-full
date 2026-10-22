@@ -34,6 +34,15 @@ function conGuiones(s: string): string {
   return s.toUpperCase().trim().replace(/\s+/g, "-");
 }
 
+/**
+ * El PUNTO del color de la proforma («LT.BROWN», «DK.BROWN» del IN10147)
+ * cuenta como espacio: las etiquetas de caja se hicieron a mano como en MELI,
+ * sin punto (S268, 22-oct-2026). Solo el color: una talla 21.5 lo conserva.
+ */
+function colorSinPunto(s: string): string {
+  return s.replace(/\./g, " ");
+}
+
 /** Mayúsculas y espacios sencillos, como los escribe MELI. */
 function limpio(s: string): string {
   return s.toUpperCase().replace(/\s+/g, " ").trim();
@@ -41,7 +50,7 @@ function limpio(s: string): string {
 
 /** El BARCODE de la caja: la etiqueta que se mandó a China, PEDIDO-MODELO-COLOR(-TALLA), sin espacios. */
 export function codigoDeCaja(pedido: string, modelo: string, color: string, talla?: string | null): string {
-  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(sinAnotacion(color ?? ""))}`;
+  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(colorSinPunto(sinAnotacion(color ?? "")))}`;
   return talla ? `${base}-${conGuiones(String(talla))}` : base;
 }
 
