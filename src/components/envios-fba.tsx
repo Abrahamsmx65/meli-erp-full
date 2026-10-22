@@ -1,5 +1,5 @@
 import type { SugerenciaFba } from "@/lib/servicios/fba";
-import { DIAS_CORRIDA_DISPAREJA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
+import { etiquetaAjusteFba, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -14,7 +14,7 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
   const totalCajas = sugerencias.reduce((a, s) => a + s.cajas, 0);
   const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
   const sinCorrida = sugerencias.filter((s) => !s.tieneCorrida).length;
-  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
+  const urgentes = sugerencias.filter((s) => s.cobertura !== null && s.cobertura < URGENTE_DIAS_FBA).length;
   // El tope de 100 se elige por urgencia (el orden del motor), pero LO QUE
   // SE VE va en alfabético natural (GT104-1 antes que GT110), como pidió el
   // dueño: así se busca un producto con los ojos.
@@ -82,10 +82,11 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
                     ) : null}
                     {s.ajusteCorrida ? (
                       <div className="texto-2 text-[11px]">
-                        {s.ajusteCorrida === "mitad_corrida"
-                          ? "tallas agotadas con el resto al día: viaja la mitad de las cajas"
-                          : `corrida dispareja: solo ${DIAS_CORRIDA_DISPAREJA} días de las tallas agotadas`}
+                        {etiquetaAjusteFba(s.ajusteCorrida)}
                       </div>
+                    ) : null}
+                    {s.aProbar ? (
+                      <div className="texto-2 text-[11px]">sin venta en Amazon: se manda a probar</div>
                     ) : null}
                   </td>
                   <td className="num cifra">{s.tallas}</td>

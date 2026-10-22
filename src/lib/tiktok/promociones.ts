@@ -117,14 +117,23 @@ export interface ModeloEnOferta {
   skuIds: string[];
 }
 
-/** El cuerpo de «crear actividad» (relámpago por variante). */
-export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta): Record<string, unknown> {
+/**
+ * A qué nivel va la relámpago: por VARIANTE (precio y topes por talla, lo de
+ * siempre) o por PRODUCTO (un precio para todo el modelo, como las que el
+ * dueño arma a mano en el Seller Center). Dueño, 21-oct-2026: sus relámpagos
+ * públicas a mano («gt148 16 a 19 oct», nivel PRODUCT) convivieron con la de
+ * creadoras «GT148 SAHORY MONSE MARLU», y la cíclica por variante no.
+ */
+export type NivelProducto = "VARIATION" | "PRODUCT";
+
+/** El cuerpo de «crear actividad» (relámpago por variante, o por producto). */
+export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta, nivelProducto: NivelProducto = "VARIATION"): Record<string, unknown> {
   const t = titulo.replace(/\s+/g, " ").trim().slice(0, MAX_TITULO_OFERTA);
   if (!t) throw new Error("La oferta necesita un título.");
   return {
     title: t,
     activity_type: "FLASHSALE",
-    product_level: "VARIATION",
+    product_level: nivelProducto,
     begin_time: ventana.beginTime,
     end_time: ventana.endTime,
   };
@@ -138,10 +147,29 @@ export function cuerpoDeActividad(titulo: string, ventana: VentanaOferta): Recor
 export function lotesDeProductos(
   modelos: ModeloEnOferta[],
   topes: { porTalla: number; porComprador: number },
+  nivelProducto: NivelProducto = "VARIATION",
 ): Record<string, unknown>[][] {
   const lotes: Record<string, unknown>[][] = [];
   let actual: Record<string, unknown>[] = [];
   let enLote = 0;
+  if (nivelProducto === "PRODUCT") {
+    // Por producto: un renglón por modelo con el precio y los topes del producto, sin variantes.
+    for (const m of modelos) {
+      if (!(m.precio > 0)) throw new Error(`${m.modelo}: el precio de oferta tiene que ser mayor a cero.`);
+      actual.push({
+        id: m.productId,
+        activity_price_amount: m.precio.toFixed(2),
+        quantity_limit: topeParaTikTok(topes.porTalla),
+        quantity_per_user: topeParaTikTok(topes.porComprador),
+      });
+      if (actual.length >= SKUS_POR_LLAMADA) {
+        lotes.push(actual);
+        actual = [];
+      }
+    }
+    if (actual.length) lotes.push(actual);
+    return lotes;
+  }
   for (const m of modelos) {
     if (!(m.precio > 0)) throw new Error(`${m.modelo}: el precio de oferta tiene que ser mayor a cero.`);
     if (!m.skuIds.length) throw new Error(`${m.modelo}: no tiene variantes activas en TikTok.`);
@@ -237,8 +265,17 @@ export function precioDeNivel(niveles: { live: number; normal: number; campana: 
 // la segunda ventana de la cadena se rechazaba SIEMPRE, la actividad quedaba
 // vacía en TikTok y el cron volvía a intentar la misma cada hora con
 // 17029004 «name already in use»). Así que cada modelo cíclico lleva UNA
-// relámpago a la vez: el fondo (cada 10 min) crea la siguiente en cuanto
-// la que corre termina, arrancando en `MINUTOS_DE_ARRANQUE`.
+// relámpago a la vez: el fondo (cada minuto) crea la siguiente en cuanto
+// la que corre termina, arrancando en `MINUTOS_ARRANQUE_CICLICA`.
+//
+// Una relámpago que el dueño arma A MANO en el Seller Center NO detiene la
+// cíclica (dueño, 21-oct-2026, «GT148 SAHORY MONSE MARLU»: «es para
+// creador, no es pública ni chocan esas»): el API no dice si una actividad
+// es de creadores o pública, así que el fondo no adivina: crea la cíclica
+// y, SOLO si TikTok la rechaza por 17029022, la deja bloqueada hasta que
+// termine la relámpago ajena más larga (`hastaCuandoBloquear`) en vez de
+// insistir cada minuto. Hasta ese día cualquier ajena viva se tomaba como
+// ventana ocupada y el GT148 llevaba 12 días sin cíclica.
 
 /** TikTok deja una relámpago de hasta 72 h; el ciclo nunca pasa de ahí. */
 export const HORAS_MAX_CICLICA = 72;
@@ -261,7 +298,7 @@ export const MINUTOS_ARRANQUE_CICLICA = 2;
 export function explicarErrorDeCiclica(modelo: string, mensaje: string): string {
   const m = String(mensaje ?? "");
   if (m.includes("17029022") || /ONGOING or NOT_START/i.test(m)) {
-    return `TikTok ya tiene el ${modelo} en otra relámpago viva o programada; la cíclica entra cuando termine esa.`;
+    return `TikTok no dejó meter el ${modelo} a la cíclica: ya está en otra relámpago pública viva o programada. Se reintenta cuando termine esa.`;
   }
   if (m.includes("17029004") || /already in use/i.test(m)) {
     return `El nombre de la relámpago ya existía en TikTok; se reintenta con otro nombre en la siguiente pasada.`;
@@ -390,7 +427,27 @@ export function ultimaRelampago(lista: RelampagoDeProducto[]): RelampagoDeProduc
   return ordenadas[0] ?? null;
 }
 
-/** Las relámpagos VIVAS de un producto (en curso o programadas) como ventanas, para encadenar la cíclica después de ellas. */
+/** TikTok rechazó meter el producto porque ya está en otra actividad viva o programada (17029022). */
+export function esConflictoDeActividad(mensaje: unknown): boolean {
+  const m = String((mensaje as any)?.message ?? mensaje ?? "");
+  return m.includes("17029022") || /ONGOING or NOT_START/i.test(m);
+}
+
+/** Si TikTok rechaza la cíclica y no se ve qué relámpago ajena la estorba, se espera esto antes de volver a intentar. */
+export const MINUTOS_BLOQUEO_SIN_AJENA = 60;
+
+/**
+ * Hasta cuándo dejar bloqueada una cíclica que TikTok rechazó por conflicto:
+ * cuando termine la relámpago ajena viva que termina más tarde, o en
+ * `MINUTOS_BLOQUEO_SIN_AJENA` si no se ve ninguna (la que estorba puede ser
+ * una que el API no enseña).
+ */
+export function hastaCuandoBloquear(ajenas: RelampagoDeProducto[], ahora: Date = new Date()): Date {
+  const fin = finDeLaViva(ventanasVivasDeRelampagos(ajenas, ahora), ahora);
+  return fin ?? new Date(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
+}
+
+/** Las relámpagos VIVAS de un producto (en curso o programadas) como ventanas: informan en la pantalla y acotan el bloqueo tras un conflicto. */
 export function ventanasVivasDeRelampagos(lista: RelampagoDeProducto[], ahora: Date = new Date()): VentanaProgramada[] {
   return lista
     .filter((r) => (r.estado === "ONGOING" || r.estado === "NOT_START") && r.inicio && r.fin && Date.parse(r.fin) > ahora.getTime())

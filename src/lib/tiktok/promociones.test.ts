@@ -20,6 +20,9 @@ import {
   MINUTOS_ARRANQUE_CICLICA,
   finDeLaViva,
   ventanasVivasDeRelampagos,
+  esConflictoDeActividad,
+  hastaCuandoBloquear,
+  MINUTOS_BLOQUEO_SIN_AJENA,
 } from "./promociones";
 
 const sku = (skuId: string, productId: string, sellerSku: string, estado = "ACTIVATE", precio: number | null = 499) => ({
@@ -174,7 +177,7 @@ describe("relámpagos cíclicos", () => {
   it("el error de TikTok se explica en palabras, sin códigos ni rutas", () => {
     const conflicto =
       "Lote 1 de 1 (1 productos): TikTok Shop 17029022 en /promotion/202309/activities/769/products: Resource Conflict. The `product or sku` conflicts with `another ONGOING or NOT_START activity`";
-    expect(explicarErrorDeCiclica("GT135", conflicto)).toBe("TikTok ya tiene el GT135 en otra relámpago viva o programada; la cíclica entra cuando termine esa.");
+    expect(explicarErrorDeCiclica("GT135", conflicto)).toBe("TikTok no dejó meter el GT135 a la cíclica: ya está en otra relámpago pública viva o programada. Se reintenta cuando termine esa.");
     expect(explicarErrorDeCiclica("GT148", "TikTok Shop 17029004 en /promotion/202309/activities: Resource Already Exists. A promotion name is already in use.")).toMatch(/otro nombre/);
     expect(explicarErrorDeCiclica("GT1", "TikTok Shop 12345 en /promotion/x: Algo raro")).toBe("Algo raro");
   });
@@ -223,5 +226,57 @@ describe("relámpagos por producto desde el detalle de la actividad", () => {
     expect(ventanasQueFaltan(ventanas, 72, ahora)).toEqual([]);
     // en cuanto terminan, arranca
     expect(ventanasQueFaltan(ventanas, 72, new Date("2026-10-20T02:21:00Z"))).toHaveLength(1);
+  });
+});
+
+describe("cíclica rechazada por TikTok: una relámpago a mano no estorba hasta que TikTok lo diga", () => {
+  const ahora = new Date("2026-10-21T20:00:00.000Z");
+  const creadores = {
+    activityId: "7694811362756822805",
+    titulo: "GT148 SAHORY MONSE MARLU",
+    estado: "ONGOING",
+    inicio: "2026-10-09T23:20:00.000Z",
+    fin: "2026-10-23T02:17:00.000Z",
+    precio: 189.99,
+  };
+
+  it("reconoce el conflicto 17029022 por código o por texto", () => {
+    expect(esConflictoDeActividad("Lote 1 de 1: TikTok Shop 17029022 en /promotion: Resource Conflict")).toBe(true);
+    expect(esConflictoDeActividad(new Error("conflicts with another ONGOING or NOT_START activity"))).toBe(true);
+    expect(esConflictoDeActividad("17029004 name already in use")).toBe(false);
+    expect(esConflictoDeActividad(null)).toBe(false);
+  });
+
+  it("bloquea hasta que termine la ajena viva más larga", () => {
+    expect(hastaCuandoBloquear([creadores], ahora).toISOString()).toBe("2026-10-23T02:17:00.000Z");
+    const programada = { ...creadores, activityId: "x", estado: "NOT_START", inicio: "2026-10-24T00:00:00.000Z", fin: "2026-10-26T00:00:00.000Z" };
+    expect(hastaCuandoBloquear([creadores, programada], ahora).toISOString()).toBe("2026-10-26T00:00:00.000Z");
+  });
+
+  it("sin ajena visible espera una hora, y una vencida no cuenta", () => {
+    expect(hastaCuandoBloquear([], ahora).getTime()).toBe(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
+    const vencida = { ...creadores, estado: "EXPIRED", fin: "2026-10-20T00:00:00.000Z" };
+    expect(hastaCuandoBloquear([vencida], ahora).getTime()).toBe(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
+  });
+});
+
+describe("relámpago por PRODUCTO", () => {
+  it("manda un renglón por modelo con el precio y los topes, sin variantes", () => {
+    const lotes = lotesDeProductos(
+      [
+        { modelo: "GT148", productId: "P148", precio: 189.99, skuIds: ["a", "b"] },
+        { modelo: "GT114", productId: "P114", precio: 188.99, skuIds: [] },
+      ],
+      { porTalla: -1, porComprador: 2 },
+      "PRODUCT",
+    );
+    expect(lotes).toEqual([
+      [
+        { id: "P148", activity_price_amount: "189.99", quantity_limit: -1, quantity_per_user: 2 },
+        { id: "P114", activity_price_amount: "188.99", quantity_limit: -1, quantity_per_user: 2 },
+      ],
+    ]);
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }, "PRODUCT").product_level).toBe("PRODUCT");
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }).product_level).toBe("VARIATION");
   });
 });

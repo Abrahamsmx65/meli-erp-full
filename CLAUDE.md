@@ -54,6 +54,45 @@ guárdala numerada.
   regla de la mitad / 7 días sigue igual. El rescate del optimizador
   obedece lo mismo (tolerancia infinita para esas tallas). Los productos
   NUEVOS quedan fuera: a ellos se les rellena la caja.
+  **En FULL, desde el 21-oct-2026, la corrida se decide por HERMANAS**
+  (`ajustarCorridaPorHermanas` en `engine/corrida.ts`; el dueño con Daniel,
+  revisando el envío MELI-121 de EnvioPack; lo de arriba —mitad, 7 días,
+  faltante grande— queda SOLO para FBA y para Full con
+  `corridaHermanasMaxDias` = 0): (1) si las cajas que pide la talla corta
+  para sus 30 días dejan a una hermana arriba de `corridaHermanasMaxDias`
+  (45), la talla solo se surte a 15 días (`coberturaSinForzarDias`) y se va
+  mandando en cada envío (GT135 DK BROWN: 2 cajas, no 14); (2) GOTEO de 1
+  caja por envío si la talla trae ≤ 10 % de la caja
+  (`corridaFraccionTallaChica`: 1 de 12, 2 de 24) o si la MAYORÍA de los
+  pares de la caja van a hermanas que ya pasan de 45 días, y solo si le
+  quedan menos de 15 días (GT194 BLK, GT167 BLK, talla 23 de GT135 TABACO
+  BROWN); (3) si las hermanas no pasan de 45, la
+  talla pide su objetivo completo. Se mide contra la mejor caja de la talla:
+  una caja de una sola talla no tiene hermanas y no se recorta.
+  **COLCHÓN DE SUBIDA** (`engine/colchon.ts`, mismo día; «Daniel manda un
+  poco de más cuando va en tendencia de alta por la temporada»): si el
+  modelo + color vende en sus últimos 14 días con stock al menos 1.2× lo
+  que usa el plan (`colchonSubidaFactor`; era 1.3 y se bajó el mismo día
+  para que entraran GT205 NAVY 1.25× y GT229 DK BROWN 1.23×), se usa ese ritmo sin el tope de
+  +50 % de la tendencia, el objetivo es de 45 días (`colchonObjetivoDias`)
+  y la corrida se fuerza mientras el color completo no pase de 60 días a
+  ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va), y
+  nunca más de 5 cajas del color por envío (`colchonMaxCajasEnvio`; dueño,
+  mismo día: el colchón veía subidas de 2 a 3× en GT252, GT122 y GT229 DK
+  BROWN que Daniel no persiguió; se descartó topar por días, por % y por
+  cajas en bodega, y una «apuesta» a mano por modelo; GT150 M BROWN, donde
+  Daniel mandó 20 porque «sabe que se va a vender más», queda en 5; el
+  máximo es del COLOR completo en el optimizador, `maxCajasPorProducto`,
+  no por talla: el 22-oct-2026 GT142 PINK y PURPLE en FBA pedían 6 con cajas
+  de una talla de distintos pedidos). Sin
+  la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4).
+  **Una variante con DOS nombres de SKU se une por `inventory_id`**
+  (`datos/alias-inventario.ts`, en `cargarInsumos`): el sync diario de
+  stock escribe a veces en el nombre APAGADO («GT134-BLK / BLK-25-MX») y las
+  ventas caen en el activo («GT134-BLK-BLK-25-MX»); el plan veía la talla
+  vendiendo sin stock y le inflaba la demanda (52 variantes, 1,324 pares el
+  21-oct-2026). Stock: gana la lectura más reciente; fotos: la de esa
+  fuente; ventas: se suman.
 - **Tres reglas de producto en el plan de Full** (decididas por el dueño el
   9-sep-2026 al revisar por qué EnvioPack aportaba pocas cajas; la
   preferencia Industher → Caseshop → EnvioPack de `prioridadAlmacen` se
@@ -99,6 +138,21 @@ guárdala numerada.
   se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
   pantalla enseña cada envío por bodega en su propia sección (Caseshop +
   Industher, EnvioPack) con el Excel de ese envío.
+  **Y la corrida por HERMANAS, el goteo y el COLCHÓN DE SUBIDA también**
+  (`planFbaConCajas`; dueño, 21-oct-2026: «FBA va a estar con las mismas
+  reglas que aquí»): `ajustarCorridaPorHermanas` en vez de la mitad / 7
+  días (que vuelve solo con `corridaHermanasMaxDias` = 0), con los 7 días de
+  FBA encima de cada número (hermanas 45 + 7, talla corta 15 + 7, colchón
+  45 + 7, tope del color 60 + 7) y a lo más 5 cajas del color por envío.
+  El colchón compara la venta de Amazon de los últimos 14 días
+  (`amazon_ventas_diarias`, `ventasRecientesFba`; sin ella el plan sale sin
+  colchón y lo dice) contra la del periodo, las dos crudas (Amazon no tiene
+  la venta corregida por agotamiento). La pestaña «Por producto»
+  (`sugerirEnvioFba(…, plan)`) ya no lleva su propia cuenta: enseña las
+  cajas del plan y la regla que tocó al color (`etiquetaAjusteFba`), igual
+  que el Excel, y también lo que se manda a PROBAR sin venta en Amazon
+  (`SugerenciaFba.aProbar`; el 22-oct-2026 faltaban 80 de 368 cajas).
+  `VERSION_MOTOR` 2026-10-22.1.
   **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
   «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
   trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo
@@ -472,6 +526,11 @@ guárdala numerada.
   «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
   esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
   ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
+  Lanzamientos también la prueba (`lecturasDeSku`, `buscadorDeProductos`;
+  21-oct-2026: los nueve colores del GT104 salían sin publicar) y amarra
+  por contención AL REVÉS: el pedido «GT229 BLK / GREY FUR» con el «GT229-BLK»
+  de MELI cuando es el ÚNICO color del modelo que lo contiene. Un renglón
+  del pedido en 0 cajas y 0 pares no sale en Lanzamientos.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el
@@ -1773,6 +1832,40 @@ guárdala numerada.
   TikTok las propias `sin_productos` que no han terminado y borra las
   constancias repetidas de «already in use»), reintenta UNA vez con «·2» si
   el título ya existe (`esTituloRepetido`) y acepta `soloIds`.
+  **Una relámpago A MANO no detiene la cíclica** (`esConflictoDeActividad`,
+  `hastaCuandoBloquear`, `MINUTOS_BLOQUEO_SIN_AJENA` 60;
+  `tiktok_promociones_ciclicas.bloqueada_hasta`, migración 0151; dueño,
+  21-oct-2026: «la de GT148 SAHORY es para creador, no es pública ni chocan
+  esas»): el GT148 llevaba desde el 15-oct sin cíclica porque el fondo tomaba
+  «GT148 SAHORY MONSE MARLU» (ONGOING hasta el 22-oct, armada en el Seller
+  Center para creadoras) como ventana viva y esperaba a que terminara. El API
+  no dice si una actividad es de creadores o pública, así que el fondo ya no
+  adivina: solo las ventanas PROPIAS cuentan para `ventanasQueFaltan`, crea
+  la cíclica y, SOLO si TikTok la rechaza con 17029022, deja la cíclica
+  `bloqueada_hasta` el fin de la ajena viva más larga (o una hora si no se
+  ve cuál), la pantalla lo dice («TikTok la rechazó por otra relámpago
+  pública; se reintenta …») y la revisión barata la salta hasta entonces;
+  la actividad vacía la desactiva `limpiarVentanasVacias` como siempre. Las
+  ajenas se siguen enseñando como «creada a mano» y sugieren el precio.
+  **Probado en vivo ese día, dos veces (14:37 y 14:58 México)**: TikTok
+  rechazó la cíclica del GT148 con 17029022 por variante Y por producto
+  (`NivelProducto` «PRODUCT» queda en el motor, probado, sin uso), y el
+  detalle crudo de la de creadoras (bitácora `diagnostico-promociones`)
+  es una FLASHSALE `duration_type NORMAL`, `product_level PRODUCT`, sin
+  ninguna marca de creador: el API no la distingue y SÍ la cuenta como
+  conflicto. El Seller Center sí deja encimar una pública sobre la de
+  creadoras («gt148 16 a 19 oct» corrió sobre SAHORY), pero por API no hay
+  camino: mientras un modelo tenga una relámpago de creadores viva, su
+  cíclica queda bloqueada hasta que termine y la pantalla lo dice.
+  **La diferencia la hace la RESERVA de cantidades al creador** (dueño,
+  21-oct-2026, al comparar «GT148 LIVE MAFER» con «GT148 SAHORY MONSE
+  MARLU»): una relámpago del creador CON cantidades reservadas queda solo
+  del creador (sin producto en la actividad, GMV 0, el API no la devuelve)
+  y NO estorba a la cíclica; una SIN reserva TikTok la crea como relámpago
+  normal con el producto adentro (el API la devuelve con precio, vende GMV)
+  y bloquea la cíclica por API. Regla práctica: las relámpagos para
+  creadores se hacen reservando cantidades; las tres sin reserva (GT148,
+  GT135, GT150) el dueño las cubre a mano hasta que terminen.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
@@ -3068,6 +3161,23 @@ login, la base y el deploy.
   de la ventana (cada bloque ÷ sus días con stock; un bloque sin stock no
   cuenta como cero, se deja fuera), y la ventana termina AYER: hoy va a
   medias. Verificado con 601-iPad10 (pasó de 35 a 65 al día a media ventana).
+  **Lo AGOTADO con historia se repone y lo que NUNCA vendió se estrena**
+  (`HistoriaPrevia`, `ventaDiariaDeHistoria`, `DIAS_HISTORIA` 180, motivos
+  `historia` y `estreno`, `LineaPlan.ventaDeHistoria` en `yapanizcel/plan.ts`;
+  `cargarHistoriaPrevia` en `agregados.ts` con los mismos dos RPC de los
+  bloques sobre los 180 días ANTERIORES a la ventana; dueño, 21-oct-2026:
+  «no me pide mandar 567-i11-transparent pero no hay stock»): un SKU sin
+  venta en la ventana y con NADA en Full ni en camino no le dice nada a la
+  ventana, así que se decide con la historia: si vendió en esos 180 días, su
+  venta diaria sale de ahí (unidades ÷ días con stock, calendario sin fotos,
+  mismo piso) y se repone con eso (567-i11-purple: 58 vendidas hasta julio,
+  10 en bodega, 0 en Full, pedía 0 para siempre; ese día eran 123 SKU con
+  7,619 piezas en bodega); si NUNCA ha vendido y la bodega tiene al menos una
+  decena, va UNA decena de prueba (`minimoEnvio`), salvo publicación cerrada
+  en MELI (31 SKU ese día). No se repite: con la decena en camino o en Full ya
+  no es estreno y, si no vende, Full ya cubre el objetivo. La pantalla lo dice
+  en la columna de motivo y marca la venta diaria con «ᴴ». Sin historia
+  cargada el motor no aplica ninguna de las dos (las pruebas viejas siguen).
 - **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
   una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
   encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se
@@ -3246,7 +3356,7 @@ login, la base y el deploy.
 | Motor de demanda / stock / cajas | `src/lib/engine/` (`demand.ts`, `stockHistory.ts`, `boxes.ts`, `replenish.ts`) |
 | Sincronización con MELI          | `src/lib/servicios/sync.ts`, `webhooks.ts`  |
 | Latido (drena avisos, recalcula, repara historial; candado atómico `candados_trabajo` recurso `latido`, las lecturas de `sync_log` solo son pre-filtro) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
-| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
+| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). **Lanzamientos se pone al día SOLO** (21-oct-2026, dueño: «no se actualizan los que ya tienen fotos y salen sin fotos»: lo guardado era del 13-oct y solo el botón o un contenedor nuevo volvían a preguntar): cron `/api/cron/nuevos-fotos` cada hora, la pantalla pregunta sola lo que falta al abrir si la revisión tiene más de `MINUTOS_REVISION_FOTOS` (30) o hay un producto sin revisar, y Amazon también cuenta las fotos que el catálogo nocturno ya leyó (`catalogo-amazon:asins`, todos los ASIN del color): ese día 32 colores tenían fotos ahí y salían en 0. Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
 | Lógica del pedido a China explicada para el dueño | `docs/PLANIFICACION-CHINA.md` |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
 | Sugerencia de compra a China (MELI = lo que cada talla VENDE CON STOCK, `engine/demanda-surtida.ts`: días surtidos ≥ 0.75 ponderados por recencia en tandas por conteo 50/30/20, sin tope de 3× ni tendencia, decisión del dueño el 11-oct-2026 «calcular según el stock alto»; sin 14 días surtidos cae a la demanda del plan de Full y el renglón lo dice; `DemandaSku.tasaSurtida` → `LineaGuardada.demandaSurtida` → `demandaChinaDeLinea`; **una talla que va unitalla va SOLO unitalla**, redondeada hacia arriba y fuera de la corrida, y **sin receta de ese color la caja se supone**: la del mismo modelo en otro color, la de UNA talla con que se ha pedido el modelo (`cajasUnitallaDePedidos`; al confirmar un borrador solo las cajas de corrida se vuelven receta, una «SOLID SIZE 16 PRS» no es corrida pero sí dice la caja; dueño, 20-oct-2026) o la estándar de la cuenta (`cajaDeRespaldo`, `RenglonCompra.cajaSupuesta`, declarado en el renglón; dueño, 18-oct-2026); Amazon corregida por agotamiento + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado; caché `compras-china:v4`) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
