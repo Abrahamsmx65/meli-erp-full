@@ -20,6 +20,9 @@ describe("archivos de bodega del contenedor", () => {
   it("el barcode es la etiqueta de caja que se mandó a China, con guion donde había espacio", () => {
     expect(codigoDeCaja("IN10079", "GT221", "LT BROWN")).toBe("IN10079-GT221-LT-BROWN");
     expect(codigoDeCaja("IN10079", "GT221", "M  BROWN ")).toBe("IN10079-GT221-M-BROWN");
+    expect(codigoDeCaja("IN10147", "GT170", "LT.BROWN")).toBe("IN10147-GT170-LT-BROWN");
+    expect(codigoDeCaja("IN10147", "GT170", "DK. BROWN")).toBe("IN10147-GT170-DK-BROWN");
+    expect(codigoDeCaja("IN10147", "GT170", "LT.BROWN", "21.5")).toBe("IN10147-GT170-LT-BROWN-21.5");
     expect(codigoDeCaja("IN10159", "GT134", "BLK (NEGRO)", "24")).toBe("IN10159-GT134-BLK-24");
   });
 
