@@ -998,6 +998,22 @@ guárdala numerada.
   continuación por tiempo (`corteDeHoyQueContinua`) solo se une a un corte
   de hoy con el MISMO filtro: nunca se mezcla un corte de GT148 con uno
   general. El filtro se apaga solo al terminar, como «sin defensa».
+  **CORTE DE MUESTRAS** (`pedidosDeMuestras`, `contarMuestras` en
+  `tiktok/corte-modelos.ts`; `PendienteConFecha.esMuestra` de
+  `tiktok_ordenes.es_muestra`; `soloMuestras` en `hacerCorte` /
+  `hacerCorteLunes` / `hacerCorteAyer` / `simularCorte` y en el cuerpo de
+  `POST /api/tiktok/cortes` (`?muestras=1` en `/simular`);
+  `tiktok_cortes.muestras`, migración 0152; botón «Corte muestras · N» en
+  la barra de Despacho; dueño, 22-oct-2026: «si no se ocupa, se revuelven
+  igual con los cortes normales, pero es por si quiero dar prioridad a
+  muestras cuando tengo muchos pedidos, y que salga ahí cuántas son las
+  pendientes de muestras»): con el botón prendido, los tres cortes toman
+  SOLO los pedidos marcados muestra gratis (se puede combinar con el filtro
+  por modelo); la defensa se decide sobre todos y se recorta, como en el
+  corte por modelo; el corte se guarda con `muestras = true`, la lista lo
+  enseña («solo muestras») y solo se une al de hoy que también sea de
+  muestras. Apagado (lo normal), las muestras salen revueltas con lo demás.
+  Se apaga solo al terminar.
   **Un corte por modelo se UNE al de hoy del mismo modelo aunque no haya
   nada «por tiempo»** (`corteQueContinua({ sinExigirTiempo })`,
   `hacerCorte({ unirAlDeHoy })`; dueño, 5-oct-2026: el #51 «solo GT114» de

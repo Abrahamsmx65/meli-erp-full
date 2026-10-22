@@ -22,7 +22,7 @@ import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "..
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { diaMx } from "../tiktok/ventas";
-import { mismoFiltro, normalizarModelos, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
+import { mismoFiltro, normalizarModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
 import { mismoVendedor, nombreDeVendedor, partirPorVendedor, pedidosDeVendedor } from "../tiktok/externos";
 import { skusExternos } from "./tiktok-externos";
 import { pdfListaDeEmpaque } from "../tiktok/empaque-pdf";
@@ -211,6 +211,8 @@ export interface ResultadoCorte {
   modelos?: string[] | null;
   /** de quién es el corte: null = el dueño, 'david' = el vendedor externo */
   vendedor?: string | null;
+  /** true = corte de MUESTRAS: solo las muestras gratis (dueño, 22-oct-2026) */
+  muestras?: boolean;
 }
 
 /**
@@ -309,7 +311,7 @@ export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccio
  * todo es del dueño y no se lee nada de más.
  */
 export async function pendientesDeCorte(db: DB, accountId: string, vendedor: string | null = null): Promise<PendienteConFecha[]> {
-  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion", (q) =>
+  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion, es_muestra", (q) =>
     q.eq("account_id", accountId).is("corte_id", null),
   );
   // Lo más viejo primero: si el corte se queda sin tiempo, lo que sobra es
@@ -317,7 +319,7 @@ export async function pendientesDeCorte(db: DB, accountId: string, vendedor: str
   const todos = ordenarPorAntiguedad(
     (filas ?? [])
       .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
-      .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null })),
+      .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null, esMuestra: o.es_muestra === true })),
   );
   const externos = await skusExternos(db, accountId);
   if (!externos.size) return vendedor ? [] : todos;
@@ -354,13 +356,23 @@ export async function pendientesDeCorteFiltrados(
   accountId: string,
   soloModelos?: string[] | null,
   vendedor: string | null = null,
-): Promise<{ pendientes: PendienteConFecha[]; todos: PendienteConFecha[]; modelos: string[] }> {
+  /** corte de MUESTRAS: solo las muestras gratis (dueño, 22-oct-2026) */
+  soloMuestras = false,
+): Promise<{ pendientes: PendienteConFecha[]; todos: PendienteConFecha[]; modelos: string[]; muestras: boolean }> {
   const todos = await pendientesDeCorte(db, accountId, vendedor);
   const modelos = normalizarModelos(soloModelos);
-  if (!modelos.length) return { pendientes: todos, todos, modelos };
-  const renglones = await renglonesLigerosDe(db, accountId, todos);
+  const base = pedidosDeMuestras(todos, soloMuestras);
+  if (!modelos.length) return { pendientes: base, todos, modelos, muestras: soloMuestras };
+  const renglones = await renglonesLigerosDe(db, accountId, base);
   const entran = pedidosDeSoloModelos(renglones, modelos);
-  return { pendientes: todos.filter((p) => entran.has(p.orderId)), todos, modelos };
+  return { pendientes: base.filter((p) => entran.has(p.orderId)), todos, modelos, muestras: soloMuestras };
+}
+
+/** El aviso cuando el filtro no deja nada que cortar. */
+function sinPendientesCon(modelos: string[], soloMuestras: boolean, vendedor: string | null): string {
+  if (soloMuestras) return modelos.length ? `No hay muestras por despachar que sean solo de ${modelos.join(", ")}.` : "No hay muestras por despachar.";
+  if (modelos.length) return `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.`;
+  return vendedor ? `No hay pedidos de ${nombreDeVendedor(vendedor)} por despachar.` : "No hay pedidos por despachar.";
 }
 
 /** Cuántos pendientes son de un solo modelo, por modelo (el selector de «corte por modelo»). */
@@ -471,6 +483,8 @@ export async function hacerCorte(
     unirAlDeHoy?: boolean;
     /** de quién es el corte: null = el dueño; 'david' = solo los pedidos con algún par del vendedor externo */
     vendedor?: string | null;
+    /** corte de MUESTRAS: solo las muestras gratis; sin esto van revueltas con lo demás (dueño, 22-oct-2026) */
+    soloMuestras?: boolean;
   },
 ): Promise<ResultadoCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? MS_CORTE);
@@ -481,7 +495,8 @@ export async function hacerCorte(
   const filtro = opciones.soloPedidos ? new Set(opciones.soloPedidos) : null;
   let pendientes = filtro ? todos.filter((p) => filtro.has(p.orderId)) : todos;
   const soloModelos = normalizarModelos(opciones.soloModelos);
-  if (!pendientes.length) throw new Error(vendedor ? `No hay pedidos de ${nombreDeVendedor(vendedor)} por despachar.` : "No hay pedidos por despachar.");
+  const soloMuestras = opciones.soloMuestras === true;
+  if (!pendientes.length) throw new Error(sinPendientesCon([], false, vendedor));
 
   const errores: { orderId: string; error: string }[] = [];
 
@@ -498,12 +513,16 @@ export async function hacerCorte(
   let automaticos = defensa.automaticos;
   let liberados = defensa.liberados;
   const enDuda = defensa.enDuda;
-  if (soloModelos.length) {
+  if (soloModelos.length || soloMuestras) {
     // Corte por MODELO (dueño, 5-oct-2026): solo los paquetes de UN solo
     // modelo de la lista; un paquete revuelto se va con el corte general.
-    const entran = pedidosDeSoloModelos(renglonesPorPedido, soloModelos);
+    // Corte de MUESTRAS (22-oct-2026): solo las muestras gratis. La defensa
+    // ya se decidió sobre TODOS; aquí solo se recorta lo que entra.
+    const porModelo = soloModelos.length ? pedidosDeSoloModelos(renglonesPorPedido, soloModelos) : null;
+    const entran = new Set(pedidosDeMuestras(pendientes, soloMuestras).map((p) => p.orderId));
+    if (porModelo) for (const id of [...entran]) if (!porModelo.has(id)) entran.delete(id);
     pendientes = pendientes.filter((p) => entran.has(p.orderId));
-    if (!pendientes.length) throw new Error(`No hay pedidos por despachar que sean solo de ${soloModelos.join(", ")}.`);
+    if (!pendientes.length) throw new Error(sinPendientesCon(soloModelos, soloMuestras, vendedor));
     renglonesPorPedido = new Map([...renglonesPorPedido].filter(([id]) => entran.has(id)));
     automaticos = automaticos.filter((a) => entran.has(a.orderId));
     const lineasDelCorte = new Set([...renglonesPorPedido.values()].flat().map((r) => r.lineItemId));
@@ -810,6 +829,7 @@ export async function hacerCorte(
       al3pl: { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: false },
       modelos: soloModelos.length ? soloModelos : null,
       vendedor,
+      muestras: soloMuestras,
     };
   }
 
@@ -830,6 +850,7 @@ export async function hacerCorte(
   const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
     sinExigirTiempo: opciones.unirAlDeHoy !== false,
     vendedor,
+    muestras: soloMuestras,
   });
   let corte: { id: number };
   let numero: number;
@@ -881,6 +902,8 @@ export async function hacerCorte(
         modelos: soloModelos.length ? soloModelos : null,
         // De quién es (null = el dueño): un corte de David nunca se mezcla con uno del dueño.
         vendedor,
+        // Corte de muestras: solo muestras gratis (dueño, 22-oct-2026).
+        muestras: soloMuestras,
       })
       .select("id")
       .single();
@@ -938,6 +961,7 @@ export async function hacerCorte(
     unido,
     modelos: soloModelos.length ? soloModelos : null,
     vendedor,
+    muestras: soloMuestras,
   };
 }
 
@@ -952,14 +976,14 @@ async function corteDeHoyQueContinua(
   orderIds: string[],
   /** filtro del corte que se está haciendo: solo se une a uno de hoy con el MISMO filtro */
   soloModelos: string[] = [],
-  opciones: { sinExigirTiempo?: boolean; vendedor?: string | null } = {},
+  opciones: { sinExigirTiempo?: boolean; vendedor?: string | null; muestras?: boolean } = {},
 ): Promise<{ id: number; numero: number; pedidos: number; pares: number; errores: { orderId: string; error: string }[] } | null> {
   const ahora = new Date();
   // Desde las 00:00 de hoy en México (UTC−6 fijo, como `diaMx`).
   const desde = new Date(`${diaMx(ahora.toISOString())}T06:00:00Z`).toISOString();
   const { data } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, pedidos, pares, errores, modelos, vendedor")
+    .select("id, numero, creado_en, pedidos, pares, errores, modelos, vendedor, muestras")
     .eq("account_id", accountId)
     .gte("creado_en", desde)
     .order("id", { ascending: false })
@@ -967,8 +991,12 @@ async function corteDeHoyQueContinua(
   // Un corte por modelo nunca se une a uno general ni al de otro modelo:
   // sus hojas son de un solo producto a propósito. Y un corte de David
   // nunca se une a uno del dueño: los despacha otra bodega.
+  // Y un corte de muestras solo se une a otro de muestras (y uno normal a uno normal).
   const cortes = ((data ?? []) as any[]).filter(
-    (c) => mismoFiltro(c.modelos ?? null, soloModelos) && mismoVendedor(c.vendedor ?? null, opciones.vendedor ?? null),
+    (c) =>
+      mismoFiltro(c.modelos ?? null, soloModelos) &&
+      mismoVendedor(c.vendedor ?? null, opciones.vendedor ?? null) &&
+      Boolean(c.muestras) === Boolean(opciones.muestras),
   );
   if (!cortes.length) return null;
   const preparados = new Map<number, number>();
@@ -1056,12 +1084,12 @@ const MS_CORTE_LUNES = 760_000;
 export async function hacerCorteLunes(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null; soloMuestras?: boolean },
 ): Promise<ResultadoCorteLunes> {
   const arranque = Date.now();
-  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
-  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null);
-  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
+  // Corte por modelo o de muestras: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null, opciones.soloMuestras === true);
+  if (!pendientes.length) throw new Error(sinPendientesCon(modelos, muestras, opciones.vendedor ?? null));
 
   const { urgentes, resto } = partirEnTandas(pendientes);
 
@@ -1142,11 +1170,11 @@ export async function hacerCorteLunes(
 export async function hacerCorteAyer(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null; soloMuestras?: boolean },
 ): Promise<ResultadoCorteLunes> {
-  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
-  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null);
-  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
+  // Corte por modelo o de muestras: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null, opciones.soloMuestras === true);
+  if (!pendientes.length) throw new Error(sinPendientesCon(modelos, muestras, opciones.vendedor ?? null));
 
   const { urgentes, resto, corte } = partirEnTandas(pendientes);
   if (!urgentes.length) {
@@ -2459,13 +2487,21 @@ export interface SimulacionCorte {
   modelos: string[];
   /** cuántos pendientes (de TODOS, sin filtro) son de un solo modelo, por modelo */
   porModelo: PendientesPorModelo;
+  /** true = se simuló un corte de MUESTRAS */
+  muestras?: boolean;
 }
 
-export async function simularCorte(admin: any, accountId: string, soloModelos?: string[] | null, vendedor: string | null = null): Promise<SimulacionCorte> {
+export async function simularCorte(
+  admin: any,
+  accountId: string,
+  soloModelos?: string[] | null,
+  vendedor: string | null = null,
+  soloMuestras = false,
+): Promise<SimulacionCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
-  const { pendientes, todos, modelos } = await pendientesDeCorteFiltrados(admin, accountId, soloModelos, vendedor);
+  const { pendientes, todos, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, soloModelos, vendedor, soloMuestras);
   const porModelo = pendientesPorModelo(await renglonesLigerosDe(admin, accountId, todos));
   // La misma defensa automática que aplicaría el corte, sin escribir nada.
   const { porPedido: renglonesSim, enDuda } = await renglonesConDefensa(admin, accountId, pendientes);
@@ -2533,6 +2569,7 @@ export async function simularCorte(admin: any, accountId: string, soloModelos?: 
     salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
     endpoint3pl: urlSalidasIndusther(),
     modelos,
+    muestras,
     porModelo,
   };
 }

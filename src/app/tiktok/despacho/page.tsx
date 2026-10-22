@@ -1,4 +1,5 @@
 import { clienteServidor } from "@/lib/supabase/server";
+import { contarMuestras } from "@/lib/tiktok/corte-modelos";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { avanceDeCortes, pendientesDeCorte, tiemposDeCortes, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
@@ -30,7 +31,7 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
   // se le pide `then`; así la consulta sale una sola vez para los dos usos.
   const consultaCortes = supabase
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos, vendedor")
+    .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos, vendedor, muestras")
     .eq("account_id", cuenta.id);
   const cortesP = Promise.resolve(
     (vendedor ? consultaCortes.eq("vendedor", vendedor) : consultaCortes.is("vendedor", null))
@@ -90,6 +91,7 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
     handover: c.handover,
     errores: c.errores ?? [],
     modelos: c.modelos ?? null,
+    muestras: c.muestras === true,
     preparados: avance === null ? null : (avance.get(Number(c.id))?.preparados ?? 0),
     cancelados: avance?.get(Number(c.id))?.cancelados ?? 0,
     enviados: avance?.get(Number(c.id))?.enviados ?? 0,
@@ -118,7 +120,7 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
           No se pudo leer el avance de preparación. Recarga la página para reintentar.
         </Aviso>
       ) : null}
-      <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} vendedor={vendedor} />
+      <DespachoTikTok pendientes={pendientes.length} muestrasPendientes={contarMuestras(pendientes)} cortes={cortes} porModelo={porModelo} vendedor={vendedor} />
       <EnlacePreparar tokenInicial={token} origen={origen} />
     </Pagina>
   );

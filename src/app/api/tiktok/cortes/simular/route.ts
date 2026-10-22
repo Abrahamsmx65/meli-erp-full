@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
     const modelos = normalizarModelos((req.nextUrl.searchParams.get("modelos") ?? "").split(","));
     // `?vendedor=david` simula el corte del vendedor externo.
     const vendedor = normalizarVendedor(req.nextUrl.searchParams.get("vendedor"));
-    return NextResponse.json(await simularCorte(clienteAdmin(), cuenta.id, modelos, vendedor));
+    // `?muestras=1` simula un corte de MUESTRAS.
+    const muestras = req.nextUrl.searchParams.get("muestras") === "1";
+    return NextResponse.json(await simularCorte(clienteAdmin(), cuenta.id, modelos, vendedor, muestras));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
