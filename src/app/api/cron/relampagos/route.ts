@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import type { DB } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
-import { confirmarRelampagosPendientes } from "@/lib/servicios/precios-modelos";
+import { confirmarBuenFinPendientes, confirmarRelampagosPendientes, revisarTodoNumeros } from "@/lib/servicios/precios-modelos";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,8 +12,9 @@ export const maxDuration = 800;
  * 10:00 de México (16:00Z) y 00:30 (06:30Z, vercel.json): inscribe las
  * relámpago candidatas que cumplen el precio relámpago de Números. MELI deja
  * una sola programada por publicación por el API; la de las 00:30 alcanza la
- * relámpago del día en cuanto termina la de ayer. Mismo secreto que los demás
- * crons.
+ * relámpago del día en cuanto termina la de ayer. Con la MISMA lectura de
+ * promociones confirma también Buen Fin al PV normal (dueño, 22-oct-2026).
+ * Mismo secreto que los demás crons.
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -28,7 +29,10 @@ export async function GET(req: NextRequest) {
   const cliente = await clienteDeCuenta(admin, cuentaId);
   if (!cliente) return NextResponse.json({ error: "La cuenta no tiene tokens de MELI." }, { status: 500 });
   try {
-    return NextResponse.json(await confirmarRelampagosPendientes(admin, cliente, cuentaId));
+    const previa = await revisarTodoNumeros(admin, cliente, cuentaId);
+    const relampagos = await confirmarRelampagosPendientes(admin, cliente, cuentaId, "cron", previa);
+    const buenFin = await confirmarBuenFinPendientes(admin, cliente, cuentaId, "cron", previa);
+    return NextResponse.json({ relampagos, buenFin });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
