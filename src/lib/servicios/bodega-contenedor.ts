@@ -35,12 +35,16 @@ function conGuiones(s: string): string {
 }
 
 /**
- * El PUNTO del color de la proforma («LT.BROWN», «DK.BROWN» del IN10147)
- * cuenta como espacio: las etiquetas de caja se hicieron a mano como en MELI,
- * sin punto (S268, 22-oct-2026). Solo el color: una talla 21.5 lo conserva.
+ * Pedidos cuyas etiquetas de caja hizo el dueño A MANO, como en MELI: sin el
+ * punto que la proforma le pone al color («LT.BROWN», «DK.BROWN»). En los
+ * demás la etiqueta la generó el sistema con el color tal cual y el barcode
+ * lo conserva (S268, 22-oct-2026: «es solo en estos, en los demás sí toma lo
+ * que hay en las etiquetas»).
  */
-function colorSinPunto(s: string): string {
-  return s.replace(/\./g, " ");
+export const PEDIDOS_ETIQUETA_A_MANO = new Set(["IN10147"]);
+
+function colorSinPunto(pedido: string, s: string): string {
+  return PEDIDOS_ETIQUETA_A_MANO.has(pedido.toUpperCase().trim()) ? s.replace(/\./g, " ") : s;
 }
 
 /** Mayúsculas y espacios sencillos, como los escribe MELI. */
@@ -50,7 +54,7 @@ function limpio(s: string): string {
 
 /** El BARCODE de la caja: la etiqueta que se mandó a China, PEDIDO-MODELO-COLOR(-TALLA), sin espacios. */
 export function codigoDeCaja(pedido: string, modelo: string, color: string, talla?: string | null): string {
-  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(colorSinPunto(sinAnotacion(color ?? "")))}`;
+  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(colorSinPunto(pedido, sinAnotacion(color ?? "")))}`;
   return talla ? `${base}-${conGuiones(String(talla))}` : base;
 }
 

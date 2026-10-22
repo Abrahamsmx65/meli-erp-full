@@ -23,6 +23,8 @@ describe("archivos de bodega del contenedor", () => {
     expect(codigoDeCaja("IN10147", "GT170", "LT.BROWN")).toBe("IN10147-GT170-LT-BROWN");
     expect(codigoDeCaja("IN10147", "GT170", "DK. BROWN")).toBe("IN10147-GT170-DK-BROWN");
     expect(codigoDeCaja("IN10147", "GT170", "LT.BROWN", "21.5")).toBe("IN10147-GT170-LT-BROWN-21.5");
+    // Los demás pedidos llevan la etiqueta del sistema, con el punto.
+    expect(codigoDeCaja("IN10120", "GT135", "DK.BROWN")).toBe("IN10120-GT135-DK.BROWN");
     expect(codigoDeCaja("IN10159", "GT134", "BLK (NEGRO)", "24")).toBe("IN10159-GT134-BLK-24");
   });
 
