@@ -522,6 +522,11 @@ export function planFbaConCajas(opts: {
     // La caja de un producto NUEVO va firme, nunca opcional.
     sinOpcional: skusNuevos,
     pisoPorCaja,
+    // Con colchón, a lo más `colchonMaxCajasEnvio` cajas del COLOR completo.
+    maxCajasPorProducto:
+      p.colchonMaxCajasEnvio > 0
+        ? new Map([...colchon.keys()].map((prod) => [prod, p.colchonMaxCajasEnvio]))
+        : undefined,
   });
 
   // Igual que el plan de Full: la marca de opcional viaja DENTRO de la

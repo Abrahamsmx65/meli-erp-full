@@ -84,7 +84,7 @@ export interface CajaGuardada {
  * se marca no vigente y el latido lo recalcula solo. Sin esto, un deploy
  * que corrige el motor seguía sirviendo números del motor anterior.
  */
-export const VERSION_MOTOR = "2026-10-21.1";
+export const VERSION_MOTOR = "2026-10-22.1";
 
 export interface PlanGuardado {
   versionMotor?: string;

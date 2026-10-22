@@ -99,6 +99,11 @@ export interface SugerenciaFba {
   ajusteCorrida: ReglaFba | null;
   /** SKUs (de MELI si amarran) del modelo + color: así se cruza con el plan de cajas */
   skus?: string[];
+  /**
+   * Sin venta en Amazon y el plan le manda cajas: producto NUEVO o que
+   * nunca ha vendido y se manda a probar (posición mínima de 2 cajas).
+   */
+  aProbar?: boolean;
 }
 
 /**
@@ -107,7 +112,13 @@ export interface SugerenciaFba {
  * lo mismo que el plan (antes llevaba su propia cuenta con la regla vieja).
  */
 export interface PlanParaSugerencias {
-  cajas: { cantidad: number; paresTotales: number; aporta: { sku: string }[] }[];
+  cajas: {
+    cantidad: number;
+    paresTotales: number;
+    modelo?: string;
+    color?: string;
+    aporta: { sku: string }[];
+  }[];
   ajustesCorrida: { sku: string; regla: ReglaFba }[];
 }
 
@@ -237,12 +248,28 @@ export function sugerirEnvioFba(
   // sus reglas (hermanas, goteo, colchón), no una cuenta aparte.
   let grupoDeSku: Map<string, string> | null = null;
   const delPlan = new Map<string, { cajas: number; pares: number; regla: ReglaFba | null }>();
+  // Cajas de productos que Amazon no tiene en sus renglones (nunca han
+  // vendido): el plan las manda a probar y la vista también las enseña.
+  const sinRenglon = new Map<
+    string,
+    { modelo: string; color: string; cajas: number; pares: number; skus: Set<string> }
+  >();
   if (plan) {
     grupoDeSku = new Map();
     for (const [clave, g] of grupos) for (const sk of g.skus) grupoDeSku.set(sk, clave);
     for (const c of plan.cajas) {
       const clave = c.aporta.map((a) => grupoDeSku!.get(a.sku)).find((x) => x);
-      if (!clave) continue;
+      if (!clave) {
+        const modelo = (c.modelo ?? "").toUpperCase();
+        const color = (c.color ?? "").toUpperCase();
+        const k = claveGrupoFba(modelo, color);
+        const x = sinRenglon.get(k) ?? { modelo, color, cajas: 0, pares: 0, skus: new Set<string>() };
+        x.cajas += c.cantidad;
+        x.pares += c.paresTotales;
+        for (const a of c.aporta) x.skus.add(a.sku);
+        sinRenglon.set(k, x);
+        continue;
+      }
       const d = delPlan.get(clave) ?? { cajas: 0, pares: 0, regla: null };
       d.cajas += c.cantidad;
       d.pares += c.paresTotales;
@@ -259,11 +286,32 @@ export function sugerirEnvioFba(
     }
   }
 
+  const extras: SugerenciaFba[] = [...sinRenglon.values()].map((x) => ({
+    modelo: x.modelo,
+    color: x.color,
+    producto: `${x.modelo} ${x.color}`.trim(),
+    titulo: null,
+    tallas: x.skus.size,
+    ventaDiaria: 0,
+    disponible: 0,
+    enTransferencia: 0,
+    cobertura: null,
+    faltantePares: 0,
+    paresPorCaja: corridas.get(claveGrupoFba(x.modelo, x.color)) ?? null,
+    cajas: x.cajas,
+    pares: x.pares,
+    tieneCorrida: true,
+    ajusteCorrida: null,
+    skus: [...x.skus],
+    aProbar: true,
+  }));
+
   return [...grupos.entries()]
     .filter(
-      ([clave, g]) => g.ventaDiaria > 0 && (g.faltante >= 1 || (delPlan.get(clave)?.cajas ?? 0) > 0),
+      ([clave, g]) =>
+        (g.ventaDiaria > 0 && g.faltante >= 1) || (delPlan.get(clave)?.cajas ?? 0) > 0,
     )
-    .map(([clave, g]) => {
+    .map(([clave, g]): SugerenciaFba => {
       const posicion = g.disponible + g.enTransferencia;
       const cobertura = g.ventaDiaria > 0 ? posicion / g.ventaDiaria : null;
       const paresPorCaja = corridas.get(claveGrupoFba(g.modelo, g.color)) ?? null;
@@ -335,9 +383,16 @@ export function sugerirEnvioFba(
         tieneCorrida: Boolean(paresPorCaja) || (enPlan?.cajas ?? 0) > 0,
         ajusteCorrida: enPlan ? enPlan.regla : ajusteCorrida,
         skus: g.skus,
+        aProbar: g.ventaDiaria <= 0 && (enPlan?.cajas ?? 0) > 0,
       };
     })
-    .sort((a, b) => (a.cobertura ?? 0) - (b.cobertura ?? 0));
+    .concat(extras)
+    // Lo que se manda a probar (sin cobertura) va al final.
+    .sort((a, b) =>
+      a.cobertura === null || b.cobertura === null
+        ? Number(a.cobertura === null) - Number(b.cobertura === null)
+        : a.cobertura - b.cobertura,
+    );
 }
 
 /** Ventana de venta que alimenta el pedido a China (días). */

@@ -63,6 +63,13 @@ interface Entrada {
   mediaCajaOpcional?: Set<string>;
   /** tope de cajas por envío (0 o undefined = sin tope) */
   maxCajas?: number;
+  /**
+   * Tope de cajas por PRODUCTO (modelo + color, `Caja.producto`) en este
+   * envío: el colchón de subida manda a lo más 5 cajas del color. Se cuenta
+   * el color COMPLETO, de cualquier pedido o caja de una talla (GT142 PINK
+   * en FBA pedía 6 con el tope por talla).
+   */
+  maxCajasPorProducto?: Map<string, number>;
   /** tope de piezas por envío (0 o undefined = sin tope) */
   maxPiezas?: number;
   /**
@@ -141,6 +148,9 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   let piezasUsadas = 0;
   const maxCajas = e.maxCajas && e.maxCajas > 0 ? e.maxCajas : Infinity;
   const maxPiezas = e.maxPiezas && e.maxPiezas > 0 ? e.maxPiezas : Infinity;
+  const grupoDe = (c: Caja) => c.producto ?? c.codigo;
+  const topeGrupo = (c: Caja) => e.maxCajasPorProducto?.get(grupoDe(c)) ?? Infinity;
+  const porGrupo = new Map<string, number>(); // producto -> cajas elegidas
 
   const costoTotal = (): number => {
     let t = 0;
@@ -167,6 +177,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   const cabe = (c: Caja): boolean =>
     (q.get(c.codigo) ?? 0) < c.cajasDisponibles &&
     cajasUsadas + 1 <= maxCajas &&
+    (porGrupo.get(grupoDe(c)) ?? 0) + 1 <= topeGrupo(c) &&
     piezasUsadas + (piezasDe.get(c.codigo) ?? 0) <= maxPiezas;
 
   const aplicar = (c: Caja, signo: 1 | -1): void => {
@@ -175,6 +186,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       enviado.set(it.sku, Math.max(0, actual + signo * it.piezas));
     }
     q.set(c.codigo, (q.get(c.codigo) ?? 0) + signo);
+    porGrupo.set(grupoDe(c), (porGrupo.get(grupoDe(c)) ?? 0) + signo);
     cajasUsadas += signo;
     piezasUsadas += signo * (piezasDe.get(c.codigo) ?? 0);
   };
@@ -281,6 +293,8 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       if ((q.get(a.codigo) ?? 0) <= piso(a)) continue;
       for (const b of candidatas(a)) {
         if ((q.get(b.codigo) ?? 0) >= b.cajasDisponibles) continue;
+        // Otro color con tope: la permuta no puede pasarlo.
+        if (grupoDe(b) !== grupoDe(a) && (porGrupo.get(grupoDe(b)) ?? 0) + 1 > topeGrupo(b)) continue;
         // Con tope de piezas, la permuta puede no caber aunque el conteo sí.
         if (hayTope) {
           const dif = (piezasDe.get(b.codigo) ?? 0) - (piezasDe.get(a.codigo) ?? 0);
