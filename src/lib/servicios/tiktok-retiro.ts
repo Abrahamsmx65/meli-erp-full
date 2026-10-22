@@ -20,11 +20,16 @@ export interface ResultadoRetiro {
   avisos: string[];
 }
 
+/**
+ * `cantidades` (sku → pares) descuenta solo esos pares, topados a lo
+ * disponible; un SKU sin cantidad en el mapa se retira completo.
+ */
 export async function retirarDelAlmacenTikTok(
   admin: DB,
   accountId: string,
   skusPedidos: string[],
   usuario: string | null,
+  cantidades: Record<string, number> = {},
 ): Promise<ResultadoRetiro> {
   const skus = [...new Set(skusPedidos.map((s) => String(s ?? "").trim()).filter(Boolean))].slice(0, 500);
   if (!skus.length) throw new Error("No se eligió ningún SKU.");
@@ -45,14 +50,15 @@ export async function retirarDelAlmacenTikTok(
   const plan = planRetiro(
     skus.map((sku) => {
       const f = porSku.get(sku) as any;
-      return { sku, saldo: Number(f.saldo ?? 0), apartado: Number(f.apartado ?? 0) + Number(f.apartado_web ?? 0) };
+      const cantidad = Object.prototype.hasOwnProperty.call(cantidades, sku) ? Number(cantidades[sku]) : null;
+      return { sku, saldo: Number(f.saldo ?? 0), apartado: Number(f.apartado ?? 0) + Number(f.apartado_web ?? 0), cantidad };
     }),
     fecha,
   );
 
   const avisos: string[] = [];
   if (!plan.movimientos.length) {
-    return { referencia: plan.referencia, detalle: [], sinDisponible: plan.sinDisponible, paresRetirados: 0, avisos: ["Ningún SKU tenía pares disponibles que retirar."] };
+    return { referencia: plan.referencia, detalle: [], sinDisponible: plan.sinDisponible, paresRetirados: 0, avisos: ["Ningún SKU tenía pares disponibles que descontar."] };
   }
 
   // 1. El kardex: la salida baja el saldo (lo apartado se queda).

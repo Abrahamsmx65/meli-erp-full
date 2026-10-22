@@ -11,7 +11,8 @@ export const maxDuration = 300;
  * Retira del almacén de TikTok lo disponible de unos SKU: salida en el
  * kardex, salida a Industher y cero publicado en TikTok. Solo el dueño.
  *
- * Cuerpo: { skus: string[] }
+ * Cuerpo: { skus: string[], cantidades?: { [sku]: pares } } — con cantidad
+ * se descuentan solo esos pares (topados a lo disponible); sin ella, todo.
  */
 export async function POST(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -27,9 +28,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const skus = Array.isArray(body?.skus) ? body.skus.map(String) : [];
   if (!skus.length) return NextResponse.json({ error: "No se eligió ningún SKU." }, { status: 400 });
+  const cantidades: Record<string, number> = {};
+  if (body?.cantidades && typeof body.cantidades === "object") {
+    for (const [sku, n] of Object.entries(body.cantidades as Record<string, unknown>)) {
+      const pares = Math.round(Number(n));
+      if (!Number.isFinite(pares) || pares <= 0) return NextResponse.json({ error: `Cantidad inválida para ${sku}.` }, { status: 400 });
+      cantidades[String(sku)] = pares;
+    }
+  }
 
   try {
-    const r = await retirarDelAlmacenTikTok(clienteAdmin(), cuenta.id, skus, user.id);
+    const r = await retirarDelAlmacenTikTok(clienteAdmin(), cuenta.id, skus, user.id, cantidades);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

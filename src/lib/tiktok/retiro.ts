@@ -17,6 +17,8 @@ export interface SkuARetirar {
   sku: string;
   saldo: number;
   apartado: number;
+  /** cuántos pares descontar; sin cantidad se retira TODO lo disponible */
+  cantidad?: number | null;
 }
 
 export interface MovimientoRetiro {
@@ -39,13 +41,15 @@ export interface PlanRetiro {
   referencia: string;
   movimientos: MovimientoRetiro[];
   salidas3pl: SalidaRetiro[];
-  /** por SKU: cuánto se retira y cuánto se queda apartado en pedidos */
-  detalle: { sku: string; retirados: number; apartados: number }[];
+  /** por SKU: cuánto se retira, cuánto se queda apartado en pedidos y cuánto se pidió de más (topado al disponible) */
+  detalle: { sku: string; retirados: number; apartados: number; recortados?: number }[];
   /** SKU que no tenían nada disponible que retirar */
   sinDisponible: string[];
 }
 
 export const MOTIVO_RETIRO = "Retirado del almacén TikTok a mano";
+/** el mismo retiro pero por una cantidad tecleada (dueño, 22-oct-2026: «una barra en la que se pone una cantidad y descuenta las piezas») */
+export const MOTIVO_DESCUENTO = "Descontado del almacén TikTok a mano";
 
 /** `RETIRO-20261020T143512` : única por clic, legible en Industher y en el kardex. */
 export function referenciaDeRetiro(fecha: string): string {
@@ -66,9 +70,16 @@ export function planRetiro(skus: SkuARetirar[], fecha: string): PlanRetiro {
       plan.sinDisponible.push(sku);
       continue;
     }
-    plan.movimientos.push({ sku, tipo: "salida", cantidad: disponible, referencia, motivo: MOTIVO_RETIRO, fecha });
-    plan.salidas3pl.push({ orderId: referencia, sku, pares: disponible });
-    plan.detalle.push({ sku, retirados: disponible, apartados: apartado });
+    // Con cantidad se descuentan esos pares, topados a lo disponible: lo
+    // apartado en pedidos pagados nunca se toca. Sin cantidad, todo.
+    const pedida = s.cantidad == null ? null : Math.max(0, Math.round(Number(s.cantidad)));
+    if (pedida === 0 || (pedida != null && !Number.isFinite(pedida))) continue;
+    const retirados = pedida == null ? disponible : Math.min(pedida, disponible);
+    const recortados = pedida == null ? 0 : pedida - retirados;
+    const motivo = pedida == null ? MOTIVO_RETIRO : `${MOTIVO_DESCUENTO} (${pedida} pares)`;
+    plan.movimientos.push({ sku, tipo: "salida", cantidad: retirados, referencia, motivo, fecha });
+    plan.salidas3pl.push({ orderId: referencia, sku, pares: retirados });
+    plan.detalle.push({ sku, retirados, apartados: apartado, ...(recortados > 0 ? { recortados } : {}) });
   }
   return plan;
 }
