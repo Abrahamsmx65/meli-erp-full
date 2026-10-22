@@ -312,22 +312,25 @@ export function ofertaAmazon(actual: Oferta[] | undefined, marketplaceId: string
 }
 
 /**
- * El precio MÁS BAJO que MELI acepta en una promoción que rechazó el nuestro
- * por «no creíble» (dueño, 22-oct-2026: «ponme el precio que pide como mínimo
- * MELI y poder aceptarlas»): su `min_discounted_price` y, si no lo manda o no
- * pasa del nuestro, el sugerido. Se sube al .99 mientras no se pase del
- * máximo. Null = MELI no dijo un precio arriba del nuestro.
+ * El precio que MELI SÍ acepta en una promoción que rechazó el nuestro por
+ * «no creíble» (ERROR_CREDIBILITY_DISCOUNTED_PRICE; dueño, 22-oct-2026:
+ * «ponme el precio que pide MELI y poder aceptarlas»). En una DEAL (Buen Fin)
+ * MELI da un RANGO: `min_discounted_price` es el piso y `max_discounted_price`
+ * el precio MÁS ALTO que acepta (GT130: de $99.80 a $242.49 contra los $249.99
+ * de Números); arriba de eso el descuento «no es creíble». Se toma el .99 más
+ * alto que no pase del máximo (241.99), sin bajar del piso. Null = el nuestro
+ * no pasa del máximo o MELI no lo mandó: el rechazo es por otra cosa.
  */
 export function minimoCreible(
-  p: { min_discounted_price?: number | null; suggested_discounted_price?: number | null; max_discounted_price?: number | null },
+  p: { min_discounted_price?: number | null; max_discounted_price?: number | null },
   queriamos: number,
 ): number | null {
-  const candidatos = [p.min_discounted_price, p.suggested_discounted_price].filter(
-    (x): x is number => typeof x === "number" && Number.isFinite(x) && x > queriamos,
-  );
-  if (!candidatos.length) return null;
-  const base = Math.min(...candidatos);
-  const r = redondear99(base) as number;
   const max = p.max_discounted_price;
-  return max != null && max > 0 && r > max ? Math.round(base * 100) / 100 : r;
+  if (typeof max !== "number" || !Number.isFinite(max) || max <= 0 || queriamos <= max) return null;
+  let r = Math.floor(max) + 0.99;
+  if (r > max + 1e-9) r -= 1;
+  r = Math.round(r * 100) / 100;
+  const min = p.min_discounted_price;
+  if (typeof min === "number" && Number.isFinite(min) && r < min) return Math.round(max * 100) / 100;
+  return r;
 }
