@@ -9,8 +9,9 @@
  *   FUNDAS TABLETA   … PV MELI RETENCION | 5% MAS PARA RELAMPAGO | …
  * Debajo de cada encabezado, un renglón por diseño (columna A: «462»,
  * «380 GRANDE»). El PV MELI es el precio de todos los días y de Buen Fin;
- * la relámpago, su columna «RELAMPAGO». Las micas no la tienen: se usa la
- * misma regla del sheet (PV × 1.055) y se declara.
+ * la relámpago, su columna «RELAMPAGO». Las MICAS no la tienen porque su
+ * categoría en MELI no permite relámpago (dueño, 23-oct-2026): sin precio
+ * de relámpago, el motor no les inscribe ninguna.
  *
  * Un diseño en dos renglones (582 con dos costos, 380 GRANDE y CHICO) se
  * queda con el precio MÁS ALTO: la publicación no dice cuál de los dos es,
@@ -18,16 +19,12 @@
  */
 import type { Celda, Libro } from "../finanzas/sheets";
 
-/** La regla del sheet para la relámpago: 5.5 % arriba del PV MELI. */
-export const FACTOR_RELAMPAGO_FUNDAS = 1.055;
-
 export interface PrecioFunda {
   diseno: string;
   /** PV MELI del sheet, tal cual */
   pvMeli: number;
-  /** precio relámpago del sheet (o PV × 1.055 si su bloque no lo trae) */
-  relampago: number;
-  relampagoCalculado: boolean;
+  /** precio relámpago del sheet; null en un bloque sin esa columna (micas) */
+  relampago: number | null;
   /** el bloque del sheet: FUNDAS, MICAS, FUNDAS TABLETA */
   bloque: string;
   /** renglones del sheet que dieron este precio (más de uno = se tomó el más alto) */
@@ -68,13 +65,11 @@ export function leerPreciosFundas(libro: Libro): { precios: PrecioFunda[]; aviso
     if (!m) continue;
     const pvMeli = num(fila[iPv]);
     if (pvMeli == null) continue;
-    const delSheet = iRel >= 0 ? num(fila[iRel]) : null;
-    const relampago = delSheet ?? pvMeli * FACTOR_RELAMPAGO_FUNDAS;
+    const relampago = iRel >= 0 ? num(fila[iRel]) : null;
     const nuevo: PrecioFunda = {
       diseno: m[1],
       pvMeli: redondear(pvMeli),
-      relampago: redondear(relampago),
-      relampagoCalculado: delSheet == null,
+      relampago: relampago == null ? null : redondear(relampago),
       bloque,
       renglones: [etiqueta],
     };
@@ -92,12 +87,6 @@ export function leerPreciosFundas(libro: Libro): { precios: PrecioFunda[]; aviso
   if (repetidos.length) {
     avisos.push(
       `Diseños en más de un renglón del sheet, se usa el precio más alto: ${repetidos.map((p) => `${p.diseno} (${p.renglones.join(", ")})`).join("; ")}.`,
-    );
-  }
-  const calculados = precios.filter((p) => p.relampagoCalculado);
-  if (calculados.length) {
-    avisos.push(
-      `Sin columna de relámpago en el sheet (${[...new Set(calculados.map((p) => p.bloque))].join(", ")}): su relámpago es el PV MELI × 1.055, la regla de las demás: ${calculados.map((p) => p.diseno).join(", ")}.`,
     );
   }
   if (!precios.length) avisos.push("La pestaña FUNDAS de Números no trae ningún diseño con PV MELI.");

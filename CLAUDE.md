@@ -3482,8 +3482,9 @@ login, la base y el deploy.
   `clases: ["buen_fin", "todos_los_dias"]`, `revisarOfertasCon` con
   `fuenteFundas`, la bitácora de `bitacora-ofertas.ts`), con el precio por
   DISEÑO de la pestaña FUNDAS del sheet «Números» (se baja en cada corrida):
-  relámpago = su columna «5% MAS PARA RELAMPAGO» (las MICAS no la tienen:
-  PV × 1.055, la regla de las demás, y se declara); Buen Fin, todos los días
+  relámpago = su columna «5% MAS PARA RELAMPAGO» (las MICAS no la tienen
+  porque su categoría en MELI no permite relámpago: sin precio, no se les
+  inscribe ninguna; dueño, 23-oct-2026); Buen Fin, todos los días
   y el piso de las ofertas con aporte = PV MELI; los dos a .99. Un diseño en
   dos renglones del sheet (582, 380 GRANDE/CHICO, 599 GRANDE/CHICA) toma el
   precio MÁS ALTO; una publicación con varios diseños o un diseño sin PV en

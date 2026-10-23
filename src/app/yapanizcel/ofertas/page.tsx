@@ -126,8 +126,7 @@ export default async function OfertasFundas() {
                           <td>{p.bloque}</td>
                           <td className="num cifra">{din(p.pvMeli)}</td>
                           <td className="num cifra">
-                            {din(p.relampago)}
-                            {p.relampagoCalculado ? <span className="texto-tenue"> (PV × 1.055)</span> : null}
+                            {p.relampago == null ? <span className="texto-tenue">sin relámpago</span> : din(p.relampago)}
                           </td>
                           <td className="text-xs">{p.renglones.join(", ")}</td>
                         </tr>
