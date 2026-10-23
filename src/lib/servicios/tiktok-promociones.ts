@@ -985,12 +985,12 @@ export async function alargarOferta(
     const nuevoFin = finExtendido(new Date(finActual), horas);
     let respuesta: unknown;
     try {
-      // TikTok exige el título aunque solo cambie el fin (36009004 «Title is
-      // a required field», 22-oct-2026): va el mismo que ya tiene. El inicio
-      // solo en una que no ha empezado: en una en curso ya quedó atrás.
+      // TikTok exige el título y el inicio aunque solo cambie el fin
+      // (36009004 «Title is a required field», luego «BeginTime is a
+      // required field», 22-oct-2026): van los mismos que ya tiene.
       respuesta = await actualizarActividad(cliente, id, {
         title: titulo ?? undefined,
-        beginTime: String(antes?.status ?? "") === "NOT_START" && Number(antes?.begin_time) > 0 ? Number(antes.begin_time) : undefined,
+        beginTime: Number(antes?.begin_time) > 0 ? Number(antes.begin_time) : undefined,
         endTime: Math.floor(nuevoFin.getTime() / 1000),
       });
     } catch (err) {

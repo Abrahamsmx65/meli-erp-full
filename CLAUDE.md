@@ -1896,10 +1896,10 @@ guárdala numerada.
   **La cíclica se ALARGA antes de crear otra** (`alargarOferta` y
   `extenderVentana` en `servicios/tiktok-promociones.ts`,
   `actualizarActividad` en `tiktok/api.ts` = `PUT
-  /promotion/202309/activities/{id}` con `end_time` y el MISMO `title`
-  —TikTok lo exige aunque no cambie: 36009004 «Title is a required field»,
-  probado por el dueño el 22-oct-2026 en «GT150 CICLICA»— y `begin_time`
-  solo si no ha empezado, `finExtendido`
+  /promotion/202309/activities/{id}` con `end_time` y los MISMOS `title` y
+  `begin_time` —TikTok los exige aunque no cambien: 36009004 «Title is a
+  required field» y «BeginTime is a required field», probados por el dueño
+  el 22-oct-2026 en «GT150 CICLICA»—, `finExtendido`
   puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
   manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
   no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada
@@ -1940,6 +1940,20 @@ guárdala numerada.
   en TikTok»). Ahora una publicación cuyo estado no admite inventario
   (DRAFT, PENDING, FAILED, ACTIVATE y SELLER_DEACTIVATED sí; DELETED y
   demás no) no se intenta y se declara, y cada motivo sale con sus SKUs.
+  **Un modelo que se deja EN CEROS y TikTok rechaza por stock reservado
+  (12019024) cancela sus relámpagos solo** (`productosEnCerosRechazados`,
+  `esRechazoPorReserva` en `tiktok/kardex.ts` puros con pruebas;
+  `cancelarRelampagosDePublicacionesEnCeros` en `servicios/tiktok.ts`,
+  bitácora tarea `relampagos-por-cero`; dueño, 22-oct-2026: «si un modelo
+  queda en ceros y hay error 12019024, que todas las relámpagos que tiene
+  se cancelen para que pueda actualizarse el stock»): solo si TODAS las
+  variantes conocidas de la publicación van a cero (una talla viva no
+  cancela nada), se desactivan en TikTok las relámpagos en curso y
+  programadas que tienen ese producto (las de `relampagosPorProducto`,
+  masticadas 10 min), se PAUSA la cíclica del modelo (si no, el fondo
+  crearía otra en un minuto; `ultimo_error` dice por qué y se reactiva a
+  mano) y se vuelve a mandar el cero una vez; si TikTok sigue rechazando,
+  la siguiente corrida lo reintenta.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
