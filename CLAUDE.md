@@ -3469,6 +3469,33 @@ login, la base y el deploy.
   `almacenYz` (bitácora en `yz_sync_log`, tarea `cargos`), gastos a mano en
   `yz_gastos`, cortes en `yz_cortes`. Todo el fondo (netos, revisión,
   facturación) corre en el cron de `/api/yapanizcel/netos` cada 10 min.
+- **OFERTAS de las fundas: relámpago, Buen Fin, todos los días y con aporte,
+  solas** (`/yapanizcel/ofertas` «Ofertas»; `yapanizcel/precios-sheet.ts`
+  puro con pruebas sobre el sheet real, `servicios/fundas-ofertas.ts`,
+  `/api/yapanizcel/ofertas{,/relampagos,/buen-fin,/buen-fin/aceptar}`, cron
+  `/api/cron/yapanizcel-ofertas?que=promos` a las 10:05 y 00:35 de México y
+  `?que=aporte` cada hora; dueño, 23-oct-2026: «una sección igual para las
+  ofertas en fundas […] que se confirmen solas», «puede tomar el precio del
+  sheet de Números de la sección fundas», regulares = todos los días Y con
+  aporte). EL MISMO motor que el calzado (`promosDeItems`,
+  `confirmarRelampagosPendientes`, `confirmarBuenFinPendientes` con
+  `clases: ["buen_fin", "todos_los_dias"]`, `revisarOfertasCon` con
+  `fuenteFundas`, la bitácora de `bitacora-ofertas.ts`), con el precio por
+  DISEÑO de la pestaña FUNDAS del sheet «Números» (se baja en cada corrida):
+  relámpago = su columna «5% MAS PARA RELAMPAGO» (las MICAS no la tienen:
+  PV × 1.055, la regla de las demás, y se declara); Buen Fin, todos los días
+  y el piso de las ofertas con aporte = PV MELI; los dos a .99. Un diseño en
+  dos renglones del sheet (582, 380 GRANDE/CHICO, 599 GRANDE/CHICA) toma el
+  precio MÁS ALTO; una publicación con varios diseños o un diseño sin PV en
+  el sheet no se toca, y las dos cosas se avisan. El sheet de fundas no trae
+  envío: una oferta con aporte que cruza los $299 queda «sin datos»
+  (`ObjetivoOferta.envio` null). Publicación → diseño por `yz_skus` no
+  cerradas. Bitácora en `yz_sync_log` con la tarea en `detalle` (las mismas
+  tareas que calzado: `relampagos-auto`, `buen-fin-auto`, `buen-fin-aceptar`,
+  `ofertas-aporte`); revisión de las de aporte en `yz_cache` `ofertas-meli`
+  con los precios leídos (pestaña «Precios del sheet»). «Confirmar solas»
+  (`yz_cache` `ofertas-meli:config`) nace PRENDIDO; apagado, el cron solo
+  revisa las de aporte.
 - Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
   `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con
   cron propio CADA 10 MINUTOS porque MELI entrega ~1 user product por segundo y el

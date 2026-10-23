@@ -184,6 +184,7 @@ const GRUPOS: Grupo[] = [
       { href: "/yapanizcel/listados", texto: "Publicaciones", icono: Rows3, ayuda: "Atributos de las publicaciones, por diseño" },
       { href: "/yapanizcel/envios", texto: "Reabasto a Full", icono: PackagePlus, ayuda: "Qué mandar, en decenas cerradas" },
       { href: "/yapanizcel/etiquetas", texto: "Etiquetas", icono: Tag, ayuda: "Imprimir etiquetas de Full de las fundas" },
+      { href: "/yapanizcel/ofertas", texto: "Ofertas", icono: BadgePercent, ayuda: "Relámpago, Buen Fin y ofertas con aporte con los precios del sheet" },
       { href: "/yapanizcel/pedidos", texto: "Compras a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
       { href: "/yapanizcel/ajustes", texto: "Configuración", icono: SlidersHorizontal, ayuda: "Conexión, costos y parámetros" },
     ],

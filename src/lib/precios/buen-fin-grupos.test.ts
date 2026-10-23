@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorFamilia, partesDeDonde } from "./buen-fin-grupos";
+import { agruparPorFamilia, partesDeDonde, renglonesParaAceptar } from "./buen-fin-grupos";
 
 const r = (item: string, modelo: string, queriamos: number, precio: number) => ({
   donde: `${item} · ${modelo} · Buen Fin 26`,
@@ -24,5 +24,20 @@ describe("agruparPorFamilia", () => {
   });
   it("lee modelo y promoción de donde", () => {
     expect(partesDeDonde("MLM1 · GT104-5 · Buen Fin 26")).toEqual({ item: "MLM1", modelo: "GT104-5", promocion: "Buen Fin 26" });
+  });
+});
+
+describe("renglonesParaAceptar", () => {
+  it("se queda solo con lo bien formado y redondea el precio", () => {
+    expect(
+      renglonesParaAceptar({
+        renglones: [
+          { itemId: "MLM1", promoId: "P-1", tipo: "DEAL", offerId: null, accion: "cambiar", precio: 241.994, donde: "MLM1 · 499 · Buen Fin 26" },
+          { itemId: "nada", precio: 10 },
+          { itemId: "MLM2", precio: 0 },
+        ],
+      }),
+    ).toEqual([{ itemId: "MLM1", promoId: "P-1", tipo: "DEAL", offerId: null, accion: "cambiar", precio: 241.99, donde: "MLM1 · 499 · Buen Fin 26" }]);
+    expect(renglonesParaAceptar(null)).toEqual([]);
   });
 });

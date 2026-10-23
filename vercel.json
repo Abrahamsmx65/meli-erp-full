@@ -93,6 +93,18 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "5 16 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "35 6 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=aporte",
+      "schedule": "50 * * * *"
+    },
+    {
       "path": "/api/cron/publicidad-correo",
       "schedule": "15 14 * * 1,4"
     },
