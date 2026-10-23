@@ -193,6 +193,28 @@ export function calcularPrecios(entrada: {
   };
 }
 
+/**
+ * Precio unitario SIN IVA con 6 decimales (los que admite el CFDI): con dos,
+ * 101.18 × 4,800 pares no daba lo mismo que 117.37 × 4,800 ÷ 1.16 (dueño,
+ * 23-oct-2026: «no me cuadra el total, te faltan centavos»).
+ */
+export function precioSinIva(conIva: number): number {
+  return Math.round((conIva / IVA) * 1e6) / 1e6;
+}
+
+/**
+ * Importe de un renglón como lo arma la factura: pares × precio sin IVA (6
+ * decimales), el IVA es el 16 % de ese importe y el total su suma. Así el
+ * total con IVA sale del importe sin IVA y cuadra al centavo con lo que diga
+ * el CFDI.
+ */
+export function importeFactura(conIva: number, pares: number): { unitario: number; base: number; iva: number; total: number } {
+  const unitario = precioSinIva(conIva);
+  const base = r2(unitario * pares);
+  const iva = r2(base * (IVA - 1));
+  return { unitario, base, iva, total: r2(base + iva) };
+}
+
 /** Lo que se le factura a un precio con IVA: base sin IVA e IVA trasladado. */
 export function desgloseIva(conIva: number): { base: number; iva: number; total: number } {
   const base = r2(conIva / IVA);
@@ -258,13 +280,10 @@ export function facturaDeContenedor(
       filas.push({ modelo, descripcion: d.descripcion, codigoSat: d.codigoSat, pares: n, precioConIva: null, precioSinIva: null, importeSinIva: null, iva: null, total: null });
       continue;
     }
-    const unit = desgloseIva(precio);
-    const base = r2(unit.base * n);
-    const total = r2(precio * n);
-    const iva = r2(total - base);
+    const { unitario, base, iva, total } = importeFactura(precio, n);
     tb += base;
     ti += iva;
-    filas.push({ modelo, descripcion: d.descripcion, codigoSat: d.codigoSat, pares: n, precioConIva: r2(precio), precioSinIva: unit.base, importeSinIva: base, iva, total });
+    filas.push({ modelo, descripcion: d.descripcion, codigoSat: d.codigoSat, pares: n, precioConIva: r2(precio), precioSinIva: unitario, importeSinIva: base, iva, total });
   }
   return { filas, totales: { pares: tp, base: r2(tb), iva: r2(ti), total: r2(tb + ti) }, sinPrecio, sinCodigo };
 }

@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { desgloseIva } from "@/lib/finanzas/calculadora-precios";
+import { precioSinIva } from "@/lib/finanzas/calculadora-precios";
 import type { CalculadoraCargada, ContenedorFactura } from "@/lib/servicios/calculadora-precios";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const din6 = (x: number) => "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 
 const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-2)" };
 
@@ -246,7 +248,7 @@ export function CalculadoraFiscal({
                       </div>
                     ) : null}
                   </td>
-                  <td className="num cifra texto-2">{r.precioKomerline != null ? din(desgloseIva(r.precioKomerline).base) : "—"}</td>
+                  <td className="num cifra texto-2">{r.precioKomerline != null ? din6(precioSinIva(r.precioKomerline)) : "—"}</td>
                   <td className="num cifra texto-2">{r.precioIndusther != null ? din(r.gastoOperativoPar) : "—"}</td>
                   <td className="num cifra texto-2">{din(r.gananciaIndustherPar)}</td>
                   <td className="num cifra font-medium">
@@ -257,7 +259,7 @@ export function CalculadoraFiscal({
                       </div>
                     ) : null}
                   </td>
-                  <td className="num cifra texto-2">{r.precioIndusther != null ? din(desgloseIva(r.precioIndusther).base) : "—"}</td>
+                  <td className="num cifra texto-2">{r.precioIndusther != null ? din6(precioSinIva(r.precioIndusther)) : "—"}</td>
                   <td className="num cifra texto-2">{din(r.costo)}</td>
                   <td className="num cifra" style={{ color: r.margenProveedor != null && r.margenProveedor < 0 ? "var(--estado-critico)" : undefined }}>
                     {din(r.margenProveedor)}

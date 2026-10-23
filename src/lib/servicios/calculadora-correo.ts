@@ -32,6 +32,9 @@ export async function leerDestinatariosFactura(db: DB, accountId: string): Promi
 
 const din = (x: number | null) =>
   x == null ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** El precio unitario sin IVA lleva sus 6 decimales: con dos no cuadra contra el importe. */
+const din6 = (x: number | null) =>
+  x == null ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 
 /** Asunto, HTML con la marca y texto plano de la solicitud. */
 export function correoSolicitudFactura(x: Omit<ExcelFactura, "buffer">): { asunto: string; html: string; texto: string } {
@@ -54,7 +57,7 @@ export function correoSolicitudFactura(x: Omit<ExcelFactura, "buffer">): { asunt
         .map(
           (r) =>
             `<tr>${td(e(r.modelo), false, "font-weight:600")}${td(e(r.codigoSat || "—"))}${td(r.pares.toLocaleString("es-MX"), true)}` +
-            `${td(din(r.precioSinIva), true)}${td(din(r.precioConIva), true)}${td(din(r.importeSinIva), true)}${td(din(r.iva), true)}${td(din(r.total), true, "font-weight:600")}</tr>`,
+            `${td(din6(r.precioSinIva), true)}${td(din(r.precioConIva), true)}${td(din(r.importeSinIva), true)}${td(din(r.iva), true)}${td(din(r.total), true, "font-weight:600")}</tr>`,
         )
         .join("");
       const t = f.totales;
@@ -105,7 +108,7 @@ export function correoSolicitudFactura(x: Omit<ExcelFactura, "buffer">): { asunt
         (f) =>
           `${f.titulo}\n` +
           f.filas
-            .map((r) => `${r.modelo} · SAT ${r.codigoSat || "—"} · ${r.pares} pares · ${din(r.precioSinIva)} sin IVA · ${din(r.precioConIva)} con IVA · total ${din(r.total)}`)
+            .map((r) => `${r.modelo} · SAT ${r.codigoSat || "—"} · ${r.pares} pares · ${din6(r.precioSinIva)} sin IVA · ${din(r.precioConIva)} con IVA · total ${din(r.total)}`)
             .join("\n") +
           `\nTotal: ${din(f.totales.base)} + IVA ${din(f.totales.iva)} = ${din(f.totales.total)}`,
       )
