@@ -1911,7 +1911,21 @@ guárdala numerada.
   (el producto nunca se queda sin relámpago y una de creadores que entre
   mientras no estorba); si TikTok lo rechaza (tope de 72 h o lo que diga),
   se espera a que termine y se crea la siguiente como antes. Un intento por
-  ventana. **Lo que TikTok rechaza al ESCRIBIR INVENTARIO se declara POR
+  ventana. **Una ventana propia que TikTok tiene VIVA con el producto
+  cuenta como viva aunque el ERP la diera por vacía** (`revivirVentanasPropias`,
+  `ResultadoProgramacion.revividas`; 22-oct-2026): el 21-oct el ERP creó la
+  «Cíclica GT148 21/10 15:00 · producto», TikTok rechazó meterle el producto
+  (17029022) y el ERP la desactivó; a las 15:16 el dueño la rearmó a mano en
+  el Seller Center con el GT148 a $199.99 (ONGOING hasta el 24-oct 15:13) y
+  el ERP, que solo creía en su renglón `desactivada`, la tomaba como AJENA:
+  bloqueaba la cíclica contra su propia relámpago, la pantalla decía «GT148
+  sin cíclica» y esa misma relámpago (con el producto adentro, aunque sea
+  sin tope) le reservaba stock: por eso TikTok contestó 12019024 «minimum
+  allowed open stock» al retiro a cero del GT148. Ahora el fondo, cada vez
+  que lee las relámpagos por producto, vuelve a dar por `creada` (inicio y
+  fin de TikTok) la ventana propia que TikTok traiga ONGOING o NOT_START con
+  el producto, y le quita el bloqueo a su cíclica.
+  **Lo que TikTok rechaza al ESCRIBIR INVENTARIO se declara POR
   MOTIVO** (`resumirRechazos`, `avisosDeRechazos`, `sePuedeEscribir`,
   `ESTADOS_PUBLICACION_ESCRIBIBLE` en `tiktok/kardex.ts`; `rechazos` y
   `sinEscribir` en el detalle de la tarea `sincronizar`; 22-oct-2026): el
