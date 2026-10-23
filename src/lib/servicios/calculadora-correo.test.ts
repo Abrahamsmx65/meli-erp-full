@@ -19,6 +19,6 @@ describe("correo de la solicitud de factura", () => {
     expect(c.html).toContain("Factura a Industher");
     expect(c.html).toContain("Precio sin IVA");
     expect(c.html).toContain("$100.00");
-    expect(c.texto).toContain("$100.000000 sin IVA");
+    expect(c.texto).toContain("$100.000 sin IVA");
   });
 });
