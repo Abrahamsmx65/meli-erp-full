@@ -1901,11 +1901,16 @@ guárdala numerada.
   required field» y «BeginTime is a required field», probados por el dueño
   el 22-oct-2026 en «GT150 CICLICA»— y el periodo total NO puede pasar de 3
   días (17029007 «promotion_period exceeds the allowed range (max 3 days)»,
-  mismo día, al pedir 144 h), así que la ventana se CORRE completa:
-  `ventanaCorrida` mueve el fin `horas` y el inicio lo necesario para que
-  siga midiendo a lo más 72 h; el inicio nuevo queda en el pasado y la
-  relámpago no se interrumpe (si TikTok lo rechaza, la bitácora lo dirá y
-  se vuelve a crear la siguiente como antes), `finExtendido`
+  mismo día, al pedir 144 h) **y en una EN CURSO no deja mover el inicio**
+  (17029011 «Cannot edit the promotion start time: the promotion is already
+  ongoing», mismo día, al intentar correr la ventana completa). CONCLUSIÓN
+  PROBADA: una relámpago en curso de 72 h NO se puede alargar por API de
+  ninguna forma; `ventanaAlargada` solo pide algo cuando la en curso dura
+  menos de 72 h (hasta inicio + 72 h, inicio intacto) o cuando está
+  programada (NOT_START: se corre completa con `ventanaCorrida`); en los
+  demás casos contesta null y `alargarOferta` lo declara sin llamar a
+  TikTok («ya dura las 72 h que permite…»). La cíclica sigue creando la
+  siguiente al terminar, como siempre, `finExtendido`
   puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
   manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
   no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada
