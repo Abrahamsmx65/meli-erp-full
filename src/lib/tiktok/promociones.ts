@@ -324,6 +324,22 @@ export function finExtendido(fin: Date, horas: number): Date {
   return new Date(fin.getTime() + horasDeCiclica(horas) * 3_600_000);
 }
 
+/**
+ * La ventana CORRIDA para alargar una relámpago: TikTok no deja que el
+ * periodo total pase de 3 días (17029007 «promotion_period exceeds the
+ * allowed range (max 3 days)», probado el 22-oct-2026 al alargar «GT150
+ * CICLICA» de 72 a 144 h), pero sí acepta editar inicio y fin de una en
+ * curso. Así que el fin se corre `horas` y el inicio se corre lo necesario
+ * para que la ventana siga midiendo a lo más `HORAS_MAX_CICLICA` (el inicio
+ * nuevo queda en el pasado: la relámpago no se interrumpe).
+ */
+export function ventanaCorrida(inicio: Date, fin: Date, horas: number): VentanaProgramada {
+  const finNuevo = finExtendido(fin, horas);
+  const maxMs = HORAS_MAX_CICLICA * 3_600_000;
+  const inicioNuevo = new Date(Math.max(inicio.getTime(), finNuevo.getTime() - maxMs));
+  return { inicio: inicioNuevo, fin: finNuevo };
+}
+
 /** Las horas de una cíclica: entre 1 y 72, 72 por omisión. */
 export function horasDeCiclica(x: unknown): number {
   const n = Number(x);

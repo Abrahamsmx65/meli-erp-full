@@ -292,3 +292,19 @@ describe("finExtendido", () => {
     expect(finExtendido(fin, 0).toISOString()).toBe("2026-10-26T02:19:15.000Z");
   });
 });
+
+describe("ventanaCorrida", () => {
+  it("corre el fin y el inicio para que la ventana no pase de 72 h", async () => {
+    const { ventanaCorrida } = await import("./promociones");
+    const v = ventanaCorrida(new Date("2026-10-22T01:12:00Z"), new Date("2026-10-25T01:11:00Z"), 72);
+    expect(v.fin.toISOString()).toBe("2026-10-28T01:11:00.000Z");
+    expect(v.inicio.toISOString()).toBe("2026-10-25T01:11:00.000Z");
+  });
+
+  it("una ventana corta se alarga sin mover el inicio mientras quepa en 72 h", async () => {
+    const { ventanaCorrida } = await import("./promociones");
+    const v = ventanaCorrida(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-22T12:00:00Z"), 24);
+    expect(v.inicio.toISOString()).toBe("2026-10-22T00:00:00.000Z");
+    expect(v.fin.toISOString()).toBe("2026-10-23T12:00:00.000Z");
+  });
+});

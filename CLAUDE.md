@@ -1899,7 +1899,13 @@ guárdala numerada.
   /promotion/202309/activities/{id}` con `end_time` y los MISMOS `title` y
   `begin_time` —TikTok los exige aunque no cambien: 36009004 «Title is a
   required field» y «BeginTime is a required field», probados por el dueño
-  el 22-oct-2026 en «GT150 CICLICA»—, `finExtendido`
+  el 22-oct-2026 en «GT150 CICLICA»— y el periodo total NO puede pasar de 3
+  días (17029007 «promotion_period exceeds the allowed range (max 3 days)»,
+  mismo día, al pedir 144 h), así que la ventana se CORRE completa:
+  `ventanaCorrida` mueve el fin `horas` y el inicio lo necesario para que
+  siga midiendo a lo más 72 h; el inicio nuevo queda en el pasado y la
+  relámpago no se interrumpe (si TikTok lo rechaza, la bitácora lo dirá y
+  se vuelve a crear la siguiente como antes), `finExtendido`
   puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
   manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
   no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada

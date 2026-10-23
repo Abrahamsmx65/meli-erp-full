@@ -22,6 +22,7 @@ import { actividad, actualizarActividad, actualizarProductosDeActividad, buscarA
 import {
   finDeLaViva,
   finExtendido,
+  ventanaCorrida,
   explicarErrorDeCiclica,
   cuerpoDeActividad,
   HORAS_POR_OMISION,
@@ -982,15 +983,19 @@ export async function alargarOferta(
     const titulo = antes?.title ? String(antes.title) : null;
     if (!finActual) return fallo("TikTok no dijo cuándo termina esa oferta.", { titulo, detalle: antes });
     const finAnterior = new Date(finActual).toISOString();
-    const nuevoFin = finExtendido(new Date(finActual), horas);
+    const inicioActual = Number(antes?.begin_time ?? 0) * 1000 || finActual - HORAS_MAX_CICLICA * 3_600_000;
+    // TikTok exige el título y el inicio aunque solo cambie el fin (36009004
+    // «Title is a required field», luego «BeginTime is a required field») y
+    // no deja que el periodo pase de 3 días (17029007), así que la ventana
+    // se CORRE completa: el inicio nuevo queda en el pasado y la relámpago
+    // sigue en curso (`ventanaCorrida`; probado el 22-oct-2026).
+    const corrida = ventanaCorrida(new Date(inicioActual), new Date(finActual), horas);
+    const nuevoFin = corrida.fin;
     let respuesta: unknown;
     try {
-      // TikTok exige el título y el inicio aunque solo cambie el fin
-      // (36009004 «Title is a required field», luego «BeginTime is a
-      // required field», 22-oct-2026): van los mismos que ya tiene.
       respuesta = await actualizarActividad(cliente, id, {
         title: titulo ?? undefined,
-        beginTime: Number(antes?.begin_time) > 0 ? Number(antes.begin_time) : undefined,
+        beginTime: Math.floor(corrida.inicio.getTime() / 1000),
         endTime: Math.floor(nuevoFin.getTime() / 1000),
       });
     } catch (err) {
@@ -1008,7 +1013,7 @@ export async function alargarOferta(
     }
     await admin
       .from("tiktok_promociones")
-      .update({ fin: nuevoFin.toISOString(), respuesta: { extendida: respuesta, extendidaEn: ahora, finAnterior } })
+      .update({ inicio: corrida.inicio.toISOString(), fin: nuevoFin.toISOString(), respuesta: { extendida: respuesta, extendidaEn: ahora, finAnterior, inicioAnterior: new Date(inicioActual).toISOString() } })
       .eq("account_id", accountId)
       .eq("activity_id", id)
       .then(() => undefined, () => undefined);
