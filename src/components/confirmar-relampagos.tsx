@@ -140,6 +140,8 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
   const [aceptadas, setAceptadas] = useState<Record<string, ResultadoPrecio>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Familias marcadas para aceptar juntas al final (dueño, 23-oct-2026).
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const clave = (a: AceptarBuenFin) => `${a.itemId}|${a.promoId ?? ""}`;
   const porAceptar = r.fallidas.filter((f) => f.aceptar?.razon === "credibilidad" && f.aceptar.precio != null);
   const pendientes = porAceptar.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
@@ -147,6 +149,10 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
   const otras = r.fallidas.filter((f) => !f.aceptar || (f.aceptar.razon === "credibilidad" && f.aceptar.precio == null));
   // Por familia: mismo modelo, promoción y precios = un renglón con un solo botón.
   const familiasPorAceptar = agruparPorFamilia(porAceptar, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.precio}`);
+  const faltanDe = (g: (typeof familiasPorAceptar)[number]) => g.renglones.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
+  const familiasConFaltantes = familiasPorAceptar.filter((g) => faltanDe(g).length);
+  const familiasMarcadas = familiasConFaltantes.filter((g) => marcadas.has(g.clave));
+  const seleccionadas = familiasMarcadas.flatMap(faltanDe);
   const familiasMasBaratas = agruparPorFamilia(yaMasBaratas, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.actual}`);
   const familiasOtras = agruparPorFamilia(otras, (f) => f.detalle);
 
@@ -194,11 +200,33 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
               MELI no aceptó el precio por «no creíble» ({porAceptar.length} en {familiasPorAceptar.length} familias)
             </strong>
             {pendientes.length ? (
-              <button type="button" className="boton boton-primario" disabled={!!ocupado} onClick={() => void aceptar(pendientes, "todas")}>
+              <button type="button" className="boton boton-secundario" disabled={!!ocupado} onClick={() => void aceptar(pendientes, "todas")}>
                 {ocupado === "todas" ? "Aceptando…" : `Aceptar todas a su máximo (${pendientes.length})`}
               </button>
             ) : null}
           </div>
+          {familiasConFaltantes.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={familiasConFaltantes.length > 0 && familiasConFaltantes.every((g) => marcadas.has(g.clave))}
+                  onChange={(e) => setMarcadas(e.target.checked ? new Set(familiasConFaltantes.map((g) => g.clave)) : new Set())}
+                />
+                Marcar todas
+              </label>
+              <button
+                type="button"
+                className="boton boton-primario"
+                disabled={!!ocupado || !seleccionadas.length}
+                onClick={() => void aceptar(seleccionadas, "seleccion").then(() => setMarcadas(new Set()))}
+              >
+                {ocupado === "seleccion"
+                  ? "Aceptando…"
+                  : `Aceptar seleccionadas (${familiasMarcadas.length} ${familiasMarcadas.length === 1 ? "familia" : "familias"} · ${seleccionadas.length} publicaciones)`}
+              </button>
+            </div>
+          ) : null}
           <ul className="flex flex-col gap-1">
             {familiasPorAceptar.map((g) => {
               const a = g.renglones[0].aceptar as AceptarBuenFin;
@@ -209,6 +237,21 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
               return (
                 <li key={g.clave} className="flex flex-col gap-0.5">
                   <div className="flex flex-wrap items-center gap-2">
+                    {faltan.length ? (
+                      <input
+                        type="checkbox"
+                        aria-label={`Seleccionar ${g.modelo}`}
+                        checked={marcadas.has(g.clave)}
+                        onChange={(e) =>
+                          setMarcadas((m) => {
+                            const n = new Set(m);
+                            if (e.target.checked) n.add(g.clave);
+                            else n.delete(g.clave);
+                            return n;
+                          })
+                        }
+                      />
+                    ) : null}
                     <strong>{g.modelo}</strong>
                     <span className="texto-tenue">
                       {g.promocion} · {g.renglones.length} {g.renglones.length === 1 ? "publicación" : "publicaciones"} · querías{" "}
