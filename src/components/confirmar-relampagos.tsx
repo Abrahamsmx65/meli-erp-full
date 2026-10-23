@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { AceptarBuenFin, ResultadoPrecio } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 import { confirmar } from "@/components/ui/confirmar";
+import { agruparPorFamilia, partesDeDonde } from "@/lib/precios/buen-fin-grupos";
 
 export type ConfirmacionRelampagos = {
   modelos: number;
@@ -144,6 +145,10 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
   const pendientes = porAceptar.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
   const yaMasBaratas = r.fallidas.filter((f) => f.aceptar?.razon === "mayor_que_actual");
   const otras = r.fallidas.filter((f) => !f.aceptar || (f.aceptar.razon === "credibilidad" && f.aceptar.precio == null));
+  // Por familia: mismo modelo, promoción y precios = un renglón con un solo botón.
+  const familiasPorAceptar = agruparPorFamilia(porAceptar, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.precio}`);
+  const familiasMasBaratas = agruparPorFamilia(yaMasBaratas, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.actual}`);
+  const familiasOtras = agruparPorFamilia(otras, (f) => f.detalle);
 
   const aceptar = async (lista: ResultadoPrecio[], quien: string) => {
     setError(null);
@@ -185,34 +190,63 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
       {porAceptar.length ? (
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <strong>MELI no aceptó el precio por «no creíble» ({porAceptar.length})</strong>
+            <strong>
+              MELI no aceptó el precio por «no creíble» ({porAceptar.length} en {familiasPorAceptar.length} familias)
+            </strong>
             {pendientes.length ? (
               <button type="button" className="boton boton-primario" disabled={!!ocupado} onClick={() => void aceptar(pendientes, "todas")}>
                 {ocupado === "todas" ? "Aceptando…" : `Aceptar todas a su máximo (${pendientes.length})`}
               </button>
             ) : null}
           </div>
-          <ul className="flex flex-col gap-0.5">
-            {porAceptar.map((f, i) => {
-              const a = f.aceptar as AceptarBuenFin;
-              const hecho = aceptadas[clave(a)];
+          <ul className="flex flex-col gap-1">
+            {familiasPorAceptar.map((g) => {
+              const a = g.renglones[0].aceptar as AceptarBuenFin;
+              const resultados = g.renglones.map((f) => aceptadas[clave(f.aceptar as AceptarBuenFin)]);
+              const bien = resultados.filter((x) => x?.ok).length;
+              const mal = resultados.filter((x) => x && !x.ok).length;
+              const faltan = g.renglones.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
               return (
-                <li key={i} className="flex flex-wrap items-center gap-2">
-                  <span className="cifra">{f.donde}</span>
-                  <span className="texto-tenue">querías {din(a.queriamos)}</span>
-                  <span>
-                    MELI acepta hasta <strong>{din(a.precio as number)}</strong>{" "}
-                    <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.precio as number)}</span>
-                  </span>
-                  {hecho ? (
-                    <span style={{ color: hecho.ok ? "var(--exito-texto)" : "var(--estado-critico)" }}>
-                      {hecho.ok ? "✓" : "✗"} {hecho.detalle}
+                <li key={g.clave} className="flex flex-col gap-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{g.modelo}</strong>
+                    <span className="texto-tenue">
+                      {g.promocion} · {g.renglones.length} {g.renglones.length === 1 ? "publicación" : "publicaciones"} · querías{" "}
+                      {din(a.queriamos)}
                     </span>
-                  ) : (
-                    <button type="button" className="boton boton-secundario" disabled={!!ocupado} onClick={() => void aceptar([f], clave(a))}>
-                      {ocupado === clave(a) ? "Aceptando…" : `Aceptar a ${din(a.precio as number)}`}
-                    </button>
-                  )}
+                    <span>
+                      MELI acepta hasta <strong>{din(a.precio as number)}</strong>{" "}
+                      <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.precio as number)}</span>
+                    </span>
+                    {bien ? <span style={{ color: "var(--exito-texto)" }}>✓ {bien} aceptadas</span> : null}
+                    {mal ? <span style={{ color: "var(--estado-critico)" }}>✗ {mal} rechazadas</span> : null}
+                    {faltan.length ? (
+                      <button type="button" className="boton boton-secundario" disabled={!!ocupado} onClick={() => void aceptar(faltan, g.clave)}>
+                        {ocupado === g.clave
+                          ? "Aceptando…"
+                          : faltan.length === 1
+                            ? `Aceptar a ${din(a.precio as number)}`
+                            : `Aceptar las ${faltan.length} a ${din(a.precio as number)}`}
+                      </button>
+                    ) : null}
+                  </div>
+                  <details>
+                    <summary className="texto-tenue">ver publicaciones</summary>
+                    {g.renglones.map((f, i) => {
+                      const hecho = aceptadas[clave(f.aceptar as AceptarBuenFin)];
+                      return (
+                        <div key={i} className="cifra texto-tenue">
+                          {partesDeDonde(f.donde).item}
+                          {hecho ? (
+                            <span style={{ color: hecho.ok ? "var(--exito-texto)" : "var(--estado-critico)" }}>
+                              {" "}
+                              {hecho.ok ? "✓" : "✗"} {hecho.detalle}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </details>
                 </li>
               );
             })}
@@ -222,34 +256,60 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
 
       {yaMasBaratas.length ? (
         <div className="flex flex-col gap-0.5">
-          <strong>Ya están inscritas más baratas y MELI no deja subirlas ({yaMasBaratas.length})</strong>
-          {yaMasBaratas.map((f, i) => {
-            const a = f.aceptar as AceptarBuenFin;
+          <strong>
+            Ya están inscritas más baratas y MELI no deja subirlas ({yaMasBaratas.length} en {familiasMasBaratas.length} familias)
+          </strong>
+          {familiasMasBaratas.map((g) => {
+            const a = g.renglones[0].aceptar as AceptarBuenFin;
             return (
-              <div key={i}>
-                <span className="cifra">{f.donde}</span> <span className="texto-tenue">querías {din(a.queriamos)}</span>
-                {a.actual != null ? (
-                  <>
-                    {" "}
-                    · está a <strong>{din(a.actual)}</strong>{" "}
-                    <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.actual)}</span>
-                  </>
-                ) : null}
-              </div>
+              <details key={g.clave}>
+                <summary>
+                  <strong>{g.modelo}</strong>{" "}
+                  <span className="texto-tenue">
+                    {g.promocion} · {g.renglones.length} {g.renglones.length === 1 ? "publicación" : "publicaciones"} · querías{" "}
+                    {din(a.queriamos)}
+                  </span>
+                  {a.actual != null ? (
+                    <>
+                      {" "}
+                      · está a <strong>{din(a.actual)}</strong>{" "}
+                      <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.actual)}</span>
+                    </>
+                  ) : null}
+                </summary>
+                {g.renglones.map((f, i) => (
+                  <div key={i} className="cifra texto-tenue">
+                    {partesDeDonde(f.donde).item}
+                  </div>
+                ))}
+              </details>
             );
           })}
         </div>
       ) : null}
 
       {otras.length ? (
-        <ul className="flex flex-col gap-0.5">
-          {otras.map((x, i) => (
-            <li key={i}>
-              <span className="cifra">{x.donde}</span> <span style={{ color: "var(--estado-critico)" }}>✗ {x.detalle}</span>
-              {x.aceptar?.razon === "credibilidad" ? <span className="texto-tenue"> · MELI no dijo hasta qué precio acepta</span> : null}
-            </li>
+        <div className="flex flex-col gap-0.5">
+          {familiasOtras.map((g) => (
+            <details key={g.clave}>
+              <summary>
+                <strong>{g.modelo}</strong>{" "}
+                <span className="texto-tenue">
+                  {g.promocion} · {g.renglones.length} {g.renglones.length === 1 ? "publicación" : "publicaciones"}
+                </span>{" "}
+                <span style={{ color: "var(--estado-critico)" }}>✗ {g.renglones[0].detalle}</span>
+                {g.renglones[0].aceptar?.razon === "credibilidad" ? (
+                  <span className="texto-tenue"> · MELI no dijo hasta qué precio acepta</span>
+                ) : null}
+              </summary>
+              {g.renglones.map((f, i) => (
+                <div key={i} className="cifra texto-tenue">
+                  {partesDeDonde(f.donde).item}
+                </div>
+              ))}
+            </details>
           ))}
-        </ul>
+        </div>
       ) : null}
 
       {r.omitidas.length ? (

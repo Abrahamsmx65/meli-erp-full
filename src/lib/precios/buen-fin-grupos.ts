@@ -1,0 +1,47 @@
+/**
+ * Agrupa por FAMILIA lo que MELI rechazó en Buen Fin (dueño, 23-oct-2026:
+ * «agrupar por familias cuando son productos de muchas variantes pero llevan
+ * mismo precio, para confirmar todo junto»). Una familia = mismo modelo,
+ * misma promoción y los mismos precios (lo que queríamos y lo que MELI
+ * acepta o ya tiene): GT277 en Buen Fin 26 con 12 publicaciones de $298.99
+ * → $289.99 es UN renglón con un solo botón. El modelo y la promoción salen
+ * de `donde` («MLM… · GT277 · Buen Fin 26»).
+ */
+export interface RenglonAgrupable {
+  donde: string;
+  detalle: string;
+  aceptar?: { queriamos: number; precio: number | null; actual: number | null };
+}
+
+export interface FamiliaBuenFin<T extends RenglonAgrupable> {
+  clave: string;
+  modelo: string;
+  promocion: string;
+  renglones: T[];
+}
+
+export function partesDeDonde(donde: string): { item: string; modelo: string; promocion: string } {
+  const [item = "", modelo = "", ...resto] = donde.split(" · ");
+  return { item, modelo, promocion: resto.join(" · ") };
+}
+
+const comparar = new Intl.Collator("es", { numeric: true }).compare;
+
+/**
+ * `precioDe` decide qué precio entra a la clave (el que MELI acepta, el que
+ * ya tiene, o ninguno para agrupar por mensaje).
+ */
+export function agruparPorFamilia<T extends RenglonAgrupable>(
+  renglones: T[],
+  precioDe: (r: T) => string,
+): FamiliaBuenFin<T>[] {
+  const grupos = new Map<string, FamiliaBuenFin<T>>();
+  for (const r of renglones) {
+    const { modelo, promocion } = partesDeDonde(r.donde);
+    const clave = [modelo, promocion, precioDe(r)].join("|");
+    const g = grupos.get(clave) ?? { clave, modelo, promocion, renglones: [] };
+    g.renglones.push(r);
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()].sort((a, b) => comparar(a.modelo, b.modelo) || comparar(a.clave, b.clave));
+}
