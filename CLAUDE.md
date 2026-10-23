@@ -431,6 +431,14 @@ guárdala numerada.
   pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
   viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
   622 de calzado + 35 de bolsas = 657 del BL).
+  **Un embarque del MEDIO que nunca se cargó SÍ se lee** (`esEmbarqueViejo`
+  con los embarques cargados; dueño, 23-oct-2026: «aumenté los contenedores
+  S272 y S273 y no los lee»): S274 entró antes de que S272/S273 estuvieran
+  en Drive y la regla «desde el último cargado» ya ni abría sus carpetas.
+  Viejo es solo lo ya cargado o lo de antes del primer contenedor. Un archivo
+  en `error` se vuelve a probar en cada pasada. Y el lector entiende el
+  formato de FUZHOU del S272: «Article no» con el pedido en el paréntesis
+  («GT142 (IN10161)», `modeloConPedido`) y la talla «Mex 27».
   **BORRAR un contenedor es para volver a armarlo desde Drive**
   (`ESTADO_RELEER`; 13-oct-2026: el dueño corrigió el S265 en Drive, lo
   borró junto con el S271 y «Traer de Drive» ya no los traía): el borrado
