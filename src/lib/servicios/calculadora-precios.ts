@@ -12,6 +12,7 @@ import { traerTodo, type Cuenta, type DB } from "../datos/repos";
 import {
   PARAMETROS_CALCULADORA,
   calcularPrecios,
+  desgloseIva,
   facturaDeContenedor,
   normalizarParametros,
   type CanalMeliBase,
@@ -182,7 +183,7 @@ async function paresDelContenedor(
   return { numero: c.numero, iso: c.iso, fuente: "costeo", pares: d.lineas.map((l) => ({ modelo: l.modelo.toUpperCase(), pares: l.pares })) };
 }
 
-const HOJAS = {
+export const HOJAS = {
   komerline: { titulo: "Factura Industher a Komerline", corto: "KOMERLINE" },
   industher: { titulo: "Factura a Industher", corto: "INDUSTHER" },
 } as const;
@@ -193,7 +194,26 @@ const HOJAS = {
  * precio por par con y sin IVA, IVA e importe. Lo que no tiene precio o
  * código SAT va en blanco y en la hoja «Avisos»: no se inventa.
  */
-export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: string): Promise<{ nombre: string; buffer: Buffer } | null> {
+export interface FacturaArmada {
+  tipo: keyof typeof HOJAS;
+  titulo: string;
+  filas: RenglonFactura[];
+  totales: { pares: number; base: number; iva: number; total: number };
+  sinPrecio: string[];
+}
+
+export interface ExcelFactura {
+  nombre: string;
+  buffer: Buffer;
+  numero: string;
+  iso: string | null;
+  fuente: ContenedorFactura["fuente"];
+  meses: string[];
+  facturas: FacturaArmada[];
+  avisos: string[];
+}
+
+export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: string): Promise<ExcelFactura | null> {
   const contenedor = await paresDelContenedor(db, cuenta.id, numero);
   if (!contenedor) return null;
   const pares = contenedor.pares.filter((p) => p.pares > 0);
@@ -208,6 +228,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
   const libro = new ExcelJS.Workbook();
   const avisos: string[] = [...calc.avisos];
   hojaResumen(libro, contenedor, calc, pares, precios, datosDe);
+  const facturas: FacturaArmada[] = [];
   for (const tipo of ["komerline", "industher"] as const) {
     const f = facturaDeContenedor(
       pares,
@@ -217,6 +238,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
       },
       datosDe,
     );
+    facturas.push({ tipo, titulo: HOJAS[tipo].titulo, filas: f.filas, totales: f.totales, sinPrecio: f.sinPrecio });
     const hoja = libro.addWorksheet(HOJAS[tipo].titulo);
     hoja.addRow([`${HOJAS[tipo].titulo} · contenedor ${contenedor.numero}${contenedor.iso ? ` (${contenedor.iso})` : ""}`]).font = { bold: true, size: 13 };
     hoja.addRow([
@@ -246,7 +268,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
   }
   const buffer = Buffer.from(await libro.xlsx.writeBuffer());
   const nombre = `factura-${contenedor.numero.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}.xlsx`;
-  return { nombre, buffer };
+  return { nombre, buffer, numero: contenedor.numero, iso: contenedor.iso, fuente: contenedor.fuente, meses: calc.meses, facturas, avisos };
 }
 
 /**
@@ -266,35 +288,41 @@ export function hojaResumen(
   for (const p of pares) porModelo.set(p.modelo, (porModelo.get(p.modelo) ?? 0) + p.pares);
   const hoja = libro.addWorksheet("Resumen");
   hoja.addRow([`Resumen · contenedor ${contenedor.numero}${contenedor.iso ? ` (${contenedor.iso})` : ""}`]).font = { bold: true, size: 13 };
-  hoja.addRow([`Promedio de ${calc.meses.map(nombreDelPeriodo).join(", ")} · todos los precios por par con IVA`]);
+  hoja.addRow([`Promedio de ${calc.meses.map(nombreDelPeriodo).join(", ")} · cada precio por par con IVA y sin IVA (IVA trasladado 16 %)`]);
   hoja.addRow([]);
   const enc = hoja.addRow([
     "MODELO", "CODIGO SAT", "PARES", "RECIBE MELI", "− FULL", "− PUBLICIDAD",
-    "PRECIO KOMERLINE", "− GASTO OPERATIVO", "− GANANCIA INDUSTHER", "PRECIO INDUSTHER",
-    "TOTAL KOMERLINE", "TOTAL INDUSTHER",
+    "PRECIO KOMERLINE CON IVA", "PRECIO KOMERLINE SIN IVA", "− GASTO OPERATIVO", "− GANANCIA INDUSTHER",
+    "PRECIO INDUSTHER CON IVA", "PRECIO INDUSTHER SIN IVA",
+    "TOTAL KOMERLINE SIN IVA", "TOTAL KOMERLINE CON IVA", "TOTAL INDUSTHER SIN IVA", "TOTAL INDUSTHER CON IVA",
   ]);
   enc.font = { bold: true, color: { argb: "FFFFFFFF" } };
   enc.eachCell((c) => (c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F3A5F" } }));
-  let tp = 0, tk = 0, ti = 0;
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  const sinIva = (x: number | null) => (x == null ? null : desgloseIva(x).base);
+  let tp = 0, tk = 0, ti = 0, tkb = 0, tib = 0;
   for (const [modelo, n] of [...porModelo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true }))) {
     const r = precios.get(modelo.toUpperCase());
     const k = r?.precioKomerline ?? null;
     const i = r?.precioIndusther ?? null;
+    const kb = sinIva(k);
+    const ib = sinIva(i);
     tp += n;
-    if (k != null) tk += k * n;
-    if (i != null) ti += i * n;
+    if (k != null) (tk += k * n), (tkb += kb! * n);
+    if (i != null) (ti += i * n), (tib += ib! * n);
     hoja.addRow([
       modelo, datosDe(modelo).codigoSat, n, r?.recibidoPar ?? null,
-      k != null ? r!.fullPar : null, k != null ? r!.publicidadPar : null, k,
-      i != null ? r!.gastoOperativoPar : null, r?.gananciaIndustherPar ?? null, i,
-      k != null ? Math.round(k * n * 100) / 100 : null, i != null ? Math.round(i * n * 100) / 100 : null,
+      k != null ? r!.fullPar : null, k != null ? r!.publicidadPar : null, k, kb,
+      i != null ? r!.gastoOperativoPar : null, r?.gananciaIndustherPar ?? null, i, ib,
+      kb != null ? r2(kb * n) : null, k != null ? r2(k * n) : null,
+      ib != null ? r2(ib * n) : null, i != null ? r2(i * n) : null,
     ]);
   }
-  hoja.addRow(["TOTAL", "", tp, null, null, null, null, null, null, null, Math.round(tk * 100) / 100, Math.round(ti * 100) / 100]).font = { bold: true };
+  hoja.addRow(["TOTAL", "", tp, null, null, null, null, null, null, null, null, null, r2(tkb), r2(tk), r2(tib), r2(ti)]).font = { bold: true };
   hoja.getColumn(2).numFmt = "@";
   hoja.getColumn(3).numFmt = "#,##0";
-  for (let c = 4; c <= 12; c++) hoja.getColumn(c).numFmt = '"$"#,##0.00';
-  [12, 13, 9, 13, 10, 13, 17, 18, 20, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
+  for (let c = 4; c <= 16; c++) hoja.getColumn(c).numFmt = '"$"#,##0.00';
+  [12, 13, 9, 13, 10, 13, 15, 15, 18, 20, 15, 15, 17, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
 }
 
 function agregarFila(hoja: ExcelJS.Worksheet, x: RenglonFactura) {

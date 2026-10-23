@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { cargarCalculadora, listaContenedores } from "@/lib/servicios/calculadora-precios";
+import { leerDestinatariosFactura } from "@/lib/servicios/calculadora-correo";
 import { nombreDelPeriodo } from "@/lib/servicios/corte-meli";
 import { CalculadoraFiscal } from "@/components/calculadora-fiscal";
 import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
@@ -20,7 +21,11 @@ export default async function Calculadora() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Calculadora fiscal" />;
   const db = supabase as DB;
-  const [calc, contenedores] = await Promise.all([cargarCalculadora(db, cuenta), listaContenedores(db, cuenta.id)]);
+  const [calc, contenedores, destinatarios] = await Promise.all([
+    cargarCalculadora(db, cuenta),
+    listaContenedores(db, cuenta.id),
+    leerDestinatariosFactura(db, cuenta.id),
+  ]);
 
   return (
     <Pagina>
@@ -56,7 +61,7 @@ export default async function Calculadora() {
       ))}
       <Seccion sinRelleno>
         <div className="p-3">
-          <CalculadoraFiscal calc={calc} contenedores={contenedores} />
+          <CalculadoraFiscal calc={calc} contenedores={contenedores} destinatarios={destinatarios} />
         </div>
       </Seccion>
     </Pagina>

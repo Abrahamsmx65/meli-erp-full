@@ -15,8 +15,8 @@ describe("hoja Resumen del Excel de la factura", () => {
     hojaResumen(libro, { numero: "S271", iso: null }, calc, [{ modelo: "GT114", pares: 10 }, { modelo: "GT114", pares: 2 }],
       new Map([["GT114", renglon]]), () => ({ descripcion: "", codigoSat: "53111600" }));
     const hoja = libro.getWorksheet("Resumen")!;
-    expect(hoja.getRow(4).values).toContain("PRECIO INDUSTHER");
+    expect(hoja.getRow(4).values).toContain("PRECIO INDUSTHER SIN IVA");
     const fila = hoja.getRow(5).values as unknown[];
-    expect(fila.slice(1)).toEqual(["GT114", "53111600", 12, 133.48, 3.32, 5.17, 124.99, 3.86, 3.75, 117.38, 1499.88, 1408.56]);
+    expect(fila.slice(1)).toEqual(["GT114", "53111600", 12, 133.48, 3.32, 5.17, 124.99, 107.75, 3.86, 3.75, 117.38, 101.19, 1293, 1499.88, 1214.28, 1408.56]);
   });
 });
