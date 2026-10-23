@@ -332,6 +332,38 @@ async function inscribirRelampago(
 
 export const TAREA_RELAMPAGOS = "relampagos-auto";
 export const TAREA_BUEN_FIN = "buen-fin-auto";
+export const TAREA_BUEN_FIN_ACEPTAR = "buen-fin-aceptar";
+
+/**
+ * Lo que el dueño ya aceptó a mano al máximo de MELI (bitácora
+ * `buen-fin-aceptar`), lo más nuevo por publicación (23-oct-2026: aceptó 501
+ * después de la corrida y la pantalla las seguía enseñando como rechazadas).
+ * `desde` recorta a lo aceptado después de esa hora.
+ */
+export async function leerAceptadasBuenFin(admin: DB, accountId: string, desde?: string): Promise<ResultadoPrecio[]> {
+  let q = admin
+    .from("sync_log")
+    .select("fin, detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", TAREA_BUEN_FIN_ACEPTAR)
+    .order("fin", { ascending: true })
+    .limit(200);
+  if (desde) q = q.gte("fin", desde);
+  else q = q.gte("fin", new Date(Date.now() - 45 * 86_400_000).toISOString());
+  const { data } = await q;
+  const porDonde = new Map<string, ResultadoPrecio>();
+  for (const renglon of (data ?? []) as { detalle?: { resultados?: ResultadoPrecio[] } }[]) {
+    for (const x of renglon.detalle?.resultados ?? []) if (x?.donde) porDonde.set(x.donde, x);
+  }
+  return [...porDonde.values()];
+}
+
+/** Precio con que se aceptó, de «aceptada a $212.99». */
+export function precioAceptado(r: ResultadoPrecio): number | null {
+  const m = r.ok ? /\$([\d,.]+)/.exec(r.detalle) : null;
+  return m ? Number(m[1].replace(/,/g, "")) : null;
+}
+
 
 export interface RevisionDeNumeros {
   modelos: string[];
@@ -562,10 +594,22 @@ export async function confirmarBuenFinPendientes(
   const omitidas: string[] = [];
   const hechas: { r: RenglonPromo; res: ResultadoPrecio }[] = [];
   const buenFin = revision.meli.filter((r) => r.clase === "buen_fin");
+  // Lo que el dueño ya aceptó al máximo de MELI no se vuelve a subir al PV
+  // de Números: MELI lo rechazaría otra vez y saldría como fallida.
+  const aceptadas = new Map<string, number>();
+  for (const a of await leerAceptadasBuenFin(admin, accountId).catch(() => [])) {
+    const precio = precioAceptado(a);
+    if (precio != null) aceptadas.set(a.donde, precio);
+  }
   const porMandar: RenglonPromo[] = [];
   for (const r of buenFin) {
     const donde = `${r.itemId} · ${r.nombre}`;
     if (r.accion === "igual") continue;
+    const aceptado = aceptadas.get(donde);
+    if (r.accion === "cambiar" && aceptado != null && r.actual != null && Math.abs(r.actual - aceptado) < 0.01) {
+      omitidas.push(`${donde}: ya aceptada a $${aceptado.toFixed(2)}, el máximo que deja MELI`);
+      continue;
+    }
     if (r.accion === "pagarias_envio") omitidas.push(`${donde}: con el aporte de MELI se cobra como ≥ $299 y pagarías el envío`);
     else if (r.accion === "sin_precio" || r.nuevo == null) omitidas.push(`${donde}: el modelo no tiene PV normal en Números`);
     else if (r.accion === "inscribir" || r.accion === "cambiar") porMandar.push(r);
@@ -699,7 +743,7 @@ export async function aceptarBuenFinAMinimo(
   });
   await admin.from("sync_log").insert({
     account_id: accountId,
-    tarea: "buen-fin-aceptar",
+    tarea: TAREA_BUEN_FIN_ACEPTAR,
     estado: resultados.some((x) => !x.ok) ? "error" : "ok",
     fin: new Date().toISOString(),
     detalle: { resultados },

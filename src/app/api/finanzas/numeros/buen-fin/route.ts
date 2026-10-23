@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
-import { TAREA_BUEN_FIN, confirmarBuenFinPendientes } from "@/lib/servicios/precios-modelos";
+import { TAREA_BUEN_FIN, confirmarBuenFinPendientes, leerAceptadasBuenFin } from "@/lib/servicios/precios-modelos";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,7 +50,7 @@ export async function POST() {
   return NextResponse.json({ iniciado }, { status: 202 });
 }
 
-/** La última corrida (manual o del cron) de Buen Fin. */
+/** La última corrida (manual o del cron) de Buen Fin y lo aceptado después. */
 export async function GET() {
   const c = await contexto();
   if ("error" in c) return c.error;
@@ -62,5 +62,9 @@ export async function GET() {
     .order("fin", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return NextResponse.json(data ?? null);
+  if (!data) return NextResponse.json(null);
+  // Lo aceptado a mano DESPUÉS de esa corrida, para que la pantalla no lo
+  // vuelva a enseñar como rechazado.
+  const aceptadas = await leerAceptadasBuenFin(c.admin, c.cuentaId, (data as { fin: string }).fin).catch(() => []);
+  return NextResponse.json({ ...data, aceptadas });
 }

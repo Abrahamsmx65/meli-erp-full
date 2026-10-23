@@ -12,6 +12,8 @@ export type ConfirmacionRelampagos = {
   fallidas: ResultadoPrecio[];
   omitidas: string[];
   avisos: string[];
+  /** Buen Fin: lo aceptado a mano después de la corrida (por `donde`). */
+  aceptadas?: ResultadoPrecio[];
 };
 
 export function ResultadoRelampagos({ r, que = "relámpago inscritas" }: { r: ConfirmacionRelampagos; que?: string }) {
@@ -125,7 +127,14 @@ export async function leerUltimoBuenFin(): Promise<{ fin: string; error?: string
   return {
     fin: ultima.fin,
     error: d.error,
-    r: { modelos: d.modelos ?? 0, inscritas: d.inscritas ?? [], fallidas: d.fallidas ?? [], omitidas: d.omitidas ?? [], avisos: d.avisos ?? [] },
+    r: {
+      modelos: d.modelos ?? 0,
+      inscritas: d.inscritas ?? [],
+      fallidas: d.fallidas ?? [],
+      omitidas: d.omitidas ?? [],
+      avisos: d.avisos ?? [],
+      aceptadas: ultima.aceptadas ?? [],
+    },
   };
 }
 
@@ -137,12 +146,22 @@ const din = (x: number) => "$" + x.toLocaleString("es-MX", { minimumFractionDigi
  * ahí mismo (dueño, 22-oct-2026).
  */
 export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: string }) {
-  const [aceptadas, setAceptadas] = useState<Record<string, ResultadoPrecio>>({});
+  const clave = (a: AceptarBuenFin) => `${a.itemId}|${a.promoId ?? ""}`;
+  // Lo ya aceptado después de la corrida llega de la bitácora y cuenta igual
+  // que lo aceptado en esta pantalla.
+  const [aceptadas, setAceptadas] = useState<Record<string, ResultadoPrecio>>(() => {
+    const porDonde = new Map((r.aceptadas ?? []).map((x) => [x.donde, x]));
+    const inicial: Record<string, ResultadoPrecio> = {};
+    for (const f of r.fallidas) {
+      const x = f.aceptar ? porDonde.get(f.donde) : undefined;
+      if (x && f.aceptar) inicial[clave(f.aceptar)] = x;
+    }
+    return inicial;
+  });
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Familias marcadas para aceptar juntas al final (dueño, 23-oct-2026).
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
-  const clave = (a: AceptarBuenFin) => `${a.itemId}|${a.promoId ?? ""}`;
   const porAceptar = r.fallidas.filter((f) => f.aceptar?.razon === "credibilidad" && f.aceptar.precio != null);
   const pendientes = porAceptar.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
   const yaMasBaratas = r.fallidas.filter((f) => f.aceptar?.razon === "mayor_que_actual");
@@ -152,6 +171,8 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
   const faltanDe = (g: (typeof familiasPorAceptar)[number]) => g.renglones.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
   const familiasConFaltantes = familiasPorAceptar.filter((g) => faltanDe(g).length);
   const familiasMarcadas = familiasConFaltantes.filter((g) => marcadas.has(g.clave));
+  const familiasHechas = familiasPorAceptar.filter((g) => !faltanDe(g).length);
+  const publicacionesHechas = familiasHechas.reduce((t, g) => t + g.renglones.length, 0);
   const seleccionadas = familiasMarcadas.flatMap(faltanDe);
   const familiasMasBaratas = agruparPorFamilia(yaMasBaratas, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.actual}`);
   const familiasOtras = agruparPorFamilia(otras, (f) => f.detalle);
@@ -197,7 +218,7 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <strong>
-              MELI no aceptó el precio por «no creíble» ({porAceptar.length} en {familiasPorAceptar.length} familias)
+              MELI no aceptó el precio por «no creíble» ({pendientes.length} en {familiasConFaltantes.length} familias)
             </strong>
             {pendientes.length ? (
               <button type="button" className="boton boton-secundario" disabled={!!ocupado} onClick={() => void aceptar(pendientes, "todas")}>
@@ -228,7 +249,7 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
             </div>
           ) : null}
           <ul className="flex flex-col gap-1">
-            {familiasPorAceptar.map((g) => {
+            {familiasConFaltantes.map((g) => {
               const a = g.renglones[0].aceptar as AceptarBuenFin;
               const resultados = g.renglones.map((f) => aceptadas[clave(f.aceptar as AceptarBuenFin)]);
               const bien = resultados.filter((x) => x?.ok).length;
@@ -294,6 +315,21 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
               );
             })}
           </ul>
+          {familiasHechas.length ? (
+            <details>
+              <summary style={{ color: "var(--exito-texto)" }}>
+                ✓ Ya aceptadas a su máximo: {publicacionesHechas} publicaciones en {familiasHechas.length} familias
+              </summary>
+              {familiasHechas.map((g) => {
+                const a = g.renglones[0].aceptar as AceptarBuenFin;
+                return (
+                  <div key={g.clave} className="texto-tenue">
+                    <strong>{g.modelo}</strong> {g.promocion} · {g.renglones.length} · a {din(a.precio as number)}
+                  </div>
+                );
+              })}
+            </details>
+          ) : null}
         </div>
       ) : null}
 
