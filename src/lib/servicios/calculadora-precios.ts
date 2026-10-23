@@ -254,7 +254,7 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
     tot.font = { bold: true };
     hoja.getColumn(2).numFmt = "@";
     for (const c of [5, 6, 7, 8, 9, 10]) hoja.getColumn(c).numFmt = '"$"#,##0.00';
-    for (const c of [5, 6]) hoja.getColumn(c).numFmt = '"$"#,##0.000000';
+    for (const c of [5, 6]) hoja.getColumn(c).numFmt = '"$"#,##0.000';
     hoja.getColumn(4).numFmt = "#,##0";
     [12, 13, 50, 9, 18, 16, 14, 16, 14, 16].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
     if (f.sinPrecio.length) avisos.push(`${HOJAS[tipo].corto}: sin precio (sin ventas en MELI ni precio relámpago en Números): ${f.sinPrecio.join(", ")}.`);
@@ -306,7 +306,7 @@ export function hojaResumen(
     const r = precios.get(modelo.toUpperCase());
     const k = r?.precioKomerline ?? null;
     const i = r?.precioIndusther ?? null;
-    // Igual que la hoja de la factura: pares × precio sin IVA (6 decimales) y el IVA sobre ese importe.
+    // Igual que la hoja de la factura: pares × precio sin IVA (3 decimales) y el IVA sobre ese importe.
     const fk = k != null ? importeFactura(k, n) : null;
     const fi = i != null ? importeFactura(i, n) : null;
     tp += n;
@@ -323,11 +323,11 @@ export function hojaResumen(
   hoja.getColumn(2).numFmt = "@";
   hoja.getColumn(3).numFmt = "#,##0";
   for (let c = 4; c <= 16; c++) hoja.getColumn(c).numFmt = '"$"#,##0.00';
-  for (const c of [8, 12]) hoja.getColumn(c).numFmt = '"$"#,##0.000000';
+  for (const c of [8, 12]) hoja.getColumn(c).numFmt = '"$"#,##0.000';
   [12, 13, 9, 13, 10, 13, 15, 18, 18, 20, 15, 18, 17, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
 }
 
 function agregarFila(hoja: ExcelJS.Worksheet, x: RenglonFactura) {
-  const precioIva = x.precioConIva != null && x.precioSinIva != null ? Math.round((x.precioConIva - x.precioSinIva) * 1e6) / 1e6 : null;
+  const precioIva = x.precioConIva != null && x.precioSinIva != null ? Math.round((x.precioConIva - x.precioSinIva) * 1e3) / 1e3 : null;
   hoja.addRow([x.modelo, x.codigoSat, x.descripcion, x.pares, x.precioSinIva, precioIva, x.precioConIva, x.importeSinIva, x.iva, x.total]);
 }

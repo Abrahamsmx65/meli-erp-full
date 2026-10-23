@@ -194,16 +194,17 @@ export function calcularPrecios(entrada: {
 }
 
 /**
- * Precio unitario SIN IVA con 6 decimales (los que admite el CFDI): con dos,
- * 101.18 × 4,800 pares no daba lo mismo que 117.37 × 4,800 ÷ 1.16 (dueño,
- * 23-oct-2026: «no me cuadra el total, te faltan centavos»).
+ * Precio unitario SIN IVA con 3 decimales: con dos, 101.18 × 4,800 pares no
+ * daba lo mismo que 117.37 × 4,800 ÷ 1.16 (dueño, 23-oct-2026: «no me cuadra
+ * el total, te faltan centavos»); con seis se veía de más («que sean solo 3
+ * decimales como máximo y cuadras todo según eso»).
  */
 export function precioSinIva(conIva: number): number {
-  return Math.round((conIva / IVA) * 1e6) / 1e6;
+  return Math.round((conIva / IVA) * 1e3) / 1e3;
 }
 
 /**
- * Importe de un renglón como lo arma la factura: pares × precio sin IVA (6
+ * Importe de un renglón como lo arma la factura: pares × precio sin IVA (3
  * decimales), el IVA es el 16 % de ese importe y el total su suma. Así el
  * total con IVA sale del importe sin IVA y cuadra al centavo con lo que diga
  * el CFDI.

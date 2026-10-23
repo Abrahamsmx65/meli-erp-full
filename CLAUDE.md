@@ -3050,12 +3050,13 @@ guárdala numerada.
   el Excel no sale el precio de Industher»); la pantalla enseña la resta
   debajo de cada precio; lo que no tiene precio o código va en blanco y en
   «Avisos». El Resumen trae cada precio con y SIN IVA y los totales de las dos compras
-  sin y con IVA (dueño, 21-oct-2026). **El precio sin IVA va con 6
-  decimales** (los del CFDI; `precioSinIva`, `importeFactura`; dueño,
-  23-oct-2026: «no me cuadra el total, te faltan centavos»): con dos, 101.18
+  sin y con IVA (dueño, 21-oct-2026). **El precio sin IVA va con 3
+  decimales** (`precioSinIva`, `importeFactura`; dueño, 23-oct-2026: «no me
+  cuadra el total, te faltan centavos» y luego «solo 3 decimales como máximo
+  y cuadras todo según eso»): con dos, 101.18
   × 4,800 no daba el total; ahora importe = pares × precio sin IVA, IVA = 16 %
   de ese importe y total = la suma, igual en las facturas, el Resumen, la
-  pantalla y el correo (puede quedar a un centavo de precio con IVA × pares). **La solicitud se MANDA POR CORREO**
+  pantalla y el correo (puede quedar unos centavos abajo de precio con IVA × pares). **La solicitud se MANDA POR CORREO**
   (`servicios/calculadora-correo.ts`, `POST
   /api/finanzas/calculadora/contenedor` con `{ numero, para }`; dueño: «con
   su correo bonito como el de los pedidos»): `plantillaCorreo` con las dos
