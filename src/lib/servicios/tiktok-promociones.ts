@@ -668,6 +668,8 @@ export interface ResultadoProgramacion {
   esperas: number;
   /** relámpagos vivas que se ALARGARON en TikTok en vez de crear la siguiente */
   extendidas: number;
+  /** ventanas propias que el ERP daba por vacías y TikTok tiene vivas con el producto: vuelven a contar */
+  revividas?: number;
   /** otra corrida tenía el candado: esta no hizo nada */
   ocupado?: boolean;
 }
@@ -748,12 +750,14 @@ async function programarCiclicasSinCandado(
   // hacer; una que TikTok rechazó por conflicto espera su `bloqueada_hasta`.
   const umbral = Date.now() + MARGEN_ESPERA_MS;
   const bloqueada = (c: any) => Boolean(c.bloqueada_hasta) && Date.parse(c.bloqueada_hasta) > Date.now();
-  const conTrabajo = ciclicas.filter((c: any) => {
-    if (bloqueada(c)) return false;
-    const propias = vivas.get(Number(c.id)) ?? [];
-    const fin = finDeLaViva(propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })));
-    return !fin || fin.getTime() <= umbral;
-  });
+  const conTrabajoDe = (lista: any[], vivasDe: Map<number, CiclicaGuardada["ventanas"]>) =>
+    lista.filter((c: any) => {
+      if (bloqueada(c)) return false;
+      const propias = vivasDe.get(Number(c.id)) ?? [];
+      const fin = finDeLaViva(propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })));
+      return !fin || fin.getTime() <= umbral;
+    });
+  let conTrabajo = conTrabajoDe(ciclicas, vivas);
   // Un aviso viejo en una cíclica que ya tiene su relámpago viva sobra (la
   // bloqueada conserva el suyo: dice por qué espera y hasta cuándo).
   const alDia = ciclicas.filter((c: any) => !conTrabajo.includes(c) && !bloqueada(c)).map((c: any) => Number(c.id));
@@ -769,7 +773,8 @@ async function programarCiclicasSinCandado(
   // por conflicto se desactiva en el siguiente minuto, no hasta que a otra
   // cíclica le toque trabajo (es una lectura a la base; TikTok solo si hay).
   salida.limpiadas = await limpiarVentanasVacias(admin, accountId, ids);
-  if (!conTrabajo.length) return salida;
+  const bloqueadas = ciclicas.filter(bloqueada);
+  if (!conTrabajo.length && !bloqueadas.length) return salida;
 
   const { modelos: catalogo } = await modelosParaOferta(admin, accountId, { sinPrecios: true });
   const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
@@ -785,6 +790,25 @@ async function programarCiclicasSinCandado(
   }
   const estadoEnTikTok = new Map<string, string>();
   for (const lista of Object.values(enTikTok.porProducto)) for (const r of lista) estadoEnTikTok.set(r.activityId, r.estado);
+
+  // REVIVIR: una ventana propia que el ERP dio por vacía o desactivada pero
+  // que TikTok tiene EN CURSO o programada CON el producto adentro vuelve a
+  // contar como viva (21-oct-2026: el dueño rearmó a mano en el Seller
+  // Center la «Cíclica GT148 21/10 15:00 · producto» que el ERP había
+  // desactivado por conflicto; el ERP la tomaba como ajena, bloqueaba la
+  // cíclica contra su propia relámpago y la pantalla decía «sin cíclica»).
+  const revividas = await revivirVentanasPropias(admin, accountId, ciclicas, porModelo, enTikTok.porProducto);
+  if (revividas.size) {
+    salida.revividas = revividas.size;
+    await admin
+      .from("tiktok_promociones_ciclicas")
+      .update({ ultimo_error: null, bloqueada_hasta: null })
+      .in("id", [...revividas])
+      .then(() => undefined, () => undefined);
+    for (const c of ciclicas) if (revividas.has(Number(c.id))) c.bloqueada_hasta = null;
+    conTrabajo = conTrabajoDe(ciclicas, await ventanasVivasDeCiclicas(admin, accountId, ids));
+    if (!conTrabajo.length) return salida;
+  } else if (!conTrabajo.length) return salida;
 
   for (const c of conTrabajo) {
     if (Date.now() - arranque > presupuesto) {
@@ -987,6 +1011,56 @@ export async function alargarOferta(
   } catch (err) {
     return fallo((err as Error).message);
   }
+}
+
+/**
+ * Vuelve a dar por VIVA una ventana propia que el ERP tiene como vacía,
+ * desactivada o con error pero que TikTok trae EN CURSO o programada con el
+ * producto adentro (`porProducto` solo lista actividades con el producto).
+ * Toma inicio y fin de TikTok. Contesta los ids de las cíclicas revividas.
+ */
+async function revivirVentanasPropias(
+  admin: any,
+  accountId: string,
+  ciclicas: any[],
+  porModelo: Map<string, { productId: string }>,
+  porProducto: Record<string, RelampagoDeProducto[]>,
+): Promise<Set<number>> {
+  const revividas = new Set<number>();
+  const ids = ciclicas.map((c: any) => Number(c.id));
+  if (!ids.length) return revividas;
+  const { data: dormidas } = await admin
+    .from("tiktok_promociones")
+    .select("id, ciclico_id, activity_id, estado")
+    .eq("account_id", accountId)
+    .in("ciclico_id", ids)
+    .not("activity_id", "is", null)
+    .not("estado", "in", `(${ESTADOS_VENTANA_VIVA.join(",")})`)
+    .gt("fin", new Date(Date.now() - 7 * 86_400_000).toISOString());
+  if (!dormidas?.length) return revividas;
+  const productoDeCiclica = new Map<number, string>();
+  for (const c of ciclicas) {
+    const m = porModelo.get(String(c.modelo));
+    if (m) productoDeCiclica.set(Number(c.id), m.productId);
+  }
+  for (const d of dormidas) {
+    const productId = productoDeCiclica.get(Number(d.ciclico_id));
+    if (!productId) continue;
+    const enTikTok = (porProducto[productId] ?? []).find((r) => r.activityId === String(d.activity_id));
+    if (!enTikTok || !(enTikTok.estado === "ONGOING" || enTikTok.estado === "NOT_START") || !enTikTok.fin) continue;
+    const { error } = await admin
+      .from("tiktok_promociones")
+      .update({
+        estado: "creada",
+        error: null,
+        inicio: enTikTok.inicio ?? undefined,
+        fin: enTikTok.fin,
+        respuesta: { revivida: { estadoAnterior: d.estado, en: new Date().toISOString(), tikTok: enTikTok } },
+      })
+      .eq("id", d.id);
+    if (!error) revividas.add(Number(d.ciclico_id));
+  }
+  return revividas;
 }
 
 /** La ventana viva de una cíclica se alarga con `alargarOferta`; contesta si entró. */
