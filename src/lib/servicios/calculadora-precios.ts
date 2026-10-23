@@ -12,7 +12,8 @@ import { traerTodo, type Cuenta, type DB } from "../datos/repos";
 import {
   PARAMETROS_CALCULADORA,
   calcularPrecios,
-  desgloseIva,
+  importeFactura,
+  precioSinIva,
   facturaDeContenedor,
   normalizarParametros,
   type CanalMeliBase,
@@ -253,8 +254,9 @@ export async function excelFacturaContenedor(db: DB, cuenta: Cuenta, numero: str
     tot.font = { bold: true };
     hoja.getColumn(2).numFmt = "@";
     for (const c of [5, 6, 7, 8, 9, 10]) hoja.getColumn(c).numFmt = '"$"#,##0.00';
+    for (const c of [5, 6]) hoja.getColumn(c).numFmt = '"$"#,##0.000000';
     hoja.getColumn(4).numFmt = "#,##0";
-    [12, 13, 50, 9, 14, 12, 14, 16, 14, 16].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
+    [12, 13, 50, 9, 18, 16, 14, 16, 14, 16].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
     if (f.sinPrecio.length) avisos.push(`${HOJAS[tipo].corto}: sin precio (sin ventas en MELI ni precio relámpago en Números): ${f.sinPrecio.join(", ")}.`);
     if (tipo === "komerline" && f.sinCodigo.length) avisos.push(`Sin categoría de MELI reconocida (CODIGO SAT en blanco): ${f.sinCodigo.join(", ")}.`);
   }
@@ -299,33 +301,33 @@ export function hojaResumen(
   enc.font = { bold: true, color: { argb: "FFFFFFFF" } };
   enc.eachCell((c) => (c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F3A5F" } }));
   const r2 = (x: number) => Math.round(x * 100) / 100;
-  const sinIva = (x: number | null) => (x == null ? null : desgloseIva(x).base);
   let tp = 0, tk = 0, ti = 0, tkb = 0, tib = 0;
   for (const [modelo, n] of [...porModelo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true }))) {
     const r = precios.get(modelo.toUpperCase());
     const k = r?.precioKomerline ?? null;
     const i = r?.precioIndusther ?? null;
-    const kb = sinIva(k);
-    const ib = sinIva(i);
+    // Igual que la hoja de la factura: pares × precio sin IVA (6 decimales) y el IVA sobre ese importe.
+    const fk = k != null ? importeFactura(k, n) : null;
+    const fi = i != null ? importeFactura(i, n) : null;
     tp += n;
-    if (k != null) (tk += k * n), (tkb += kb! * n);
-    if (i != null) (ti += i * n), (tib += ib! * n);
+    if (fk) (tk += fk.total), (tkb += fk.base);
+    if (fi) (ti += fi.total), (tib += fi.base);
     hoja.addRow([
       modelo, datosDe(modelo).codigoSat, n, r?.recibidoPar ?? null,
-      k != null ? r!.fullPar : null, k != null ? r!.publicidadPar : null, k, kb,
-      i != null ? r!.gastoOperativoPar : null, r?.gananciaIndustherPar ?? null, i, ib,
-      kb != null ? r2(kb * n) : null, k != null ? r2(k * n) : null,
-      ib != null ? r2(ib * n) : null, i != null ? r2(i * n) : null,
+      k != null ? r!.fullPar : null, k != null ? r!.publicidadPar : null, k, k != null ? precioSinIva(k) : null,
+      i != null ? r!.gastoOperativoPar : null, r?.gananciaIndustherPar ?? null, i, i != null ? precioSinIva(i) : null,
+      fk?.base ?? null, fk?.total ?? null, fi?.base ?? null, fi?.total ?? null,
     ]);
   }
   hoja.addRow(["TOTAL", "", tp, null, null, null, null, null, null, null, null, null, r2(tkb), r2(tk), r2(tib), r2(ti)]).font = { bold: true };
   hoja.getColumn(2).numFmt = "@";
   hoja.getColumn(3).numFmt = "#,##0";
   for (let c = 4; c <= 16; c++) hoja.getColumn(c).numFmt = '"$"#,##0.00';
-  [12, 13, 9, 13, 10, 13, 15, 15, 18, 20, 15, 15, 17, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
+  for (const c of [8, 12]) hoja.getColumn(c).numFmt = '"$"#,##0.000000';
+  [12, 13, 9, 13, 10, 13, 15, 18, 18, 20, 15, 18, 17, 17, 17, 17].forEach((w, i) => (hoja.getColumn(i + 1).width = w));
 }
 
 function agregarFila(hoja: ExcelJS.Worksheet, x: RenglonFactura) {
-  const precioIva = x.precioConIva != null && x.precioSinIva != null ? Math.round((x.precioConIva - x.precioSinIva) * 100) / 100 : null;
+  const precioIva = x.precioConIva != null && x.precioSinIva != null ? Math.round((x.precioConIva - x.precioSinIva) * 1e6) / 1e6 : null;
   hoja.addRow([x.modelo, x.codigoSat, x.descripcion, x.pares, x.precioSinIva, precioIva, x.precioConIva, x.importeSinIva, x.iva, x.total]);
 }
