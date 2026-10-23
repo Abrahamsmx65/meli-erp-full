@@ -164,17 +164,17 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const porAceptar = r.fallidas.filter((f) => f.aceptar?.razon === "credibilidad" && f.aceptar.precio != null);
   const pendientes = porAceptar.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
-  const yaMasBaratas = r.fallidas.filter((f) => f.aceptar?.razon === "mayor_que_actual");
   const otras = r.fallidas.filter((f) => !f.aceptar || (f.aceptar.razon === "credibilidad" && f.aceptar.precio == null));
   // Por familia: mismo modelo, promoción y precios = un renglón con un solo botón.
   const familiasPorAceptar = agruparPorFamilia(porAceptar, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.precio}`);
   const faltanDe = (g: (typeof familiasPorAceptar)[number]) => g.renglones.filter((f) => !aceptadas[clave(f.aceptar as AceptarBuenFin)]?.ok);
   const familiasConFaltantes = familiasPorAceptar.filter((g) => faltanDe(g).length);
   const familiasMarcadas = familiasConFaltantes.filter((g) => marcadas.has(g.clave));
-  const familiasHechas = familiasPorAceptar.filter((g) => !faltanDe(g).length);
-  const publicacionesHechas = familiasHechas.reduce((t, g) => t + g.renglones.length, 0);
   const seleccionadas = familiasMarcadas.flatMap(faltanDe);
-  const familiasMasBaratas = agruparPorFamilia(yaMasBaratas, (f) => `${f.aceptar?.queriamos}|${f.aceptar?.actual}`);
+  // Solo lo pendiente (dueño, 23-oct-2026: «si ya acepté e inscribí manualmente
+  // ya no me interesa que salga»): lo aceptado a su máximo y lo que ya está
+  // inscrito más barato no se enseñan.
+  const porResolver = pendientes.length + otras.length;
   const familiasOtras = agruparPorFamilia(otras, (f) => f.detalle);
 
   const aceptar = async (lista: ResultadoPrecio[], quien: string) => {
@@ -209,9 +209,9 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
 
   return (
     <div className="flex flex-col gap-2 text-xs">
-      <Aviso tono={r.fallidas.length ? "alerta" : r.inscritas.length ? "bien" : "info"}>
+      <Aviso tono={porResolver ? "alerta" : r.inscritas.length ? "bien" : "info"}>
         {fin ? `Última corrida ${new Date(fin).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })} · ` : ""}
-        {r.inscritas.length} de Buen Fin activadas o corregidas · {r.fallidas.length} rechazadas por MELI · {r.omitidas.length} omitidas
+        {r.inscritas.length} de Buen Fin activadas o corregidas · {porResolver ? `${porResolver} pendientes` : "nada pendiente"}
       </Aviso>
 
       {porAceptar.length ? (
@@ -315,55 +315,6 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
               );
             })}
           </ul>
-          {familiasHechas.length ? (
-            <details>
-              <summary style={{ color: "var(--exito-texto)" }}>
-                ✓ Ya aceptadas a su máximo: {publicacionesHechas} publicaciones en {familiasHechas.length} familias
-              </summary>
-              {familiasHechas.map((g) => {
-                const a = g.renglones[0].aceptar as AceptarBuenFin;
-                return (
-                  <div key={g.clave} className="texto-tenue">
-                    <strong>{g.modelo}</strong> {g.promocion} · {g.renglones.length} · a {din(a.precio as number)}
-                  </div>
-                );
-              })}
-            </details>
-          ) : null}
-        </div>
-      ) : null}
-
-      {yaMasBaratas.length ? (
-        <div className="flex flex-col gap-0.5">
-          <strong>
-            Ya están inscritas más baratas y MELI no deja subirlas ({yaMasBaratas.length} en {familiasMasBaratas.length} familias)
-          </strong>
-          {familiasMasBaratas.map((g) => {
-            const a = g.renglones[0].aceptar as AceptarBuenFin;
-            return (
-              <details key={g.clave}>
-                <summary>
-                  <strong>{g.modelo}</strong>{" "}
-                  <span className="texto-tenue">
-                    {g.promocion} · {g.renglones.length} {g.renglones.length === 1 ? "publicación" : "publicaciones"} · querías{" "}
-                    {din(a.queriamos)}
-                  </span>
-                  {a.actual != null ? (
-                    <>
-                      {" "}
-                      · está a <strong>{din(a.actual)}</strong>{" "}
-                      <span style={{ color: "var(--estado-alerta)" }}>{diferencia(a, a.actual)}</span>
-                    </>
-                  ) : null}
-                </summary>
-                {g.renglones.map((f, i) => (
-                  <div key={i} className="cifra texto-tenue">
-                    {partesDeDonde(f.donde).item}
-                  </div>
-                ))}
-              </details>
-            );
-          })}
         </div>
       ) : null}
 
@@ -391,16 +342,6 @@ export function ResultadoBuenFin({ r, fin }: { r: ConfirmacionRelampagos; fin?: 
         </div>
       ) : null}
 
-      {r.omitidas.length ? (
-        <details>
-          <summary className="texto-tenue">{r.omitidas.length} omitidas</summary>
-          {r.omitidas.map((o, i) => (
-            <div key={i} className="texto-tenue">
-              {o}
-            </div>
-          ))}
-        </details>
-      ) : null}
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
     </div>
   );
