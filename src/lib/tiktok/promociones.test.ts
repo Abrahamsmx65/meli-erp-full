@@ -280,3 +280,15 @@ describe("relámpago por PRODUCTO", () => {
     expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }).product_level).toBe("VARIATION");
   });
 });
+
+describe("finExtendido", () => {
+  it("alarga la relámpago viva las horas de la cíclica (72 por omisión)", async () => {
+    const { finExtendido } = await import("./promociones");
+    const fin = new Date("2026-10-23T02:19:15Z");
+    expect(finExtendido(fin, 72).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+    expect(finExtendido(fin, 24).toISOString()).toBe("2026-10-24T02:19:15.000Z");
+    // Más de 72 o un número inválido se topan como las horas de la cíclica.
+    expect(finExtendido(fin, 200).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+    expect(finExtendido(fin, 0).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+  });
+});

@@ -313,6 +313,17 @@ export interface VentanaProgramada {
   fin: Date;
 }
 
+/**
+ * Hasta cuándo pedirle a TikTok que ALARGUE la relámpago viva de una cíclica
+ * en vez de crear otra (dueño, 22-oct-2026: «en vez de crear cada vez
+ * cíclicas nuevas, cambiar las fechas de terminación»): el fin actual más
+ * las horas de la cíclica. Si TikTok no lo acepta (tope de 72 h por
+ * relámpago), el fondo vuelve a crear la siguiente como siempre.
+ */
+export function finExtendido(fin: Date, horas: number): Date {
+  return new Date(fin.getTime() + horasDeCiclica(horas) * 3_600_000);
+}
+
 /** Las horas de una cíclica: entre 1 y 72, 72 por omisión. */
 export function horasDeCiclica(x: unknown): number {
   const n = Number(x);
