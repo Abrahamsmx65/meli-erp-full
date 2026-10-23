@@ -19,9 +19,11 @@ const FUENTE: Record<string, { texto: string; color: string; ayuda: string }> = 
 export function CalculadoraFiscal({
   calc,
   contenedores,
+  destinatarios,
 }: {
   calc: CalculadoraCargada;
   contenedores: ContenedorFactura[];
+  destinatarios: string[];
 }) {
   const router = useRouter();
   const p = calc.parametros;
@@ -34,6 +36,28 @@ export function CalculadoraFiscal({
   const [busca, setBusca] = useState("");
   const [soloConPrecio, setSoloConPrecio] = useState(true);
   const [contenedor, setContenedor] = useState(contenedores[0]?.numero ?? "");
+  const [para, setPara] = useState(destinatarios.join(", "));
+  const [correo, setCorreo] = useState<{ texto: string; error: boolean } | null>(null);
+  const [mandando, setMandando] = useState(false);
+
+  async function mandar() {
+    setMandando(true);
+    setCorreo({ texto: "Mandando…", error: false });
+    try {
+      const r = await fetch("/api/finanzas/calculadora/contenedor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: contenedor, para }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? "No se pudo mandar el correo.");
+      setCorreo({ texto: `Solicitud de ${contenedor} enviada a ${(j.para as string[]).join(", ")}.`, error: false });
+    } catch (err) {
+      setCorreo({ texto: (err as Error).message, error: true });
+    } finally {
+      setMandando(false);
+    }
+  }
 
   async function guardar() {
     setEstado("Guardando…");
@@ -134,7 +158,28 @@ export function CalculadoraFiscal({
         >
           Excel para la factura
         </a>
-        <span className="texto-tenue text-[12px]">Resumen con los dos precios y una hoja de factura para cada compra.</span>
+        <label className="texto-2 flex flex-col gap-1 text-[12px]">
+          Mandar a
+          <input
+            className="w-72 rounded border px-2 py-1 text-[13px]"
+            style={estiloEntrada}
+            type="text"
+            inputMode="email"
+            placeholder="correo@ejemplo.com, otro@ejemplo.com"
+            value={para}
+            onChange={(e) => setPara(e.target.value)}
+          />
+        </label>
+        <button className="boton-primario boton-chico" disabled={!contenedor || !para.trim() || mandando} onClick={mandar}>
+          Mandar por correo
+        </button>
+        {correo ? (
+          <span className="text-[12px]" style={{ color: correo.error ? "var(--estado-critico)" : "var(--exito-texto)" }}>
+            {correo.texto}
+          </span>
+        ) : (
+          <span className="texto-tenue text-[12px]">Resumen con los dos precios (con y sin IVA) y una hoja de factura para cada compra.</span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

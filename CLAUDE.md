@@ -3049,7 +3049,15 @@ guárdala numerada.
   DOS precios lado a lado por modelo (`hojaResumen`; dueño, 21-oct-2026: «en
   el Excel no sale el precio de Industher»); la pantalla enseña la resta
   debajo de cada precio; lo que no tiene precio o código va en blanco y en
-  «Avisos». Se ofrecen los contenedores DESDE EL S245
+  «Avisos». El Resumen trae cada precio con y SIN IVA y los totales de las dos compras
+  sin y con IVA (dueño, 21-oct-2026). **La solicitud se MANDA POR CORREO**
+  (`servicios/calculadora-correo.ts`, `POST
+  /api/finanzas/calculadora/contenedor` con `{ numero, para }`; dueño: «con
+  su correo bonito como el de los pedidos»): `plantillaCorreo` con las dos
+  facturas (precio sin y con IVA, importe, IVA, total) y el mismo Excel
+  adjunto; los destinatarios se recuerdan en `app_cache`
+  `calculadora-precios:correo` y cada envío deja constancia en `sync_log`
+  tarea `correo-factura`. Se ofrecen los contenedores DESDE EL S245
   (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
   Contenedores (desde S250, pares del packing list) y, los que nunca se
   cargaron ahí (S245–S249), del Excel de costeo de la fábrica
