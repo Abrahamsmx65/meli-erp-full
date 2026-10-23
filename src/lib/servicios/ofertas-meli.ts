@@ -14,6 +14,7 @@
 
 import type { MeliClient } from "../meli/client";
 import { conCandado, traerTodo, type DB } from "../datos/repos";
+import { bitacoraCalzado, type Bitacora } from "./bitacora-ofertas";
 import { calcularNumeros } from "../finanzas/numeros";
 import { redondear99 } from "../precios/promociones";
 import {
@@ -149,18 +150,51 @@ async function invitadasDe(cliente: MeliClient, promo: PromocionMeli, muestra: R
   return items;
 }
 
-async function revisarSinCandado(admin: DB, cliente: MeliClient, accountId: string): Promise<{ revision: RevisionOfertas; muestra: Record<string, unknown> }> {
-  const avisos: string[] = [];
-  const muestra: Record<string, unknown> = {};
+/**
+ * De dónde sale cada cosa de la revisión. Calzado: Números, `skus`,
+ * `app_cache` y `sync_log`; fundas (`servicios/fundas-ofertas.ts`): la
+ * pestaña FUNDAS del sheet de Números, `yz_skus`, `yz_cache` y `yz_sync_log`.
+ */
+export interface FuenteOfertas {
+  userId: number;
+  /** precio objetivo por clave (modelo o diseño) */
+  objetivos(): Promise<Map<string, ObjetivoOferta>>;
+  /** publicación → clave */
+  items(): Promise<Map<string, string>>;
+  leerPrevia(): Promise<RevisionOfertas | null>;
+  guardar(revision: RevisionOfertas, ms: number): Promise<void>;
+  bitacora: Bitacora;
+  /** un solo trabajo a la vez; sin él corre directo */
+  candado?<T>(fn: () => Promise<T>): Promise<T>;
+  /** se agregan a los avisos de la revisión */
+  avisos?: string[];
+}
+
+export async function fuenteCalzado(admin: DB, accountId: string): Promise<FuenteOfertas> {
   const { data: cuenta } = await admin.from("meli_accounts").select("meli_user_id").eq("id", accountId).maybeSingle();
   const userId = Number((cuenta as { meli_user_id?: number } | null)?.meli_user_id);
   if (!userId) throw new Error("La cuenta no tiene usuario de MELI.");
+  return {
+    userId,
+    objetivos: () => objetivosPorModelo(admin, accountId),
+    items: () => modelosPorItem(admin, accountId),
+    leerPrevia: () => leerOfertasGuardadas(admin, accountId),
+    guardar: (revision, ms) => guardarCacheApp(admin, accountId, CLAVE_OFERTAS, revision, ms),
+    bitacora: bitacoraCalzado(admin, accountId),
+    candado: (fn) => conCandado(admin, accountId, "ofertas-meli", 780, fn, "Ya se están revisando las ofertas."),
+  };
+}
+
+async function revisarSinCandado(cliente: MeliClient, fuente: FuenteOfertas): Promise<{ revision: RevisionOfertas; muestra: Record<string, unknown> }> {
+  const muestra: Record<string, unknown> = {};
 
   const [objetivos, items, promos] = await Promise.all([
-    objetivosPorModelo(admin, accountId),
-    modelosPorItem(admin, accountId),
-    promocionesDelVendedor(cliente, userId, muestra),
+    fuente.objetivos(),
+    fuente.items(),
+    promocionesDelVendedor(cliente, fuente.userId, muestra),
   ]);
+  // Después de leer: la fuente de fundas avisa al bajar el sheet.
+  const avisos: string[] = [...(fuente.avisos ?? [])];
 
   const conAporte = promos.filter((p) => p.id && esTipoConAporte(p.type) && !["finished", "expired"].includes((p.status ?? "").toLowerCase()));
   const renglones: RenglonOferta[] = [];
@@ -179,7 +213,7 @@ async function revisarSinCandado(admin: DB, cliente: MeliClient, accountId: stri
       for (const it of await invitadasDe(cliente, p, muestra)) {
         const itemId = String(it.id ?? "");
         const modelo = items.get(itemId) ?? null;
-        if (!modelo) continue; // solo calzado de esta cuenta
+        if (!modelo) continue; // solo lo que la fuente conoce
         resumen.invitadas++;
         renglones.push(decidirOferta(it, p, modelo, objetivos.get(modelo) ?? null));
       }
@@ -189,7 +223,7 @@ async function revisarSinCandado(admin: DB, cliente: MeliClient, accountId: stri
     }
     promociones.push(resumen);
   }
-  const previa = await leerOfertasGuardadas(admin, accountId);
+  const previa = await fuente.leerPrevia();
   return {
     revision: {
       generadoEn: new Date().toISOString(),
@@ -202,10 +236,6 @@ async function revisarSinCandado(admin: DB, cliente: MeliClient, accountId: stri
   };
 }
 
-async function anotar(admin: DB, accountId: string, estado: "ok" | "error", detalle: unknown) {
-  await admin.from("sync_log").insert({ account_id: accountId, tarea: TAREA_OFERTAS, estado, fin: new Date().toISOString(), detalle });
-}
-
 /** Revisa y guarda; con `aceptar` además acepta todo lo que cumple. */
 export async function revisarOfertas(
   admin: DB,
@@ -213,49 +243,52 @@ export async function revisarOfertas(
   accountId: string,
   opciones: { aceptar?: boolean; origen?: "cron" | "manual" } = {},
 ): Promise<RevisionOfertas> {
+  return revisarOfertasCon(cliente, await fuenteCalzado(admin, accountId), opciones);
+}
+
+/** Lo mismo con cualquier fuente (calzado o fundas). */
+export async function revisarOfertasCon(
+  cliente: MeliClient,
+  fuente: FuenteOfertas,
+  opciones: { aceptar?: boolean; origen?: "cron" | "manual" } = {},
+): Promise<RevisionOfertas> {
   const origen = opciones.origen ?? "manual";
-  return conCandado(
-    admin,
-    accountId,
-    "ofertas-meli",
-    780,
-    async () => {
-      const inicio = Date.now();
-      const { revision, muestra } = await revisarSinCandado(admin, cliente, accountId);
-      let resultado: ResultadoAceptacion | null = null;
-      if (opciones.aceptar) {
-        resultado = { en: new Date().toISOString(), origen, aceptadas: [], fallidas: [] };
-        for (const r of revision.renglones) {
-          if (r.decision !== "aceptar") continue;
-          try {
-            await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, cuerpoParaAceptar(r));
-            r.decision = "aceptada";
-            r.motivo = `Aceptada: ${r.motivo}`;
-            resultado.aceptadas.push({ itemId: r.itemId, modelo: r.modelo, nombre: r.nombre, precio: r.precio });
-          } catch (err) {
-            resultado.fallidas.push({ itemId: r.itemId, modelo: r.modelo, nombre: r.nombre, error: mensajeDe(err) });
-          }
+  const correr = async () => {
+    const inicio = Date.now();
+    const { revision, muestra } = await revisarSinCandado(cliente, fuente);
+    let resultado: ResultadoAceptacion | null = null;
+    if (opciones.aceptar) {
+      resultado = { en: new Date().toISOString(), origen, aceptadas: [], fallidas: [] };
+      for (const r of revision.renglones) {
+        if (r.decision !== "aceptar") continue;
+        try {
+          await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, cuerpoParaAceptar(r));
+          r.decision = "aceptada";
+          r.motivo = `Aceptada: ${r.motivo}`;
+          resultado.aceptadas.push({ itemId: r.itemId, modelo: r.modelo, nombre: r.nombre, precio: r.precio });
+        } catch (err) {
+          resultado.fallidas.push({ itemId: r.itemId, modelo: r.modelo, nombre: r.nombre, error: mensajeDe(err) });
         }
-        revision.ultimaAceptacion = resultado;
-        revision.renglones = ordenarOfertas(revision.renglones);
       }
-      await guardarCacheApp(admin, accountId, CLAVE_OFERTAS, revision, Date.now() - inicio);
-      const cuenta = (d: string) => revision.renglones.filter((r) => r.decision === d).length;
-      await anotar(admin, accountId, resultado?.fallidas.length || revision.avisos.length ? "error" : "ok", {
-        origen,
-        aceptar: Boolean(opciones.aceptar),
-        promociones: revision.promociones,
-        cumplen: cuenta("aceptar"),
-        noCumplen: cuenta("no_cumple"),
-        sinPrecio: cuenta("sin_precio"),
-        sinDatos: cuenta("sin_datos"),
-        aceptadas: resultado?.aceptadas ?? [],
-        fallidas: resultado?.fallidas ?? [],
-        avisos: revision.avisos.slice(0, 50),
-        muestra,
-      });
-      return revision;
-    },
-    "Ya se están revisando las ofertas.",
-  );
+      revision.ultimaAceptacion = resultado;
+      revision.renglones = ordenarOfertas(revision.renglones);
+    }
+    await fuente.guardar(revision, Date.now() - inicio);
+    const cuenta = (d: string) => revision.renglones.filter((r) => r.decision === d).length;
+    await fuente.bitacora.anotar(TAREA_OFERTAS, resultado?.fallidas.length || revision.avisos.length ? "error" : "ok", {
+      origen,
+      aceptar: Boolean(opciones.aceptar),
+      promociones: revision.promociones,
+      cumplen: cuenta("aceptar"),
+      noCumplen: cuenta("no_cumple"),
+      sinPrecio: cuenta("sin_precio"),
+      sinDatos: cuenta("sin_datos"),
+      aceptadas: resultado?.aceptadas ?? [],
+      fallidas: resultado?.fallidas ?? [],
+      avisos: revision.avisos.slice(0, 50),
+      muestra,
+    });
+    return revision;
+  };
+  return fuente.candado ? fuente.candado(correr) : correr();
 }

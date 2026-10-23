@@ -29,6 +29,15 @@ describe("ofertas con aporte de MELI", () => {
     expect(si.decision).toBe("aceptar");
   });
 
+  it("sin envío conocido (fundas) no se acepta la que con el aporte cruza los $299", () => {
+    const cruza = decidirOferta(item({ price: 280 }), smart, "686", { pvNormal: 250.99, envio: null });
+    expect(cruza.decision).toBe("sin_datos");
+    expect(cruza.motivo).toMatch(/envío/);
+    // sin cruzar los $299 no hace falta el envío
+    expect(decidirOferta(item({ price: 60, original_price: 80 }), smart, "499", { pvNormal: 69.99, envio: null }).decision).toBe("no_cumple");
+    expect(decidirOferta(item({ price: 60, original_price: 80 }), smart, "499", { pvNormal: 67.99, envio: null }).decision).toBe("aceptar");
+  });
+
   it("con PV normal en $299 o más el envío no se resta otra vez", () => {
     const r = decidirOferta(item({ price: 290, original_price: 400 }), smart, "GT150", { pvNormal: 329.99, envio: 70 });
     expect(r.envioExtra).toBe(0);

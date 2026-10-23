@@ -45,3 +45,30 @@ export function agruparPorFamilia<T extends RenglonAgrupable>(
   }
   return [...grupos.values()].sort((a, b) => comparar(a.modelo, b.modelo) || comparar(a.clave, b.clave));
 }
+
+export interface RenglonParaAceptar {
+  itemId: string;
+  promoId: string | null;
+  tipo: string;
+  offerId: string | null;
+  accion: "inscribir" | "cambiar";
+  precio: number;
+  donde?: string;
+}
+
+/** Lo que la pantalla manda para aceptar a mano, ya revisado (calzado y fundas). */
+export function renglonesParaAceptar(cuerpo: unknown): RenglonParaAceptar[] {
+  const lista = (cuerpo as { renglones?: unknown } | null)?.renglones;
+  return (Array.isArray(lista) ? lista : [])
+    .map((x) => x as Record<string, unknown>)
+    .filter((x) => typeof x.itemId === "string" && /^MLM\d+$/.test(x.itemId) && Number(x.precio) > 0)
+    .map((x) => ({
+      itemId: x.itemId as string,
+      promoId: typeof x.promoId === "string" ? x.promoId : null,
+      tipo: String(x.tipo ?? ""),
+      offerId: typeof x.offerId === "string" ? x.offerId : null,
+      accion: x.accion === "cambiar" ? "cambiar" : "inscribir",
+      precio: Math.round(Number(x.precio) * 100) / 100,
+      donde: typeof x.donde === "string" ? x.donde : undefined,
+    }));
+}

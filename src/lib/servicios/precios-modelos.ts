@@ -24,6 +24,7 @@ import {
   estaInscrita,
   minimoCreible,
   type Asignaciones,
+  type ClasePromo,
   type Objetivos,
   type PromoMeli,
   type RenglonPromo,
@@ -33,6 +34,7 @@ import { listarNumeros } from "./numeros";
 import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_TARIFAS, type TarifasGuardadas } from "./tarifas-reales";
 import { cuentaAmazon } from "./amazon";
+import { bitacoraCalzado, type Bitacora } from "./bitacora-ofertas";
 
 export interface RenglonAmazon {
   sku: string;
@@ -108,7 +110,7 @@ async function itemsDeModelos(db: DB, accountId: string, modelos: string[]): Pro
   return items;
 }
 
-async function promosDe(cliente: MeliClient, itemId: string): Promise<PromoMeli[]> {
+export async function promosDe(cliente: MeliClient, itemId: string): Promise<PromoMeli[]> {
   const r = await cliente.get<PromoMeli[] | { results?: PromoMeli[] }>(`/seller-promotions/items/${itemId}`, { app_version: "v2" });
   return Array.isArray(r) ? r : r?.results ?? [];
 }
@@ -140,6 +142,36 @@ async function publicacionesAmazon(admin: DB, modelos: string[]): Promise<{ cuen
   return { cuentaId: (cuenta as { id: string }).id, filas };
 }
 
+/**
+ * Las promociones de MELI de cada publicación (`items`: publicación → clave
+ * del precio, el modelo en calzado o el diseño en fundas) contra su precio
+ * objetivo. De cinco en cinco: con todo el catálogo (el cron diario) son
+ * cientos de publicaciones y en serie no cabían en la función.
+ */
+export async function promosDeItems(
+  cliente: MeliClient,
+  items: Map<string, string>,
+  objetivos: Map<string, Objetivos>,
+  asignadas: Asignaciones = {},
+): Promise<{ meli: RenglonPromo[]; avisos: string[] }> {
+  const avisos: string[] = [];
+  const meli: RenglonPromo[] = [];
+  const leidas = await enLotes([...items], 5, async ([itemId, modelo]) => {
+    try {
+      return { itemId, modelo, promos: await promosDe(cliente, itemId), error: null as string | null };
+    } catch (err) {
+      return { itemId, modelo, promos: [] as PromoMeli[], error: mensajeMeli(err) };
+    }
+  });
+  for (const { itemId, modelo, promos, error } of leidas) {
+    const o = objetivos.get(modelo);
+    if (!o) continue;
+    if (error) avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${error}`);
+    for (const p of promos) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
+  }
+  return { meli: ordenarPlan(meli), avisos };
+}
+
 export async function revisarPrecios(
   db: DB,
   admin: DB,
@@ -157,22 +189,9 @@ export async function revisarPrecios(
   }
 
   const items = await itemsDeModelos(db, accountId, modelos);
-  const meli: RenglonPromo[] = [];
-  // De cinco en cinco: con todo el catálogo (el cron diario) son cientos de
-  // publicaciones y en serie no cabían en la función.
-  const leidas = await enLotes([...items], 5, async ([itemId, modelo]) => {
-    try {
-      return { itemId, modelo, promos: await promosDe(cliente, itemId), error: null as string | null };
-    } catch (err) {
-      return { itemId, modelo, promos: [] as PromoMeli[], error: mensajeMeli(err) };
-    }
-  });
-  for (const { itemId, modelo, promos, error } of leidas) {
-    const o = porModelo.get(modelo);
-    if (!o) continue;
-    if (error) avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${error}`);
-    for (const p of promos) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
-  }
+  const leidas = await promosDeItems(cliente, items, porModelo, asignadas);
+  const meli = leidas.meli;
+  avisos.push(...leidas.avisos);
 
   if (opciones.soloMeli) return { objetivos, meli: ordenarPlan(meli), amazon: [], avisos };
 
@@ -340,20 +359,20 @@ export const TAREA_BUEN_FIN_ACEPTAR = "buen-fin-aceptar";
  * después de la corrida y la pantalla las seguía enseñando como rechazadas).
  * `desde` recorta a lo aceptado después de esa hora.
  */
-export async function leerAceptadasBuenFin(admin: DB, accountId: string, desde?: string): Promise<ResultadoPrecio[]> {
-  let q = admin
-    .from("sync_log")
-    .select("fin, detalle")
-    .eq("account_id", accountId)
-    .eq("tarea", TAREA_BUEN_FIN_ACEPTAR)
-    .order("fin", { ascending: true })
-    .limit(200);
-  if (desde) q = q.gte("fin", desde);
-  else q = q.gte("fin", new Date(Date.now() - 45 * 86_400_000).toISOString());
-  const { data } = await q;
+export async function leerAceptadasBuenFin(
+  admin: DB,
+  accountId: string,
+  desde?: string,
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
+): Promise<ResultadoPrecio[]> {
+  const renglones = await bitacora.leer(TAREA_BUEN_FIN_ACEPTAR, {
+    desde: desde ?? new Date(Date.now() - 45 * 86_400_000).toISOString(),
+    limite: 200,
+    ascendente: true,
+  });
   const porDonde = new Map<string, ResultadoPrecio>();
-  for (const renglon of (data ?? []) as { detalle?: { resultados?: ResultadoPrecio[] } }[]) {
-    for (const x of renglon.detalle?.resultados ?? []) if (x?.donde) porDonde.set(x.donde, x);
+  for (const renglon of renglones) {
+    for (const x of ((renglon.detalle as { resultados?: ResultadoPrecio[] }).resultados ?? [])) if (x?.donde) porDonde.set(x.donde, x);
   }
   return [...porDonde.values()];
 }
@@ -396,6 +415,7 @@ export async function confirmarRelampagosPendientes(
   accountId: string,
   origen: "cron" | "manual" = "cron",
   previa?: RevisionDeNumeros,
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
   const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
 
@@ -492,12 +512,14 @@ export async function confirmarRelampagosPendientes(
     }
   });
 
-  await admin.from("sync_log").insert({
-    account_id: accountId,
-    tarea: TAREA_RELAMPAGOS,
-    estado: fallidas.length ? "error" : "ok",
-    fin: new Date().toISOString(),
-    detalle: { origen, modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50), muestra },
+  await bitacora.anotar(TAREA_RELAMPAGOS, fallidas.length ? "error" : "ok", {
+    origen,
+    modelos: modelos.length,
+    inscritas,
+    fallidas,
+    omitidas,
+    avisos: revision.avisos.slice(0, 50),
+    muestra,
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
@@ -587,17 +609,21 @@ export async function confirmarBuenFinPendientes(
   accountId: string,
   origen: "cron" | "manual" = "cron",
   previa?: RevisionDeNumeros,
+  opciones: { bitacora?: Bitacora; clases?: ClasePromo[] } = {},
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
   const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
+  const bitacora = opciones.bitacora ?? bitacoraCalzado(admin, accountId);
+  // Fundas confirma también la oferta de todos los días (dueño, 23-oct-2026).
+  const clases = opciones.clases ?? ["buen_fin"];
   const inscritas: ResultadoPrecio[] = [];
   const fallidas: ResultadoPrecio[] = [];
   const omitidas: string[] = [];
   const hechas: { r: RenglonPromo; res: ResultadoPrecio }[] = [];
-  const buenFin = revision.meli.filter((r) => r.clase === "buen_fin");
+  const buenFin = revision.meli.filter((r) => r.clase != null && clases.includes(r.clase));
   // Lo que el dueño ya aceptó al máximo de MELI no se vuelve a subir al PV
   // de Números: MELI lo rechazaría otra vez y saldría como fallida.
   const aceptadas = new Map<string, number>();
-  for (const a of await leerAceptadasBuenFin(admin, accountId).catch(() => [])) {
+  for (const a of await leerAceptadasBuenFin(admin, accountId, undefined, bitacora).catch(() => [])) {
     const precio = precioAceptado(a);
     if (precio != null) aceptadas.set(a.donde, precio);
   }
@@ -699,12 +725,14 @@ export async function confirmarBuenFinPendientes(
     }
   });
 
-  await admin.from("sync_log").insert({
-    account_id: accountId,
-    tarea: TAREA_BUEN_FIN,
-    estado: fallidas.length ? "error" : "ok",
-    fin: new Date().toISOString(),
-    detalle: { origen, modelos: modelos.length, buenFin: buenFin.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
+  await bitacora.anotar(TAREA_BUEN_FIN, fallidas.length ? "error" : "ok", {
+    origen,
+    modelos: modelos.length,
+    buenFin: buenFin.length,
+    inscritas,
+    fallidas,
+    omitidas,
+    avisos: revision.avisos.slice(0, 50),
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
@@ -719,6 +747,7 @@ export async function aceptarBuenFinAMinimo(
   cliente: MeliClient,
   accountId: string,
   renglones: { itemId: string; promoId: string | null; tipo: string; offerId: string | null; accion: string; precio: number; donde?: string }[],
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
 ): Promise<ResultadoPrecio[]> {
   const resultados: ResultadoPrecio[] = [];
   await enLotes(renglones, 5, async (r) => {
@@ -741,12 +770,6 @@ export async function aceptarBuenFinAMinimo(
       resultados.push({ donde, ok: false, detalle: mensajeMeli(err) });
     }
   });
-  await admin.from("sync_log").insert({
-    account_id: accountId,
-    tarea: TAREA_BUEN_FIN_ACEPTAR,
-    estado: resultados.some((x) => !x.ok) ? "error" : "ok",
-    fin: new Date().toISOString(),
-    detalle: { resultados },
-  });
+  await bitacora.anotar(TAREA_BUEN_FIN_ACEPTAR, resultados.some((x) => !x.ok) ? "error" : "ok", { resultados });
   return resultados;
 }

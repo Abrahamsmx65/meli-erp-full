@@ -45,7 +45,7 @@ export interface ResultadoSheets {
 
 const LOTE = 500;
 
-async function bajar(url: string): Promise<Buffer> {
+export async function bajar(url: string): Promise<Buffer> {
   const r = await fetch(url, { redirect: "follow", cache: "no-store" });
   if (!r.ok) {
     throw new Error(
