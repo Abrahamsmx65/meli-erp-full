@@ -432,3 +432,31 @@ export function avisosDeRechazos(rechazos: RechazoTikTok[], muestra = 4): string
     return `TikTok rechazó ${n} SKU (${ejemplos}): ${r.error}`;
   });
 }
+
+/** TikTok no deja bajar el inventario abajo de lo que una promoción tiene reservado (12019024). */
+export function esRechazoPorReserva(error: string): boolean {
+  return /12019024|minimum allowed (open )?stock/i.test(error);
+}
+
+/**
+ * Publicaciones (product_id) que se quisieron dejar EN CEROS y TikTok
+ * rechazó por el stock reservado de una promoción: el modelo se está
+ * retirando y sus relámpagos estorban (dueño, 22-oct-2026: «si un modelo
+ * queda en ceros y hay error 12019024, que todas sus relámpagos se
+ * cancelen para que pueda actualizarse el stock»). Solo cuenta si TODAS las
+ * variantes conocidas de esa publicación van a cero; con una sola talla
+ * viva no se cancela nada.
+ */
+export function productosEnCerosRechazados(
+  rechazos: RechazoTikTok[],
+  publicaciones: Pick<PublicacionTikTok, "productId" | "skuInterno">[],
+  disponibles: Map<string, number>,
+): string[] {
+  const candidatos = new Set(rechazos.filter((r) => esRechazoPorReserva(r.error)).flatMap((r) => r.productos));
+  const salida: string[] = [];
+  for (const productId of candidatos) {
+    const conocidas = publicaciones.filter((p) => p.productId === productId && disponibles.has(p.skuInterno));
+    if (conocidas.length && conocidas.every((p) => disponibles.get(p.skuInterno) === 0)) salida.push(productId);
+  }
+  return salida;
+}

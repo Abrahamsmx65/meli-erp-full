@@ -281,3 +281,35 @@ describe("resumirRechazos / sePuedeEscribir", () => {
     expect(sePuedeEscribir("PLATFORM_DEACTIVATED")).toBe(false);
   });
 });
+
+describe("productosEnCerosRechazados", () => {
+  it("solo la publicación que va COMPLETA a cero y que TikTok rechazó por reserva", async () => {
+    const { productosEnCerosRechazados } = await import("./kardex");
+    const pubs = [
+      { productId: "p148", skuInterno: "GT148-BLK-23-MX" },
+      { productId: "p148", skuInterno: "GT148-BLK-24-MX" },
+      { productId: "p150", skuInterno: "GT150-BLK-23-MX" },
+      { productId: "p150", skuInterno: "GT150-BLK-24-MX" },
+      { productId: "p100", skuInterno: "GT100-MINT-23-MX" },
+    ];
+    const disponibles = new Map([
+      ["GT148-BLK-23-MX", 0],
+      ["GT148-BLK-24-MX", 0],
+      ["GT150-BLK-23-MX", 0],
+      ["GT150-BLK-24-MX", 5],
+      ["GT100-MINT-23-MX", 0],
+    ]);
+    const reserva = "TikTok Shop 12019024 … lower than the minimum allowed open stock";
+    const r = productosEnCerosRechazados(
+      [
+        { error: reserva, skus: ["GT148-BLK-23-MX"], productos: ["p148"] },
+        { error: reserva, skus: ["GT150-BLK-23-MX"], productos: ["p150"] },
+        { error: "Operation Not Allowed", skus: ["GT100-MINT-23-MX"], productos: ["p100"] },
+      ],
+      pubs,
+      disponibles,
+    );
+    // p150 tiene una talla viva; p100 no fue por reserva.
+    expect(r).toEqual(["p148"]);
+  });
+});

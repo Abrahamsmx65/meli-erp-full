@@ -30,6 +30,7 @@ import { limpiarCacheExternos, productosExternos } from "./tiktok-externos";
 import {
   bodegas,
   catalogoConEstado,
+  desactivarActividad,
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
@@ -60,6 +61,7 @@ import {
   disponibleParaCompradores,
   escriturasContraTikTok,
   frenarSubidasSinCausa,
+  productosEnCerosRechazados,
   resumirRechazos,
   sePuedeEscribir,
   type RechazoTikTok,
@@ -952,10 +954,41 @@ export async function publicarDisponibilidad(
     cliente.tienda.warehouseId,
     permitidas.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
   );
+  const avisos: string[] = [];
+
+  // Un modelo que se quiere dejar EN CEROS y TikTok rechaza por el stock que
+  // le reserva una relámpago (12019024): se cancelan sus relámpagos, se pausa
+  // su cíclica y se vuelve a intentar el cero (dueño, 22-oct-2026).
+  let fallidos = res.fallidos;
+  const enCeros = productosEnCerosRechazados(
+    resumirRechazos(fallidos, permitidas),
+    escribibles.map((s: any) => ({ productId: String(s.product_id), skuInterno: String(s.sku_interno) })),
+    disponibles,
+  );
+  if (enCeros.length) {
+    const c = await cancelarRelampagosDePublicacionesEnCeros(admin, accountId, cliente, enCeros);
+    avisos.push(...c.avisos);
+    if (c.canceladas) {
+      const otraVez = permitidas.filter((e) => enCeros.includes(e.productId) && fallidos.some((f) => f.skuId === e.skuId));
+      const res2 = await publicarStock(
+        cliente,
+        cliente.tienda.warehouseId,
+        otraVez.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
+      );
+      const reintentados = new Set(otraVez.map((e) => e.skuId));
+      fallidos = [...fallidos.filter((f) => !reintentados.has(f.skuId)), ...res2.fallidos];
+      const entraron = otraVez.length - res2.fallidos.length;
+      avisos.push(
+        entraron > 0
+          ? `Con las relámpagos canceladas, ${entraron} SKU ya quedaron en cero en TikTok.`
+          : `TikTok todavía rechaza el cero después de cancelar las relámpagos; se reintenta en la siguiente corrida.`,
+      );
+    }
+  }
 
   // Solo se da por escrito lo que TikTok aceptó de verdad: cantidad_tiktok
   // queda igual al número que se mandó, y `publicado` en el inventario.
-  const fallados = new Set(res.fallidos.map((f) => f.skuId));
+  const fallados = new Set(fallidos.map((f) => f.skuId));
   const ahora = new Date().toISOString();
   const okSkus = permitidas.filter((e) => !fallados.has(e.skuId));
 
@@ -981,10 +1014,9 @@ export async function publicarDisponibilidad(
     );
   }
 
-  const avisos: string[] = [];
   // Un aviso POR MOTIVO con los SKUs que cayeron en él: antes solo se
   // enseñaba el primer error de la tanda y el resto quedaba escondido.
-  const rechazos = resumirRechazos(res.fallidos, permitidas);
+  const rechazos = resumirRechazos(fallidos, permitidas);
   avisos.push(...avisosDeRechazos(rechazos));
   avisos.push(...avisoSinEscribir);
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
@@ -1001,7 +1033,99 @@ export async function publicarDisponibilidad(
     avisos.push(`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`);
   }
 
-  return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos, rechazos, sinEscribir };
+  return { publicados: okSkus.length, fallidos: fallidos.length, sinProducto, avisos, rechazos, sinEscribir };
+}
+
+/**
+ * Cuando un modelo se quiere dejar EN CEROS y TikTok rechaza el cero por el
+ * stock que una relámpago le reserva (12019024), se DESACTIVAN en TikTok
+ * todas las relámpagos en curso o programadas que tienen ese producto, se
+ * PAUSA su cíclica (si no, el fondo le crearía otra en un minuto) y el que
+ * llama vuelve a intentar el cero. Dueño, 22-oct-2026: «si un modelo queda
+ * en ceros y hay error 12019024, que todas sus relámpagos se cancelen para
+ * que pueda actualizarse el stock». Constancia en `tiktok_sync_log` tarea
+ * `relampagos-por-cero`. Nunca lanza: lo que falle queda en los avisos.
+ */
+async function cancelarRelampagosDePublicacionesEnCeros(
+  admin: any,
+  accountId: string,
+  cliente: Cliente,
+  productIds: string[],
+): Promise<{ canceladas: number; avisos: string[] }> {
+  const avisos: string[] = [];
+  let canceladas = 0;
+  const detalle: Record<string, unknown>[] = [];
+  try {
+    // Import dinámico: tiktok-promociones importa de este archivo.
+    const { relampagosPorProducto, modelosParaOferta } = await import("./tiktok-promociones");
+    const [enTikTok, catalogo] = await Promise.all([
+      relampagosPorProducto(admin, accountId),
+      modelosParaOferta(admin, accountId, { sinPrecios: true }).catch(() => ({ modelos: [] as { modelo: string; productId: string }[] })),
+    ]);
+    if (enTikTok.error) {
+      avisos.push(`No se pudieron leer las relámpagos para cancelar las del modelo en cero: ${enTikTok.error}`);
+      return { canceladas, avisos };
+    }
+    for (const productId of productIds) {
+      const modelo = catalogo.modelos.find((m) => m.productId === productId)?.modelo ?? null;
+      const nombre = modelo ?? `publicación ${productId}`;
+      const vivas = (enTikTok.porProducto[productId] ?? []).filter((r) => r.estado === "ONGOING" || r.estado === "NOT_START");
+      const hechas: string[] = [];
+      const fallas: string[] = [];
+      for (const r of vivas) {
+        try {
+          await desactivarActividad(cliente, r.activityId);
+          await admin
+            .from("tiktok_promociones")
+            .update({ estado: "desactivada", respuesta: { desactivada: "modelo en cero", en: new Date().toISOString() } })
+            .eq("account_id", accountId)
+            .eq("activity_id", r.activityId)
+            .then(() => undefined, () => undefined);
+          hechas.push(r.titulo);
+          canceladas++;
+        } catch (err) {
+          fallas.push(`${r.titulo}: ${(err as Error).message}`);
+        }
+      }
+      let ciclicaPausada = false;
+      if (modelo) {
+        const { data } = await admin
+          .from("tiktok_promociones_ciclicas")
+          .update({
+            activo: false,
+            ultimo_error: `Pausada el ${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}: el ${modelo} quedó en cero y sus relámpagos se cancelaron para poder bajar el stock en TikTok. Actívala otra vez cuando vuelva a tener pares.`,
+          })
+          .eq("account_id", accountId)
+          .eq("modelo", modelo)
+          .eq("activo", true)
+          .select("id");
+        ciclicaPausada = Boolean(data?.length);
+      }
+      detalle.push({ productId, modelo, hechas, fallas, ciclicaPausada });
+      if (hechas.length || fallas.length || ciclicaPausada) {
+        avisos.push(
+          `${nombre} quedó en cero: ` +
+            (hechas.length ? `se cancelaron ${hechas.length} relámpago${hechas.length === 1 ? "" : "s"} (${hechas.join(", ")})` : "no había relámpagos vivas que cancelar") +
+            (fallas.length ? `; no se pudieron cancelar: ${fallas.join(" · ")}` : "") +
+            (ciclicaPausada ? "; su cíclica quedó pausada." : "."),
+        );
+      } else {
+        avisos.push(`${nombre} quedó en cero y TikTok rechaza bajarlo por stock reservado, pero no se ve ninguna relámpago viva con ese producto: revísalo en el Seller Center.`);
+      }
+    }
+    if (canceladas) {
+      const { invalidarApp } = await import("./cache-app");
+      await invalidarApp(admin, accountId, "relámpagos canceladas por modelo en cero", { claves: ["tiktok:promociones", "tiktok:promociones:productos"] }).catch(() => undefined);
+    }
+  } catch (err) {
+    avisos.push(`No se pudieron cancelar las relámpagos del modelo en cero: ${(err as Error).message}`);
+  }
+  const ahora = new Date().toISOString();
+  await admin
+    .from("tiktok_sync_log")
+    .insert({ account_id: accountId, tarea: "relampagos-por-cero", inicio: ahora, fin: ahora, estado: canceladas ? "ok" : "sin cambios", detalle: { productIds, canceladas, detalle, avisos } })
+    .then(() => undefined, () => undefined);
+  return { canceladas, avisos };
 }
 
 /**
