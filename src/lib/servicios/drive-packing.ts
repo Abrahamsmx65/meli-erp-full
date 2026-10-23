@@ -178,11 +178,22 @@ export function esArchivoAjeno(nombre: string): boolean {
 /**
  * Regla del dueño (10-sep-2026): la carpeta trae la historia completa; solo
  * se jalan los embarques POSTERIORES al último que ya está cargado (si el
- * último es S259, S258 y anteriores no se tocan). Lo que no trae número de
- * embarque se decide por el amarre con pedidos, como antes.
+ * último es S259, S258 y anteriores no se tocan), más los del medio que
+ * nunca se cargaron. Lo que no trae número de embarque se decide por el
+ * amarre con pedidos, como antes.
  */
-export function esEmbarqueViejo(numero: number | null, maximo: number | null): boolean {
-  return numero != null && maximo != null && numero < maximo;
+export function esEmbarqueViejo(
+  numero: number | null,
+  maximo: number | null,
+  cargados?: { embarques: Set<number>; minimo: number | null },
+): boolean {
+  if (numero == null || maximo == null || numero >= maximo) return false;
+  if (!cargados) return true;
+  // Un embarque del medio que NUNCA se cargó no es historia: S272 y S273 se
+  // subieron a Drive el 23-oct-2026 después de que ya había entrado S274 y la
+  // pasada ni abría sus carpetas. Solo es viejo lo ya cargado o lo de antes
+  // del primer contenedor del sistema.
+  return cargados.embarques.has(numero) || (cargados.minimo != null && numero < cargados.minimo);
 }
 
 export async function sincronizarPackingListsDrive(
@@ -215,7 +226,10 @@ export async function sincronizarPackingListsDrive(
     const n = delBorrador || g.estado === ESTADO_RELEER ? numeroDeEmbarque(String(g.nombre ?? "").split("/")[0]) : null;
     if (n != null) embarquesBorrador.add(n);
   }
-  const viejo = (n: number | null) => esEmbarqueViejo(n, maximo) && !(n != null && embarquesBorrador.has(n));
+  const embarquesCargados = new Set(cargados.map((c) => c.embarque).filter((n): n is number => n != null));
+  const minimo = embarquesCargados.size ? Math.min(...embarquesCargados) : null;
+  const viejo = (n: number | null) =>
+    esEmbarqueViejo(n, maximo, { embarques: embarquesCargados, minimo }) && !(n != null && embarquesBorrador.has(n));
   // Un borrador que alguien ya CORRIGIÓ a mano en Contenido (sus cajas ya no
   // son las que entraron desde Drive) no se vuelve a armar: rearmarlo
   // borraría esas decisiones (S263-2026 tenía 232 cajas confirmadas a mano).
@@ -260,7 +274,11 @@ export async function sincronizarPackingListsDrive(
   const finPacking = opts.finMs - 45_000;
   for (const a of archivos) {
     if (Date.now() > finPacking) break;
-    if (!opts.forzar && previa.get(a.id)?.estado !== ESTADO_RELEER && !cambio(a, previa.get(a.id))) continue;
+    // Un archivo que el lector no entendió se vuelve a probar en cada pasada:
+    // el arreglo del lector llega sin que el archivo cambie (S272-2026 se
+    // quedó en «error» desde el 15-oct-2026 con su formato «Article no»).
+    const estadoPrevio = previa.get(a.id)?.estado;
+    if (!opts.forzar && estadoPrevio !== ESTADO_RELEER && estadoPrevio !== "error" && !cambio(a, previa.get(a.id))) continue;
     // Por la subcarpeta o el nombre, sin descargar: un embarque anterior al
     // último cargado no se toca.
     const porNombre = numeroDeEmbarque(a.carpeta) ?? numeroDeEmbarque(a.nombre);
