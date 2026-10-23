@@ -1896,7 +1896,10 @@ guárdala numerada.
   **La cíclica se ALARGA antes de crear otra** (`alargarOferta` y
   `extenderVentana` en `servicios/tiktok-promociones.ts`,
   `actualizarActividad` en `tiktok/api.ts` = `PUT
-  /promotion/202309/activities/{id}` con solo `end_time`, `finExtendido`
+  /promotion/202309/activities/{id}` con `end_time` y el MISMO `title`
+  —TikTok lo exige aunque no cambie: 36009004 «Title is a required field»,
+  probado por el dueño el 22-oct-2026 en «GT150 CICLICA»— y `begin_time`
+  solo si no ha empezado, `finExtendido`
   puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
   manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
   no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada
