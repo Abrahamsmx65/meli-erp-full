@@ -847,8 +847,13 @@ export async function hacerCorte(
   // #57 corría) se abrió aparte del #57 (869) un minuto después porque el
   // #57 no había dejado nada «por tiempo»; dueño: «salieron separados, ¿qué
   // pasó ahí?». Solo la segunda tanda del corte lunes pide abrir el suyo.
+  // Los cortes de un VENDEDOR EXTERNO (David) NO se juntan por ser del
+  // mismo día (dueño, 22-oct-2026: «hizo un corte y luego otro y le está
+  // juntando los cortes»): él despacha desde otra bodega y cada corte es un
+  // trabajo aparte; solo se une la continuación de uno que quedó «por
+  // tiempo», como siempre.
   const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
-    sinExigirTiempo: opciones.unirAlDeHoy !== false,
+    sinExigirTiempo: opciones.unirAlDeHoy !== false && !vendedor,
     vendedor,
     muestras: soloMuestras,
   });

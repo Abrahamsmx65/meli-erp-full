@@ -1029,7 +1029,12 @@ guárdala numerada.
   #57 (869 pedidos) porque el #57 no había dejado nada «por tiempo»; se
   unieron a mano por SQL (dueño: «salieron separados, ¿qué pasó ahí?»).
   Ahora un corte se une al de hoy con el mismo filtro (general con general,
-  GT148 con GT148) mientras nadie le haya preparado nada.
+  GT148 con GT148) mientras nadie le haya preparado nada. **Los cortes de
+  un VENDEDOR EXTERNO (David) NO se juntan por ser del mismo día**
+  (`sinExigirTiempo` solo sin `vendedor`, en `hacerCorte`; dueño,
+  22-oct-2026: «hizo un corte y luego otro y le está juntando los cortes»):
+  él despacha desde otra bodega y cada corte es un trabajo aparte; solo se
+  le une la continuación de uno que quedó «por tiempo», como siempre.
   **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
   `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
   compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
