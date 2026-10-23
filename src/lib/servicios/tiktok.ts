@@ -56,9 +56,13 @@ import {
 import { disponibleConEstante } from "../tiktok/bodega";
 import {
   apartadosPorSku,
+  avisosDeRechazos,
   disponibleParaCompradores,
   escriturasContraTikTok,
   frenarSubidasSinCausa,
+  resumirRechazos,
+  sePuedeEscribir,
+  type RechazoTikTok,
   movimientosPendientes,
   saldosDesdeMovimientos,
   type Movimiento,
@@ -746,6 +750,8 @@ async function sincronizarTikTokSinCandado(
       salidas,
       devoluciones,
       publicados: pub.publicados,
+      rechazos: pub.rechazos ?? [],
+      sinEscribir: pub.sinEscribir ?? [],
       skusCatalogo,
       skusDadosDeBaja,
       sinAmarre,
@@ -781,6 +787,10 @@ export interface ResultadoPublicar {
   fallidos: number;
   sinProducto: number;
   avisos: string[];
+  /** lo que TikTok rechazó, agrupado por motivo (para la bitácora) */
+  rechazos?: RechazoTikTok[];
+  /** SKUs que no se intentaron porque su publicación está borrada o congelada en TikTok */
+  sinEscribir?: string[];
 }
 
 /**
@@ -822,7 +832,7 @@ export async function publicarDisponibilidad(
       "sku, saldo, apartado, apartado_web, tope_estante, contado, publicado, publicado_en",
       (q) => q.eq("account_id", accountId),
     ),
-    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok", (q) =>
+    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok, estado", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
     skusContados(admin, accountId),
@@ -874,9 +884,19 @@ export async function publicarDisponibilidad(
   // Se compara contra lo que TikTok DICE tener (cantidad_tiktok, del
   // catálogo), no contra lo último que escribimos: si alguien editó el stock
   // en el Seller Center, aquí se corrige.
+  // Una publicación BORRADA o congelada en TikTok no acepta inventario
+  // (12052901): se deja fuera y se declara, en vez de rechazarse cada corrida
+  // y taparle el aviso a los demás (el GT100 borrado escondió 27 horas el
+  // rechazo del retiro del GT148, 22-oct-2026).
+  const sinEscribir: string[] = [];
+  const escribibles = (skusTikTok ?? []).filter((s: any) => {
+    if (!s.sku_interno || !s.product_id) return false;
+    if (sePuedeEscribir(s.estado)) return true;
+    if (disponibles.has(s.sku_interno)) sinEscribir.push(`${s.sku_interno} (${String(s.estado).toLowerCase()})`);
+    return false;
+  });
   const escrituras = escriturasContraTikTok(
-    (skusTikTok ?? [])
-      .filter((s: any) => s.sku_interno && s.product_id)
+    escribibles
       .map((s: any) => ({
         skuId: s.sku_id,
         productId: s.product_id,
@@ -909,12 +929,17 @@ export async function publicarDisponibilidad(
     ({ permitidas, frenadas } = frenarSubidasSinCausa(escrituras, conCausa, todasConCausa));
   }
 
+  const avisoSinEscribir = sinEscribir.length
+    ? [`${sinEscribir.length} SKU con publicación borrada o congelada en TikTok no se escriben: ${sinEscribir.slice(0, 5).join(", ")}${sinEscribir.length > 5 ? "…" : ""}`]
+    : [];
   if (!permitidas.length) {
     return {
       publicados: 0,
       fallidos: 0,
       sinProducto,
+      sinEscribir,
       avisos: [
+        ...avisoSinEscribir,
         ...(sinProducto ? [`${sinProducto} SKU con existencia no tienen publicación en TikTok.`] : []),
         ...(topados.length ? [`${topados.length} SKU topados por la bodega (el kardex traía de más).`] : []),
         ...(frenadas.length ? [`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`] : []),
@@ -957,9 +982,11 @@ export async function publicarDisponibilidad(
   }
 
   const avisos: string[] = [];
-  if (res.fallidos.length) {
-    avisos.push(`TikTok rechazó ${res.fallidos.length} SKU: ${res.fallidos[0].error}`);
-  }
+  // Un aviso POR MOTIVO con los SKUs que cayeron en él: antes solo se
+  // enseñaba el primer error de la tanda y el resto quedaba escondido.
+  const rechazos = resumirRechazos(res.fallidos, permitidas);
+  avisos.push(...avisosDeRechazos(rechazos));
+  avisos.push(...avisoSinEscribir);
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
   // El tope contra el estante NUNCA es silencioso: si actuó es que el kardex
   // y la bodega no coinciden, y eso hay que arreglarlo en el conteo, no
@@ -974,7 +1001,7 @@ export async function publicarDisponibilidad(
     avisos.push(`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`);
   }
 
-  return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos };
+  return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos, rechazos, sinEscribir };
 }
 
 /**

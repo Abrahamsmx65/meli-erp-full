@@ -1393,6 +1393,21 @@ export async function crearActividad(c: Cliente, cuerpo: Record<string, unknown>
   return d;
 }
 
+/**
+ * Cambia título, inicio o fin de una actividad que ya existe (UpdateActivity:
+ * «Change the title and the beginning and end time of the existing product
+ * discount or flash sale promotion activity»). Solo viaja lo que se manda.
+ */
+export async function actualizarActividad(c: Cliente, activityId: string, cambios: { title?: string; beginTime?: number; endTime?: number }): Promise<any> {
+  const cuerpo: Record<string, unknown> = { activity_id: activityId };
+  if (cambios.title) cuerpo.title = cambios.title;
+  if (cambios.beginTime) cuerpo.begin_time = cambios.beginTime;
+  if (cambios.endTime) cuerpo.end_time = cambios.endTime;
+  const d = await c.llamar<any>("PUT", `/promotion/202309/activities/${encodeURIComponent(activityId)}`, { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó el cambio de fechas de la oferta (sin tiempo).");
+  return d ?? {};
+}
+
 /** Mete (o edita) productos y variantes en una actividad: hasta 300 variantes por llamada. */
 export async function actualizarProductosDeActividad(c: Cliente, activityId: string, productos: Record<string, unknown>[]): Promise<any> {
   const d = await c.llamar<any>("PUT", `/promotion/202309/activities/${encodeURIComponent(activityId)}/products`, {

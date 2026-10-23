@@ -1893,6 +1893,32 @@ guárdala numerada.
   y bloquea la cíclica por API. Regla práctica: las relámpagos para
   creadores se hacen reservando cantidades; las tres sin reserva (GT148,
   GT135, GT150) el dueño las cubre a mano hasta que terminen.
+  **La cíclica se ALARGA antes de crear otra** (`extenderVentana` en
+  `servicios/tiktok-promociones.ts`, `actualizarActividad` en `tiktok/api.ts`
+  = `PUT /promotion/202309/activities/{id}` con solo `end_time`,
+  `finExtendido` puro; bitácora `tiktok_sync_log` tarea `ciclica-extender`
+  con lo que contestó TikTok; `ResultadoProgramacion.extendidas`; dueño,
+  22-oct-2026: «en vez de crear cada vez cíclicas nuevas, cambiar las fechas
+  de terminación»): cuando la relámpago viva de una cíclica está por
+  terminar (dentro del margen de 75 s), el fondo PRIMERO le pide a TikTok
+  que la alargue su fin + las horas de la cíclica y lo confirma releyendo la
+  actividad (un «sí» con el fin sin cambiar cuenta como rechazo); si entra,
+  el renglón de `tiktok_promociones` toma el fin nuevo y no se crea nada
+  (el producto nunca se queda sin relámpago y una de creadores que entre
+  mientras no estorba); si TikTok lo rechaza (tope de 72 h o lo que diga),
+  se espera a que termine y se crea la siguiente como antes. Un intento por
+  ventana. **Lo que TikTok rechaza al ESCRIBIR INVENTARIO se declara POR
+  MOTIVO** (`resumirRechazos`, `avisosDeRechazos`, `sePuedeEscribir`,
+  `ESTADOS_PUBLICACION_ESCRIBIBLE` en `tiktok/kardex.ts`; `rechazos` y
+  `sinEscribir` en el detalle de la tarea `sincronizar`; 22-oct-2026): el
+  aviso enseñaba solo el PRIMER error de la tanda, y como el GT100 (producto
+  DELETED en TikTok, que sigue `activo` en `tiktok_skus` porque el catálogo
+  lo sigue trayendo) fallaba siempre primero con 12052901, el retiro a cero
+  del GT148 (15 SKU) se rechazó 27 horas seguidas sin que nadie viera por
+  qué (dueño: «usé el sistema para poner en 0 todo el GT148 y sigue activo
+  en TikTok»). Ahora una publicación cuyo estado no admite inventario
+  (DRAFT, PENDING, FAILED, ACTIVATE y SELLER_DEACTIVATED sí; DELETED y
+  demás no) no se intenta y se declara, y cada motivo sale con sus SKUs.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
