@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Power, RefreshCw, Repeat, Search, Trash2, Zap } from "lucide-react";
+import { Clock, Loader2, Power, RefreshCw, Repeat, Search, Trash2, Zap } from "lucide-react";
 import { Ficha } from "./tiles";
 import { Pestanas } from "./ui/pestanas";
 import { Aviso, Seccion, Tabla } from "./ui/pagina";
@@ -199,6 +199,14 @@ export function PromocionesTikTok({
     const j = await llamar({ accion: "desactivar", activityId }, `desactivar:${activityId}`);
     if (!j) return;
     setAviso({ tono: "bien", texto: `«${nombre}» desactivada.` });
+    router.refresh();
+  }
+
+  async function alargar(activityId: string, nombre: string) {
+    if (!(await confirmar({ titulo: `¿Pedirle a TikTok que «${nombre}» termine 72 horas más tarde?`, mensaje: "Si TikTok no lo acepta, aquí sale lo que contestó y la oferta se queda como está.", confirmar: "Alargar 72 h" }))) return;
+    const j = await llamar({ accion: "alargar", activityId, horas: 72 }, `alargar:${activityId}`);
+    if (!j) return;
+    setAviso({ tono: "bien", texto: `«${nombre}» ahora termina el ${cuando(j.finNuevo)} (antes ${cuando(j.finAnterior)}).` });
     router.refresh();
   }
 
@@ -805,6 +813,11 @@ export function PromocionesTikTok({
                         {g ? (
                           <button onClick={() => repetir(g)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="La misma oferta otra vez, desde ahora">
                             <Repeat size={14} /> Repetir
+                          </button>
+                        ) : null}
+                        {(o.estado === "ONGOING" || o.estado === "NOT_START") && !o.inmutable ? (
+                          <button onClick={() => alargar(o.activityId, o.titulo)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="Le pide a TikTok que termine 72 horas más tarde, sin crear otra">
+                            <Clock size={14} /> Alargar 72 h
                           </button>
                         ) : null}
                         {(o.estado === "ONGOING" || o.estado === "NOT_START" || o.estado === "DRAFT") && !o.inmutable ? (

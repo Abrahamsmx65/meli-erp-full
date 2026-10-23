@@ -1893,11 +1893,15 @@ guárdala numerada.
   y bloquea la cíclica por API. Regla práctica: las relámpagos para
   creadores se hacen reservando cantidades; las tres sin reserva (GT148,
   GT135, GT150) el dueño las cubre a mano hasta que terminen.
-  **La cíclica se ALARGA antes de crear otra** (`extenderVentana` en
-  `servicios/tiktok-promociones.ts`, `actualizarActividad` en `tiktok/api.ts`
-  = `PUT /promotion/202309/activities/{id}` con solo `end_time`,
-  `finExtendido` puro; bitácora `tiktok_sync_log` tarea `ciclica-extender`
-  con lo que contestó TikTok; `ResultadoProgramacion.extendidas`; dueño,
+  **La cíclica se ALARGA antes de crear otra** (`alargarOferta` y
+  `extenderVentana` en `servicios/tiktok-promociones.ts`,
+  `actualizarActividad` en `tiktok/api.ts` = `PUT
+  /promotion/202309/activities/{id}` con solo `end_time`, `finExtendido`
+  puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
+  manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
+  no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada
+  oferta viva o programada de la pestaña Ofertas, acción `alargar` de
+  `POST /api/tiktok/promociones`, también para las hechas a mano; dueño,
   22-oct-2026: «en vez de crear cada vez cíclicas nuevas, cambiar las fechas
   de terminación»): cuando la relámpago viva de una cíclica está por
   terminar (dentro del margen de 75 s), el fondo PRIMERO le pide a TikTok
