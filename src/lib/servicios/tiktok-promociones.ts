@@ -22,7 +22,7 @@ import { actividad, actualizarActividad, actualizarProductosDeActividad, buscarA
 import {
   finDeLaViva,
   finExtendido,
-  ventanaCorrida,
+  ventanaAlargada,
   explicarErrorDeCiclica,
   cuerpoDeActividad,
   HORAS_POR_OMISION,
@@ -985,11 +985,20 @@ export async function alargarOferta(
     const finAnterior = new Date(finActual).toISOString();
     const inicioActual = Number(antes?.begin_time ?? 0) * 1000 || finActual - HORAS_MAX_CICLICA * 3_600_000;
     // TikTok exige el título y el inicio aunque solo cambie el fin (36009004
-    // «Title is a required field», luego «BeginTime is a required field») y
-    // no deja que el periodo pase de 3 días (17029007), así que la ventana
-    // se CORRE completa: el inicio nuevo queda en el pasado y la relámpago
-    // sigue en curso (`ventanaCorrida`; probado el 22-oct-2026).
-    const corrida = ventanaCorrida(new Date(inicioActual), new Date(finActual), horas);
+    // «Title is a required field», luego «BeginTime is a required field»),
+    // no deja que el periodo pase de 3 días (17029007) y en una EN CURSO no
+    // deja mover el inicio (17029011): una en curso solo se alarga hasta
+    // inicio + 72 h y una programada se corre completa (`ventanaAlargada`;
+    // probado el 22-oct-2026 con «GT150 CICLICA»).
+    const corrida = ventanaAlargada(new Date(inicioActual), new Date(finActual), horas, String(antes?.status ?? ""));
+    if (!corrida) {
+      return fallo(
+        `TikTok no la deja alargar: ya dura las ${HORAS_MAX_CICLICA} h que permite y en curso no se puede mover el inicio. Cuando termine se crea la siguiente.`,
+        { titulo, sinIntentar: true },
+        finAnterior,
+        finAnterior,
+      );
+    }
     const nuevoFin = corrida.fin;
     let respuesta: unknown;
     try {

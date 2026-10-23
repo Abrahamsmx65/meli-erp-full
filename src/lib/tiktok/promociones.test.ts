@@ -308,3 +308,24 @@ describe("ventanaCorrida", () => {
     expect(v.fin.toISOString()).toBe("2026-10-23T12:00:00.000Z");
   });
 });
+
+describe("ventanaAlargada", () => {
+  it("una en curso de 72 h no se puede alargar: TikTok no deja mover el inicio ni pasar de 3 días", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    expect(ventanaAlargada(new Date("2026-10-22T01:12:00Z"), new Date("2026-10-25T01:12:00Z"), 72, "ONGOING")).toBeNull();
+  });
+
+  it("una en curso más corta se alarga solo hasta inicio + 72 h, sin mover el inicio", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    const v = ventanaAlargada(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-23T00:00:00Z"), 72, "ONGOING");
+    expect(v?.inicio.toISOString()).toBe("2026-10-22T00:00:00.000Z");
+    expect(v?.fin.toISOString()).toBe("2026-10-25T00:00:00.000Z");
+  });
+
+  it("una programada se corre completa", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    const v = ventanaAlargada(new Date("2026-10-24T00:00:00Z"), new Date("2026-10-27T00:00:00Z"), 72, "NOT_START");
+    expect(v?.inicio.toISOString()).toBe("2026-10-27T00:00:00.000Z");
+    expect(v?.fin.toISOString()).toBe("2026-10-30T00:00:00.000Z");
+  });
+});
