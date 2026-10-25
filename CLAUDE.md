@@ -1462,7 +1462,13 @@ guárdala numerada.
   TikTok y la pantalla decía «178 SKU todavía no tienen stock capturado». Se
   rebautizaron 81 renglones por SQL. Lo que sí amarra (GT146-BLK-23-MX, mismo
   nombre que en MELI) se queda con ese nombre: David y el dueño comparten el
-  renglón del kardex si usan el mismo SKU, por eso la «D».
+  renglón del kardex si usan el mismo SKU, por eso la «D». **Su pestaña Stock
+  va en orden ALFABÉTICO natural y con buscador** (`ordenarPorSku` y
+  `filtrarInventario` de `tiktok/inventario-vista.ts`, los mismos del Almacén
+  TikTok; `busquedaStock` en `components/externos-tiktok.tsx`; dueño,
+  25-oct-2026: «que en su inventario pueda buscar por sku y que esté ordenado
+  alfabéticamente»): por pedazos sin guiones ni mayúsculas («gt074 blk 24»,
+  el título también cuenta) y arriba «N de M SKU» mientras se busca.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
