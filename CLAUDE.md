@@ -872,6 +872,23 @@ guárdala numerada.
   (`tiktok_cortes.orden_paquetes`, migración 0088: `bodega` los 20 de antes,
   `un-modelo` los nuevos) y `cargarCorte` lo vuelve a armar SIEMPRE con ese.
   Una fecha de corte no serviría: dependería de la hora del despliegue.
+  **Y la NUMERACIÓN se CONGELA al primer armado** (`tiktok_cortes.numeracion`
+  = {pedido|paquete: n}, migración 0153; `numerarConGuardada` en
+  `tiktok/despacho.ts` puro con pruebas; `cargarCorte` la guarda la primera
+  vez y desde ahí manda; al unir una ronda `hacerCorte` la pone en null y se
+  renumera; 26-oct-2026, corte #93 de 620 paquetes: el pedido
+  586797048459724373 (GT135-BLK-28) se canceló en TikTok a las 14:41 con las
+  guías y las hojas ya impresas, `cargarCorte` lo dejó sin renglones, el
+  paquete sin SKU se fue al FRENTE del orden y los 180 anteriores a su lugar
+  corrieron un número: la estación dio «#186» a dos paquetes y nada cuadraba
+  con el papel; dueño: «ya imprimí las etiquetas y todo, solo corrígelo en
+  sistema»; se le escribió por SQL la numeración impresa, recalculada con el
+  motor y los renglones de entonces). Un paquete que no esté en lo guardado
+  toma el siguiente número libre y se guarda; uno que desaparece deja su
+  número vacío. Un pedido cancelado DESPUÉS del corte conserva en la hoja
+  sus SKU (antes salía «(sin renglones)») y la estación no lo elige: la
+  etiqueta brinca al siguiente vivo y su código de pedido u hoja contesta
+  «se canceló después del corte».
   **Orden «un-color» desde el 5-oct-2026** (`ORDEN_ACTUAL`, `esDeUnColor`,
   `PaqueteNumerado.variosColores`; dueño: «cuando hago corte por modelo,
   aunque sea el mismo modelo, que se divida primero todo el color completo
