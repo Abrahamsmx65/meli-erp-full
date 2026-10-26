@@ -2334,9 +2334,12 @@ guárdala numerada.
   día se pasaron por SQL «Botas lluvia», «Sandalias Eva» y «Sandalias mujer».
   En la tienda (`PortadaCatalogo`, `catalogo-vista.ts`: `tituloCorto` quita
   «GETAC» y lo gritado, `rangoTallas` «23 a 28», `categoriaVisible`): portada
-  con cifras y los tres pasos, barra pegajosa con buscador y categorías con
-  su cuenta, secciones con raya y tarjetas del mismo alto (miniaturas dentro
-  de la foto). Dos códigos de Amazon con el mismo nombre en español (BLK y
+  con cifras y un AVISO de las ideas para el video (los tres pasos «elige,
+  escoge tu talla, mándanos por WhatsApp» se quitaron el 26-oct-2026: el
+  dueño dijo que eran incorrectos), buscador y TODAS las categorías a la
+  vista con su cuenta (en renglones, sin deslizar ni barra pegajosa; dueño,
+  26-oct-2026), secciones con raya y tarjetas del mismo alto (miniaturas
+  dentro de la foto). Dos códigos de Amazon con el mismo nombre en español (BLK y
   BLACK = Negro) son UN color con las tallas de los dos, y «BLK GREY» se
   traduce por palabras. Un modelo sin NINGUNA foto en el catálogo de Amazon
   sigue sin salir (GT101, GT113, GT225, GT245, GT247, GT260–GT264,
@@ -2358,13 +2361,20 @@ guárdala numerada.
   botón «Ideas para tu video» de cada tarjeta (y su título) abre una ventana
   con puntos fuertes, cómo mostrarlo, ideas de video, ganchos para los
   primeros 3 segundos y datos, y «Copiar guía». Nada se inventa ni se le
-  pregunta a una IA: los puntos fuertes salen de lo que dice el TÍTULO
-  (`RASGOS`: memory foam, afelpado, impermeable, antiderrapante, plataforma,
-  corcho…; hasta `MAX_PUNTOS` 5, con su toma para enseñarlo), las ideas y
-  ganchos de la familia de la categoría (frío, sandalia, bota, lluvia, agua,
-  tacón) y la temporada por mes (Buen Fin, Navidad, 14 de febrero, frío,
-  calor, lluvias), y los datos de colores, tallas (= cm del pie), precio y
-  stock del catálogo. «viscoelástica» no cuenta como elástico lateral.
+  pregunta a una IA. **Todo depende de la CATEGORÍA** (`PERFILES` por
+  familia: alpargata, agua, lluvia, bota, bota de invierno, tacón, corcho,
+  corcho frío, EVA, jelly, mocasín, sandalia de moda, pantufla; dueño,
+  26-oct-2026: «no me hables de piso mojado o antideslizante en una
+  alpargata o una bota, sus puntos fuertes son otros»): cada una trae sus
+  puntos fuertes propios (`base`: la alpargata, yute y cuña), qué rasgos del
+  TÍTULO le importan (`rasgos`; la suela antiderrapante SOLO en lluvia,
+  agua, EVA y pantufla, y dicha para esa categoría con `textos`: regadera,
+  banqueta mojada, piedras del río, salir al patio), sus ideas, ganchos y
+  clima para la temporada (Buen Fin, Navidad, 14 de febrero, frío, calor,
+  lluvias); hasta `MAX_PUNTOS` 5 con su toma para enseñarlo, y los datos de
+  colores, tallas (= cm del pie), precio y stock del catálogo. Un rasgo que
+  el título no dice no sale; «viscoelástica» no cuenta como elástico
+  lateral y el bordado de una vaquera no se repite como «detalles».
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean

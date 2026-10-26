@@ -19,7 +19,7 @@ const producto = (o: Partial<ProductoInfluencer>): ProductoInfluencer => ({
 const OCTUBRE = new Date(2026, 9, 26);
 
 describe("guía de contenido", () => {
-  it("los puntos fuertes salen SOLO de lo que dice el título", () => {
+  it("pantuflas: lo de la categoría y lo que dice el título", () => {
     const g = guiaDeContenido(
       producto({
         categoria: "PANTUFLAS HOMBRE",
@@ -29,7 +29,8 @@ describe("guía de contenido", () => {
     );
     expect(g.puntosFuertes.join(" ")).toMatch(/memory foam/i);
     expect(g.puntosFuertes.join(" ")).toMatch(/afelpado/i);
-    expect(g.puntosFuertes.join(" ")).toMatch(/antiderrapante/i);
+    // en una pantufla la suela se cuenta para salir al patio, no para pisos mojados
+    expect(g.puntosFuertes.join(" ")).toMatch(/patio/);
     // el título no habla de corcho ni de agua
     expect(g.puntosFuertes.join(" ")).not.toMatch(/corcho|impermeable/i);
     // «viscoelástica» no es un elástico lateral
@@ -55,12 +56,50 @@ describe("guía de contenido", () => {
     expect(g.puntosFuertes.join(" ")).toMatch(/corcho/);
     expect(g.puntosFuertes.join(" ")).toMatch(/hebillas/);
     expect(g.datos[0]).toBe("Modelo GT114 · corcho.");
-    expect(g.puntosFuertes.join(" ")).not.toMatch(/calientito/);
+    expect(g.puntosFuertes.join(" ")).not.toMatch(/calientito|antiderrapante/i);
     expect(g.ideas.join(" ")).toMatch(/outfits/);
     expect(g.ideas.join(" ")).toMatch(/3 colores/);
     expect(g.ganchos.join(" ")).toMatch(/menos de \$190/);
     expect(g.datos.join(" ")).toMatch(/Tallas 23 a 25/);
     expect(g.datos.join(" ")).toMatch(/90,104 pares/);
+  });
+
+  it("alpargata: yute y cuña, nada de piso mojado ni antiderrapante (dueño, 26-oct-2026)", () => {
+    const g = guiaDeContenido(
+      producto({
+        modelo: "GT129",
+        categoria: "ALPARGATAS",
+        titulo: "GETAC Alpargatas de Punta Abierta para Mujer, Zapatillas de Cuña Suela antiderrapante Sandalias de Plataforma Yute con Correa Elástica",
+      }),
+      OCTUBRE,
+    );
+    const todo = [...g.puntosFuertes, ...g.comoMostrarlo, ...g.ideas, ...g.ganchos].join(" ");
+    expect(g.puntosFuertes.join(" ")).toMatch(/yute/);
+    expect(g.puntosFuertes.join(" ")).toMatch(/[Cc]uña/);
+    expect(g.puntosFuertes.join(" ")).toMatch(/elástica/);
+    expect(todo).not.toMatch(/antiderrapante|antideslizante|mojad|resbal/i);
+    expect(g.ideas.join(" ")).toMatch(/verano/);
+  });
+
+  it("botas: el estilo del título, sin antiderrapante", () => {
+    const g = guiaDeContenido(
+      producto({
+        categoria: "BOTAS MUJER",
+        titulo: "GETAC Botas tipo Chelsea para Mujer de Gamuza, Bota con Tacón Ancho de Punta Redonda Elástico Lateral, Suela antiderrapante",
+      }),
+      OCTUBRE,
+    );
+    const todo = [...g.puntosFuertes, ...g.comoMostrarlo, ...g.ideas].join(" ");
+    expect(g.puntosFuertes.join(" ")).toMatch(/Chelsea/);
+    expect(g.puntosFuertes.join(" ")).toMatch(/gamuza/);
+    expect(todo).not.toMatch(/antiderrapante|antideslizante|mojad|resbal/i);
+  });
+
+  it("botas de lluvia y chanclas EVA sí cuentan la suela antiderrapante", () => {
+    const lluvia = guiaDeContenido(producto({ categoria: "BOTAS LLUVIA", titulo: "Botas de lluvia impermeables Suela antiderrapante" }), OCTUBRE);
+    expect(lluvia.puntosFuertes.join(" ")).toMatch(/banquetas mojadas/);
+    const eva = guiaDeContenido(producto({ categoria: "SANDALIAS EVA", titulo: "Chanclas EVA Flip Flop Suela Antiderrapante" }), OCTUBRE);
+    expect(eva.puntosFuertes.join(" ")).toMatch(/regadera/);
   });
 
   it("nunca más de MAX_PUNTOS y la primera toma es abrir con el producto", () => {
