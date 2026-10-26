@@ -1,7 +1,7 @@
 import type { ProductoInfluencer } from "@/lib/influencers";
 import { categoriaVisible } from "@/lib/catalogo-vista";
 
-/** La portada del catálogo: qué es, cuánto hay y cómo se pide. */
+/** La portada del catálogo: qué es, cuánto hay y el aviso de las ideas para el video. */
 export function PortadaCatalogo({ ceja, titulo, texto, productos }: { ceja: string; titulo: string; texto: string; productos: ProductoInfluencer[] }) {
   const categorias = new Set(productos.map((p) => categoriaVisible(p.categoria)).filter(Boolean)).size;
   const colores = productos.reduce((n, p) => n + p.colores.length, 0);
@@ -30,17 +30,15 @@ export function PortadaCatalogo({ ceja, titulo, texto, productos }: { ceja: stri
           </div>
         )}
       </div>
-      <ol className="catalogo-pasos" aria-label="Cómo pedir">
-        <li>
-          <b>1</b> Elige los modelos y colores que te gustan
-        </li>
-        <li>
-          <b>2</b> Escoge tu talla en cada uno
-        </li>
-        <li>
-          <b>3</b> Mándanos tu selección por WhatsApp
-        </li>
-      </ol>
+      <aside className="catalogo-aviso" role="note">
+        <span className="catalogo-aviso-icono" aria-hidden="true">
+          💡
+        </span>
+        <div>
+          <strong>Nuevo: ideas para tu video</strong>
+          <p>Pícale a cualquier producto y te damos sus puntos fuertes, cómo mostrarlo y ganchos para los primeros 3 segundos.</p>
+        </div>
+      </aside>
     </section>
   );
 }

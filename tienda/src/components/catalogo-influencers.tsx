@@ -220,8 +220,9 @@ export function CatalogoInfluencers({
   function elegirCategoria(c: string | null) {
     setCategoria(c);
     const barra = document.querySelector(".creador-herramientas");
-    if (barra && barra.getBoundingClientRect().top <= 61) {
-      window.scrollTo({ top: window.scrollY + barra.getBoundingClientRect().top - 60, behavior: "smooth" });
+    // si ya se bajó, regresa a las categorías para ver la lista desde arriba
+    if (barra && barra.getBoundingClientRect().top < 60) {
+      window.scrollTo({ top: window.scrollY + barra.getBoundingClientRect().top - 70, behavior: "smooth" });
     }
   }
 
