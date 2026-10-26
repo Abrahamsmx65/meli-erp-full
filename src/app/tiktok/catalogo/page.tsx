@@ -3,6 +3,7 @@ import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { CLAVE_CATALOGO_AMAZON } from "@/lib/servicios/catalogo-amazon";
 import type { ProductoCatalogo } from "@/lib/tienda/catalogo-amazon";
 import { BackCatalogo } from "@/components/back-catalogo";
+import { CATEGORIA_FUNDAS, normalizarCategoria } from "@/lib/categoria";
 import { Encabezado, Pagina, SinCuenta, Vacio } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +26,9 @@ export default async function CatalogoCreadores() {
   const datos = (data as any)?.datos ?? {};
   const productos: ProductoCatalogo[] = Array.isArray(datos.productos) ? datos.productos : [];
   const categorias = [
-    ...new Set([...(config ?? []).map((c: any) => String(c.categoria).trim()), ...productos.map((p) => p.categoria)].filter((c) => c && c !== "Fundas")),
+    ...new Set([...(config ?? []).map((c: any) => normalizarCategoria(c.categoria)), ...productos.map((p) => normalizarCategoria(p.categoria))].filter((c): c is string => !!c && c !== CATEGORIA_FUNDAS)),
   ].sort((a, b) => a.localeCompare(b, "es"));
-  const urlTienda = (process.env.TIENDA_URL ?? "https://getac-tienda-getac.vercel.app").replace(/\/+$/, "");
+  const urlTienda = (process.env.TIENDA_URL ?? "https://getac-tienda.vercel.app").replace(/\/+$/, "");
 
   return (
     <Pagina>

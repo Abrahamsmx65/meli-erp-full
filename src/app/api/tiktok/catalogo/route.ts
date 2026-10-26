@@ -2,6 +2,7 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { refrescarCatalogoAmazon } from "@/lib/servicios/catalogo-amazon";
+import { normalizarCategoria } from "@/lib/categoria";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
   if (traeCategoria) {
-    const categoria = String(body.categoria ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || null;
+    const categoria = normalizarCategoria(String(body.categoria ?? "").slice(0, 60));
     const { data: actual } = await admin
       .from("productos_config")
       .select("modelo")

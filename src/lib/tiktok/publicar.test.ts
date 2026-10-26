@@ -62,6 +62,7 @@ describe("nombreColorEspanol", () => {
     expect(nombreColorEspanol("NAVY / RED").nombre).toBe("Azul marino / Rojo");
     expect(nombreColorEspanol("BLK-RED").nombre).toBe("Negro / Rojo");
     expect(nombreColorEspanol("BLK / BLK").nombre).toBe("Negro");
+    expect(nombreColorEspanol("BLK GREY").nombre).toBe("Negro / Gris");
   });
   it("lo desconocido se queda tal cual y lo avisa", () => {
     expect(nombreColorEspanol("ZANAHORIA X")).toEqual({ nombre: "Zanahoria x", traducido: false });

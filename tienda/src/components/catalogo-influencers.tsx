@@ -3,10 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { mensajeDeSeleccion, type Eleccion, type ProductoInfluencer } from "@/lib/influencers";
 import { pesos } from "@/lib/tienda";
+import { GuiaContenido } from "@/components/guia-contenido";
+import { categoriaVisible, fotoAmazon, rangoTallas, srcSetAmazon, tituloCorto } from "@/lib/catalogo-vista";
 
 const LLAVE = "getac:creadores:seleccion";
 
 const clave = (e: Pick<Eleccion, "productId" | "color">) => `${e.productId}|${e.color}`;
+
+const cat = (p: ProductoInfluencer) => categoriaVisible(p.categoria) ?? "";
 
 function sinAcentos(s: string) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -18,91 +22,128 @@ function Tarjeta({
   alternar,
   cambiarTalla,
   mostrarExistencia,
+  mostrarCategoria,
+  prioridad = false,
 }: {
   p: ProductoInfluencer;
   elegidos: Map<string, Eleccion>;
   alternar: (e: Eleccion) => void;
   cambiarTalla: (k: string, talla: string | null) => void;
   mostrarExistencia: boolean;
+  /** la categoría en la tarjeta: sobra cuando ya va en el título de la sección */
+  mostrarCategoria: boolean;
+  /** de las primeras a la vista: la foto se pide sin esperar */
+  prioridad?: boolean;
 }) {
   const [color, setColor] = useState(0);
   const [foto, setFoto] = useState(0);
+  const [guia, setGuia] = useState(false);
   const c = p.colores[color];
   const k = clave({ productId: p.productId, color: c.color });
   const elegido = elegidos.get(k);
   const precio =
     p.precioDesde == null ? null : p.precioDesde === p.precioHasta ? pesos(p.precioDesde) : `${pesos(p.precioDesde)} – ${pesos(p.precioHasta!)}`;
+  const titulo = tituloCorto(p.titulo);
 
   return (
     <article className={`tarjeta creador ${elegido ? "creador-elegido" : ""}`}>
-      <div className="tarjeta-foto">
+      <div className="creador-foto">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {c.fotos[foto] && <img src={c.fotos[foto]} alt={`${p.titulo} ${c.color}`} loading="lazy" />}
-        {p.modelo && <span className="sello-caja modelo">{p.modelo}</span>}
+        {c.fotos[foto] && (
+          <img
+            src={fotoAmazon(c.fotos[foto], 700)}
+            srcSet={srcSetAmazon(c.fotos[foto])}
+            sizes="(min-width: 1100px) 290px, (min-width: 768px) 31vw, 48vw"
+            alt={`${p.modelo ?? ""} ${titulo} ${c.color}`.trim()}
+            loading={prioridad ? "eager" : "lazy"}
+            fetchPriority={prioridad ? "high" : "auto"}
+            decoding="async"
+          />
+        )}
         {p.total != null ? (
-          <span className="creador-stock">{p.total > 0 ? `${p.total.toLocaleString("es-MX")} pares en stock` : "Sin stock"}</span>
+          <span className={`creador-stock ${p.total > 0 ? "" : "creador-stock-sin"}`}>
+            {p.total > 0 ? `${p.total.toLocaleString("es-MX")} pares` : "Sin stock"}
+          </span>
         ) : null}
-      </div>
-      {c.fotos.length > 1 && (
-        <div className="creador-fotos" aria-label="Más fotos">
-          {c.fotos.map((f, i) => (
-            <button key={f} type="button" onClick={() => setFoto(i)} aria-current={i === foto} aria-label={`Foto ${i + 1}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={f} alt="" loading="lazy" />
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="tarjeta-cuerpo">
-        <span className="tarjeta-titulo">{p.titulo}</span>
-        {precio && <span className="precio">{precio}</span>}
-        {p.categoria && <span className="datos-chicos">{p.categoria}</span>}
-
-        {p.colores.length > 1 && (
-          <div className="filtros creador-colores" role="group" aria-label="Color">
-            {p.colores.map((x, i) => (
-              <button
-                key={x.color}
-                type="button"
-                className="filtro"
-                aria-current={i === color}
-                onClick={() => {
-                  setColor(i);
-                  setFoto(0);
-                }}
-              >
-                {elegidos.has(clave({ productId: p.productId, color: x.color })) ? "✓ " : ""}
-                {x.color}
+        {elegido && <span className="creador-marca">✓ Elegido</span>}
+        {c.fotos.length > 1 && (
+          <div className="creador-fotos" aria-label="Más fotos">
+            {c.fotos.map((f, i) => (
+              <button key={f} type="button" onClick={() => setFoto(i)} aria-current={i === foto} aria-label={`Foto ${i + 1}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={fotoAmazon(f, 100)} alt="" loading="lazy" decoding="async" />
               </button>
             ))}
           </div>
         )}
-        <span className="datos-chicos">
-          {p.colores.length === 1 ? `${c.color} · ` : ""}Tallas {c.tallas.join(", ")}
-          {mostrarExistencia && (c.tallasConStock.length ? ` · con existencia: ${c.tallasConStock.join(", ")}` : " · sin existencia hoy")}
+      </div>
+      <div className="creador-cuerpo">
+        <div className="creador-cabeza">
+          {p.modelo && <span className="modelo creador-modelo">{p.modelo}</span>}
+          {precio && <span className="creador-precio">{precio}</span>}
+        </div>
+        <button type="button" className="creador-titulo" title={titulo} onClick={() => setGuia(true)}>
+          {titulo}
+        </button>
+        <button type="button" className="creador-ideas" onClick={() => setGuia(true)}>
+          <span aria-hidden="true">💡</span> Ideas para tu video
+        </button>
+        {mostrarCategoria && p.categoria && <span className="creador-dato">{categoriaVisible(p.categoria)}</span>}
+
+        <div className="creador-color">
+          <span className="creador-etiqueta">
+            Color <strong>{c.color}</strong>
+            {p.colores.length > 1 ? <span className="suave"> · {p.colores.length} colores</span> : null}
+          </span>
+          {p.colores.length > 1 && (
+            <div className="creador-colores" role="group" aria-label="Color">
+              {p.colores.map((x, i) => (
+                <button
+                  key={`${x.color}-${i}`}
+                  type="button"
+                  className="filtro"
+                  aria-current={i === color}
+                  onClick={() => {
+                    setColor(i);
+                    setFoto(0);
+                  }}
+                >
+                  {elegidos.has(clave({ productId: p.productId, color: x.color })) ? "✓ " : ""}
+                  {x.color}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="creador-etiqueta">
+          Tallas <strong>{rangoTallas(c.tallas)}</strong>
+          {mostrarExistencia && (c.tallasConStock.length ? <span className="suave"> · hay {c.tallasConStock.join(", ")}</span> : <span className="suave"> · sin existencia hoy</span>)}
         </span>
 
-        {elegido && (
-          <label className="campo creador-talla">
-            <span>Tu talla</span>
-            <select value={elegido.talla ?? ""} onChange={(e) => cambiarTalla(k, e.target.value || null)}>
-              <option value="">Sin talla</option>
-              {c.tallas.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <button
-          type="button"
-          className={`boton boton-ancho ${elegido ? "" : "boton-comprar"}`}
-          onClick={() => alternar({ productId: p.productId, modelo: p.modelo, titulo: p.titulo, color: c.color, talla: null })}
-        >
-          {elegido ? "Quitar de mi selección" : "Elegir este color"}
-        </button>
+        <div className="creador-pie">
+          {elegido && (
+            <label className="campo creador-talla">
+              <span>Tu talla</span>
+              <select value={elegido.talla ?? ""} onChange={(e) => cambiarTalla(k, e.target.value || null)}>
+                <option value="">Sin talla</option>
+                {c.tallas.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            type="button"
+            className={`boton boton-ancho ${elegido ? "" : "boton-comprar"}`}
+            onClick={() => alternar({ productId: p.productId, modelo: p.modelo, titulo: p.titulo, color: c.color, talla: null })}
+          >
+            {elegido ? "Quitar de mi selección" : "Elegir este color"}
+          </button>
+        </div>
       </div>
+      {guia && <GuiaContenido p={p} foto={c.fotos[0]} abierta={guia} cerrar={() => setGuia(false)} />}
     </article>
   );
 }
@@ -148,20 +189,41 @@ export function CatalogoInfluencers({
     }
   }, [elegidos, quien, llave]);
 
+  // Las categorías se agrupan sin importar mayúsculas («Botas lluvia» = «BOTAS LLUVIA»); «OTROS» al final.
+  const cuantos = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of productos) m.set(cat(p), (m.get(cat(p)) ?? 0) + 1);
+    return m;
+  }, [productos]);
   const categorias = useMemo(
-    () => [...new Set(productos.map((p) => p.categoria).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "es")),
-    [productos],
+    () =>
+      [...cuantos.keys()]
+        .filter(Boolean)
+        .sort((a, b) => Number(a === "OTROS") - Number(b === "OTROS") || a.localeCompare(b, "es")),
+    [cuantos],
   );
   const palabras = sinAcentos(busca).split(/[\s-]+/).filter(Boolean);
   const visibles = productos.filter((p) => {
-    if (categoria && p.categoria !== categoria) return false;
+    if (categoria && cat(p) !== categoria) return false;
     const texto = sinAcentos(`${p.modelo ?? ""} ${p.titulo} ${p.colores.map((c) => c.color).join(" ")}`);
     return palabras.every((w) => texto.includes(w));
   });
 
+  // Las primeras tarjetas a la vista piden su foto de inmediato; las demás, al acercarse.
+  const primeros = new Set(
+    (porCategoria ? [...visibles].sort((a, b) => categorias.indexOf(cat(a)) - categorias.indexOf(cat(b))) : visibles).slice(0, 4).map((p) => p.productId),
+  );
   const lista = [...elegidos.values()];
   const url = typeof window !== "undefined" ? window.location.href.split("?")[0] : "";
   const mensaje = mensajeDeSeleccion(quien, lista, url);
+
+  function elegirCategoria(c: string | null) {
+    setCategoria(c);
+    const barra = document.querySelector(".creador-herramientas");
+    if (barra && barra.getBoundingClientRect().top <= 61) {
+      window.scrollTo({ top: window.scrollY + barra.getBoundingClientRect().top - 60, behavior: "smooth" });
+    }
+  }
 
   function alternar(e: Eleccion) {
     setElegidos((m) => {
@@ -190,50 +252,59 @@ export function CatalogoInfluencers({
 
   return (
     <>
-      {categorias.length > 1 && (
-        <nav className="filtros" aria-label="Categorías">
-          <button type="button" className="filtro" aria-current={!categoria} onClick={() => setCategoria(null)}>
-            Todas
-          </button>
-          {categorias.map((c) => (
-            <button key={c} type="button" className="filtro" aria-current={categoria === c} onClick={() => setCategoria(c)}>
-              {c}
+      <div className="creador-herramientas">
+        <label className="creador-busca">
+          <span className="sr">Buscar</span>
+          <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18">
+            <circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <path d="m13 13 4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          <input type="search" placeholder="Buscar modelo o color (gt134 negro)" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        </label>
+        {categorias.length > 1 && (
+          <nav className="creador-categorias" aria-label="Categorías">
+            <button type="button" className="filtro" aria-current={!categoria} onClick={() => elegirCategoria(null)}>
+              Todas <span className="creador-cuenta">{productos.length}</span>
             </button>
-          ))}
-        </nav>
-      )}
-      <label className="campo creador-busca">
-        <span className="sr">Buscar</span>
-        <input type="search" placeholder="Buscar modelo, color… (gt134 negro)" value={busca} onChange={(e) => setBusca(e.target.value)} />
-      </label>
+            {categorias.map((c) => (
+              <button key={c} type="button" className="filtro" aria-current={categoria === c} onClick={() => elegirCategoria(c)}>
+                {c} <span className="creador-cuenta">{cuantos.get(c)}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+      </div>
 
       {visibles.length ? (
         porCategoria ? (
-          (categoria ? [categoria] : [...categorias, ...(visibles.some((p) => !p.categoria) ? [""] : [])]).map((cat) => {
-            const suyos = visibles.filter((p) => (p.categoria ?? "") === cat);
+          (categoria ? [categoria] : [...categorias, ...(visibles.some((p) => !cat(p)) ? [""] : [])]).map((c) => {
+            const suyos = visibles.filter((p) => cat(p) === c);
             if (!suyos.length) return null;
             return (
-              <section key={cat || "sin"} className="creador-seccion" aria-label={cat || "Otros"}>
-                <h2 className="titulo-catalogo">
-                  {cat || "Otros"} <span className="suave">({suyos.length})</span>
-                </h2>
-                <div className="rejilla">
+              <section key={c || "sin"} className="creador-seccion" aria-label={c || "OTROS"}>
+                <header className="creador-seccion-cabeza">
+                  <h2>{c || "OTROS"}</h2>
+                  <span className="mono suave">
+                    {suyos.length} {suyos.length === 1 ? "modelo" : "modelos"}
+                  </span>
+                </header>
+                <div className="rejilla creador-rejilla">
                   {suyos.map((p) => (
-                    <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} />
+                    <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria={false} prioridad={primeros.has(p.productId)} />
                   ))}
                 </div>
               </section>
             );
           })
         ) : (
-          <div className="rejilla">
+          <div className="rejilla creador-rejilla">
             {visibles.map((p) => (
-              <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} />
+              <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} mostrarCategoria prioridad={primeros.has(p.productId)} />
             ))}
           </div>
         )
       ) : (
-        <p className="nota">Nada coincide con la búsqueda.</p>
+        <p className="nota creador-vacio">Nada coincide con la búsqueda.</p>
       )}
 
       {lista.length > 0 && (
