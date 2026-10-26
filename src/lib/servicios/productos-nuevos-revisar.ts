@@ -21,6 +21,8 @@ import { CLAVE_FOTOS_NUEVOS, FOTOS_MINIMAS, cargarProductosNuevos, type Producto
 import { huellaPublicaciones, tocaRevisar, type FotosGuardada, type FotosProducto } from "./productos-nuevos-fotos";
 
 const PLAZO_AMAZON_MS = 40_000;
+/** Lo que deja leído el catálogo de Amazon (`servicios/catalogo-amazon.ts`). */
+const CLAVE_FICHAS = "catalogo-amazon:asins";
 
 /** El ASIN padre de cada hijo, de `amazon_padres` (lo resuelve el latido). */
 async function padresDeHijos(admin: DB, accountId: string, hijos: string[]): Promise<Map<string, string>> {
@@ -58,6 +60,27 @@ export interface RevisionFotos {
   revisados: number;
   guardados: number;
   revisadoEn: string;
+}
+
+/**
+ * Fotos por ASIN de lo que el catálogo de Amazon ya leyó (`catalogo-amazon:asins`,
+ * se relee completo cada noche). Es el respaldo de la pregunta en vivo: el
+ * 21-oct-2026 32 colores (GT220, GT222, GT225, GT260…) tenían sus fotos en
+ * ese catálogo y Lanzamientos los seguía enseñando «Sin fotos».
+ */
+async function fotosDelCatalogo(db: DB, cuentaId: string): Promise<Map<string, number>> {
+  const salida = new Map<string, number>();
+  try {
+    const r = await leerCacheAppGuardado<{ asins?: Record<string, { f?: string[] }> }>(db, cuentaId, CLAVE_FICHAS);
+    const asins = r.estado === "encontrado" ? (r.valor.datos?.asins ?? {}) : {};
+    for (const [asin, ficha] of Object.entries(asins)) {
+      const n = Array.isArray(ficha?.f) ? ficha.f.length : 0;
+      if (n > 0) salida.set(asin, n);
+    }
+  } catch {
+    // sin catálogo leído: queda solo la pregunta en vivo
+  }
+  return salida;
 }
 
 export async function revisarFotosDeNuevos(db: DB, admin: DB, cuentaId: string, todo: boolean): Promise<RevisionFotos> {
@@ -178,6 +201,19 @@ export async function revisarFotosDeNuevos(db: DB, admin: DB, cuentaId: string, 
       }
     } catch (err) {
       errores.push(`Amazon: ${(err as Error).message}`);
+    }
+  }
+
+  // Lo que el catálogo nocturno ya vio cuenta aunque la pregunta en vivo no
+  // haya alcanzado o haya fallado: se toma el mayor.
+  if (amazonConectado) {
+    const catalogo = await fotosDelCatalogo(db, cuentaId);
+    for (const p of productos) {
+      const f = salida.get(p.clave)!;
+      for (const asin of p.amazon.asins) {
+        const n = catalogo.get(asin) ?? 0;
+        if (n > (f.amazon.fotos ?? 0)) f.amazon = { fotos: n, asin };
+      }
     }
   }
 

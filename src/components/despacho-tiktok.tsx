@@ -35,9 +35,18 @@ export interface CorteResumen {
   enviados?: number;
   /** filtro de modelos con el que nació (corte por modelo); null = corte general */
   modelos?: string[] | null;
+  /** true = corte de MUESTRAS (solo muestras gratis) */
+  muestras?: boolean;
   /** primera y última constancia de preparado (tiempo de preparación); null = nada preparado */
   primeraPrep?: string | null;
   ultimaPrep?: string | null;
+}
+
+/** Cómo se nombra el filtro de un corte: «solo GT148», «solo muestras», «solo muestras de GT148». */
+function etiquetaDeCorte(modelos: string[] | null | undefined, muestras?: boolean | null): string | null {
+  const m = etiquetaDeModelos(modelos);
+  if (!muestras) return m;
+  return m ? `solo muestras de ${m.replace(/^solo /, "")}` : "solo muestras";
 }
 
 /** Los pedidos del corte que siguen vivos: los que entraron menos los cancelados después. */
@@ -85,11 +94,14 @@ function cuando(iso: string): string {
  */
 export function DespachoTikTok({
   pendientes,
+  muestrasPendientes = 0,
   cortes,
   porModelo,
   vendedor = null,
 }: {
   pendientes: number;
+  /** cuántos pendientes son muestras gratis (el botón «Corte muestras» lo enseña) */
+  muestrasPendientes?: number;
   cortes: CorteResumen[];
   porModelo: PendientesPorModelo;
   /** de quién es este despacho: null = el dueño; 'david' = el vendedor externo (viaja en cada corte y simulación) */
@@ -101,6 +113,10 @@ export function DespachoTikTok({
   // corte toma solo los paquetes que son únicamente de esos modelos; los
   // revueltos se quedan para el corte general. Se apaga solo al terminar.
   const [soloModelos, setSoloModelos] = useState<string[]>([]);
+  // Corte de MUESTRAS (dueño, 22-oct-2026): solo las muestras gratis, para
+  // darles prioridad cuando hay muchos pedidos. Apagado, van revueltas con
+  // todo, como siempre. Se apaga solo al terminar.
+  const [soloMuestras, setSoloMuestras] = useState(false);
   const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -345,6 +361,7 @@ export function DespachoTikTok({
     try {
       const parametros = new URLSearchParams();
       if (soloModelos.length) parametros.set("modelos", soloModelos.join(","));
+      if (soloMuestras) parametros.set("muestras", "1");
       if (vendedor) parametros.set("vendedor", vendedor);
       const r = await fetch(`/api/tiktok/cortes/simular${parametros.size ? `?${parametros}` : ""}`);
       const j = await r.json();
@@ -394,7 +411,7 @@ export function DespachoTikTok({
     const partes = [
       j.unido
         ? `Se unió al corte #${j.numero} (continuaba lo que se quedó por tiempo): ${j.pedidos} pedidos y ${j.pares} pares más, confirmados en TikTok.`
-        : `Corte #${j.numero}${etiquetaDeModelos(j.modelos) ? ` (${etiquetaDeModelos(j.modelos)})` : ""}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`,
+        : `Corte #${j.numero}${etiquetaDeCorte(j.modelos, j.muestras) ? ` (${etiquetaDeCorte(j.modelos, j.muestras)})` : ""}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`,
     ];
     if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
     if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);
@@ -480,6 +497,7 @@ export function DespachoTikTok({
           handover,
           ...(modo ? { modo } : {}),
           ...(soloModelos.length ? { soloModelos } : {}),
+          ...(soloMuestras ? { soloMuestras: true } : {}),
           ...(vendedor ? { vendedor } : {}),
         });
         // El corte tarda hasta 5 min y el navegador (Safari en el iPhone,
@@ -553,6 +571,7 @@ export function DespachoTikTok({
       setSimulacion(null);
       setErrorRevision(null);
       setSoloModelos([]);
+      setSoloMuestras(false);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -629,6 +648,30 @@ export function DespachoTikTok({
               {simulando ? "Simulando…" : "Simular"}
             </button>
             <span className="texto-2 text-xs">{MODOS_CORTE.find((m) => m.id === modo)?.corto}</span>
+            <button
+              type="button"
+              aria-pressed={soloMuestras}
+              disabled={ocupado || simulando || (!soloMuestras && !muestrasPendientes)}
+              onClick={() => {
+                setSoloMuestras((v) => !v);
+                setSimulacion(null);
+                setErrorRevision(null);
+              }}
+              title={
+                muestrasPendientes
+                  ? "Corte solo con las muestras gratis pendientes, para darles prioridad. Apagado, las muestras van revueltas con todo."
+                  : "No hay muestras gratis pendientes"
+              }
+              className="ml-auto rounded-full border px-3 py-1 text-xs disabled:opacity-60"
+              style={{
+                borderColor: soloMuestras ? "var(--acento)" : "var(--grid)",
+                background: soloMuestras ? "var(--acento-suave)" : "transparent",
+                color: soloMuestras ? "var(--acento)" : "var(--ink-1)",
+                fontWeight: soloMuestras ? 600 : 400,
+              }}
+            >
+              Corte muestras · {muestrasPendientes}
+            </button>
           </div>
 
           {simulacion || errorRevision ? (
@@ -636,7 +679,7 @@ export function DespachoTikTok({
               {simulacion
                 ? (() => {
                     const rev = revisarSimulacion(simulacion, modo);
-                    const filtro = etiquetaDeModelos(simulacion.modelos);
+                    const filtro = etiquetaDeCorte(simulacion.modelos, simulacion.muestras);
                     const deTodo = rev.defensaDeTodoLoPendiente ? " (de todo lo pendiente)" : "";
                     const chips: { texto: string; tono: "critico" | "alerta" | "neutro" }[] = [];
                     if (rev.seCancelan) chips.push({ texto: `${rev.seCancelan} ${rev.seCancelan === 1 ? "se cancela" : "se cancelan"} por stock${deTodo}`, tono: "critico" });
@@ -816,9 +859,9 @@ export function DespachoTikTok({
               <div>
                 <div className="text-sm font-semibold">
                   Corte #{c.numero}
-                  {etiquetaDeModelos(c.modelos) ? (
+                  {etiquetaDeCorte(c.modelos, c.muestras) ? (
                     <span className="chip ml-2" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
-                      {etiquetaDeModelos(c.modelos)}
+                      {etiquetaDeCorte(c.modelos, c.muestras)}
                     </span>
                   ) : null}
                   <span className="ml-2 text-xs font-normal texto-2">

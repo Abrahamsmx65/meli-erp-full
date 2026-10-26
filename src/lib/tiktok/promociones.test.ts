@@ -20,6 +20,9 @@ import {
   MINUTOS_ARRANQUE_CICLICA,
   finDeLaViva,
   ventanasVivasDeRelampagos,
+  esConflictoDeActividad,
+  hastaCuandoBloquear,
+  MINUTOS_BLOQUEO_SIN_AJENA,
 } from "./promociones";
 
 const sku = (skuId: string, productId: string, sellerSku: string, estado = "ACTIVATE", precio: number | null = 499) => ({
@@ -174,7 +177,7 @@ describe("relámpagos cíclicos", () => {
   it("el error de TikTok se explica en palabras, sin códigos ni rutas", () => {
     const conflicto =
       "Lote 1 de 1 (1 productos): TikTok Shop 17029022 en /promotion/202309/activities/769/products: Resource Conflict. The `product or sku` conflicts with `another ONGOING or NOT_START activity`";
-    expect(explicarErrorDeCiclica("GT135", conflicto)).toBe("TikTok ya tiene el GT135 en otra relámpago viva o programada; la cíclica entra cuando termine esa.");
+    expect(explicarErrorDeCiclica("GT135", conflicto)).toBe("TikTok no dejó meter el GT135 a la cíclica: ya está en otra relámpago pública viva o programada. Se reintenta cuando termine esa.");
     expect(explicarErrorDeCiclica("GT148", "TikTok Shop 17029004 en /promotion/202309/activities: Resource Already Exists. A promotion name is already in use.")).toMatch(/otro nombre/);
     expect(explicarErrorDeCiclica("GT1", "TikTok Shop 12345 en /promotion/x: Algo raro")).toBe("Algo raro");
   });
@@ -223,5 +226,106 @@ describe("relámpagos por producto desde el detalle de la actividad", () => {
     expect(ventanasQueFaltan(ventanas, 72, ahora)).toEqual([]);
     // en cuanto terminan, arranca
     expect(ventanasQueFaltan(ventanas, 72, new Date("2026-10-20T02:21:00Z"))).toHaveLength(1);
+  });
+});
+
+describe("cíclica rechazada por TikTok: una relámpago a mano no estorba hasta que TikTok lo diga", () => {
+  const ahora = new Date("2026-10-21T20:00:00.000Z");
+  const creadores = {
+    activityId: "7694811362756822805",
+    titulo: "GT148 SAHORY MONSE MARLU",
+    estado: "ONGOING",
+    inicio: "2026-10-09T23:20:00.000Z",
+    fin: "2026-10-23T02:17:00.000Z",
+    precio: 189.99,
+  };
+
+  it("reconoce el conflicto 17029022 por código o por texto", () => {
+    expect(esConflictoDeActividad("Lote 1 de 1: TikTok Shop 17029022 en /promotion: Resource Conflict")).toBe(true);
+    expect(esConflictoDeActividad(new Error("conflicts with another ONGOING or NOT_START activity"))).toBe(true);
+    expect(esConflictoDeActividad("17029004 name already in use")).toBe(false);
+    expect(esConflictoDeActividad(null)).toBe(false);
+  });
+
+  it("bloquea hasta que termine la ajena viva más larga", () => {
+    expect(hastaCuandoBloquear([creadores], ahora).toISOString()).toBe("2026-10-23T02:17:00.000Z");
+    const programada = { ...creadores, activityId: "x", estado: "NOT_START", inicio: "2026-10-24T00:00:00.000Z", fin: "2026-10-26T00:00:00.000Z" };
+    expect(hastaCuandoBloquear([creadores, programada], ahora).toISOString()).toBe("2026-10-26T00:00:00.000Z");
+  });
+
+  it("sin ajena visible espera una hora, y una vencida no cuenta", () => {
+    expect(hastaCuandoBloquear([], ahora).getTime()).toBe(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
+    const vencida = { ...creadores, estado: "EXPIRED", fin: "2026-10-20T00:00:00.000Z" };
+    expect(hastaCuandoBloquear([vencida], ahora).getTime()).toBe(ahora.getTime() + MINUTOS_BLOQUEO_SIN_AJENA * 60_000);
+  });
+});
+
+describe("relámpago por PRODUCTO", () => {
+  it("manda un renglón por modelo con el precio y los topes, sin variantes", () => {
+    const lotes = lotesDeProductos(
+      [
+        { modelo: "GT148", productId: "P148", precio: 189.99, skuIds: ["a", "b"] },
+        { modelo: "GT114", productId: "P114", precio: 188.99, skuIds: [] },
+      ],
+      { porTalla: -1, porComprador: 2 },
+      "PRODUCT",
+    );
+    expect(lotes).toEqual([
+      [
+        { id: "P148", activity_price_amount: "189.99", quantity_limit: -1, quantity_per_user: 2 },
+        { id: "P114", activity_price_amount: "188.99", quantity_limit: -1, quantity_per_user: 2 },
+      ],
+    ]);
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }, "PRODUCT").product_level).toBe("PRODUCT");
+    expect(cuerpoDeActividad("x", { beginTime: 1, endTime: 2 }).product_level).toBe("VARIATION");
+  });
+});
+
+describe("finExtendido", () => {
+  it("alarga la relámpago viva las horas de la cíclica (72 por omisión)", async () => {
+    const { finExtendido } = await import("./promociones");
+    const fin = new Date("2026-10-23T02:19:15Z");
+    expect(finExtendido(fin, 72).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+    expect(finExtendido(fin, 24).toISOString()).toBe("2026-10-24T02:19:15.000Z");
+    // Más de 72 o un número inválido se topan como las horas de la cíclica.
+    expect(finExtendido(fin, 200).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+    expect(finExtendido(fin, 0).toISOString()).toBe("2026-10-26T02:19:15.000Z");
+  });
+});
+
+describe("ventanaCorrida", () => {
+  it("corre el fin y el inicio para que la ventana no pase de 72 h", async () => {
+    const { ventanaCorrida } = await import("./promociones");
+    const v = ventanaCorrida(new Date("2026-10-22T01:12:00Z"), new Date("2026-10-25T01:11:00Z"), 72);
+    expect(v.fin.toISOString()).toBe("2026-10-28T01:11:00.000Z");
+    expect(v.inicio.toISOString()).toBe("2026-10-25T01:11:00.000Z");
+  });
+
+  it("una ventana corta se alarga sin mover el inicio mientras quepa en 72 h", async () => {
+    const { ventanaCorrida } = await import("./promociones");
+    const v = ventanaCorrida(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-22T12:00:00Z"), 24);
+    expect(v.inicio.toISOString()).toBe("2026-10-22T00:00:00.000Z");
+    expect(v.fin.toISOString()).toBe("2026-10-23T12:00:00.000Z");
+  });
+});
+
+describe("ventanaAlargada", () => {
+  it("una en curso de 72 h no se puede alargar: TikTok no deja mover el inicio ni pasar de 3 días", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    expect(ventanaAlargada(new Date("2026-10-22T01:12:00Z"), new Date("2026-10-25T01:12:00Z"), 72, "ONGOING")).toBeNull();
+  });
+
+  it("una en curso más corta se alarga solo hasta inicio + 72 h, sin mover el inicio", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    const v = ventanaAlargada(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-23T00:00:00Z"), 72, "ONGOING");
+    expect(v?.inicio.toISOString()).toBe("2026-10-22T00:00:00.000Z");
+    expect(v?.fin.toISOString()).toBe("2026-10-25T00:00:00.000Z");
+  });
+
+  it("una programada se corre completa", async () => {
+    const { ventanaAlargada } = await import("./promociones");
+    const v = ventanaAlargada(new Date("2026-10-24T00:00:00Z"), new Date("2026-10-27T00:00:00Z"), 72, "NOT_START");
+    expect(v?.inicio.toISOString()).toBe("2026-10-27T00:00:00.000Z");
+    expect(v?.fin.toISOString()).toBe("2026-10-30T00:00:00.000Z");
   });
 });

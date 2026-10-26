@@ -29,6 +29,7 @@ import { skusExternos } from "./tiktok-externos";
 import type { InversionEnBodega } from "./inventario";
 import { traerTodo, type DB } from "../datos/repos";
 import type { Cronometro } from "./cronometro";
+import type { SkuExistencias } from "./familias-existencias";
 
 /** Lo único que la tabla de Bodega pinta: 7 campos, no los 13 del motor. */
 export interface RenglonBodega {
@@ -79,6 +80,11 @@ export interface VistaBodega {
   cajasPorModelo: Record<string, number>;
   renglones: RenglonBodega[];
   almacenes: string[];
+  /**
+   * Cada SKU con lo que hay de él en cada lugar (bodega, barco, fábrica,
+   * Full, FBA, TikTok), para el total por familia de la pantalla.
+   */
+  skusExistencias: SkuExistencias[];
 }
 
 export async function vistaBodega(
@@ -150,6 +156,23 @@ export async function vistaBodega(
   ];
   const inversion = inversionPorCategoria(paraCostear, config, netoPorModelo);
 
+  // Por SKU y lugar, para la vista por familia: lo de China partido en lo
+  // que ya va en barco y lo que sigue en la fábrica (la misma partición que
+  // el dinero), más FBA y TikTok con su propio SKU.
+  const skusExistencias: SkuExistencias[] = [
+    ...inv.renglones.map((r, i) => ({
+      sku: r.sku,
+      modelo: r.modelo,
+      color: r.color,
+      enBodega: r.enBodega,
+      enBarco: embarcado.renglones[i]?.enCamino ?? 0,
+      enFabrica: Math.max(0, r.enCamino - (embarcado.renglones[i]?.enCamino ?? 0)),
+      enFull: r.enFull + r.enTransferencia,
+    })),
+    ...fba.filter((r) => r.sku).map((r) => ({ sku: r.sku as string, enFba: r.enFba ?? 0 })),
+    ...tiktok.filter((r) => r.sku).map((r) => ({ sku: r.sku as string, enTikTok: r.enTikTok ?? 0 })),
+  ];
+
   return {
     fichas: {
       skus: inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length,
@@ -182,6 +205,7 @@ export async function vistaBodega(
       pedidos: r.pedidos,
     })),
     almacenes: inv.porAlmacen.map((a) => a.almacen),
+    skusExistencias,
   };
 }
 
@@ -216,7 +240,7 @@ async function leerFba(db: DB): Promise<RenglonParaCostear[]> {
       Number(f.en_transferencia ?? 0) +
       Number(f.no_disponible ?? 0) +
       Number(f.investigando ?? 0);
-    if (pares > 0) r.push({ modelo, enBodega: 0, enCamino: 0, enFba: pares });
+    if (pares > 0) r.push({ sku: String(f.seller_sku), modelo, enBodega: 0, enCamino: 0, enFba: pares });
   }
   return r;
 }
@@ -238,7 +262,7 @@ async function leerTikTok(db: DB, accountId: string): Promise<RenglonParaCostear
     const modelo = modeloUnificado(f.sku);
     if (!esModeloDeCalzado(modelo)) continue;
     const pares = Number(f.saldo ?? 0);
-    if (pares > 0) r.push({ modelo, enBodega: 0, enCamino: 0, enTikTok: pares });
+    if (pares > 0) r.push({ sku: String(f.sku), modelo, enBodega: 0, enCamino: 0, enTikTok: pares });
   }
   return r;
 }

@@ -10,6 +10,23 @@ La fábrica no fabrica tallas sueltas: fabrica cajas con una corrida adentro.
 Por eso el pedido se decide por color, y la talla solo decide **cómo se
 reparten** las cajas (corrida vs. unitalla).
 
+**Familias: modelos que se piden juntos** (`modelos_familias`, migración
+0148; `pedidos-china/familias.ts`; dueño, 20-oct-2026: «tengo un modelo que
+es el GT117 a GT122, quiero juntarlo todo para que se pida junto»). GT117
+BROWN, GT118 BLK, GT119 OLIVE, GT120 GREY, GT121 NAVY y GT122 BLK son el
+mismo zapato en seis colores (una sola publicación en MELI, un solo IN de
+Mingtai). El cálculo sigue siendo por modelo + color (cada número tiene su
+propia receta y su propia venta), pero el renglón lleva `familia` y la
+tabla «Pedido por modelo» los enseña como UN modelo con cada número como un
+color más; el «Excel del pedido» de la familia trae todos sus modelos. En
+Nuevo pedido todo lo que se pega junto ya es UN borrador (un IN, un Excel
+con el modelo en cada renglón; dueño, 20-oct-2026); un modelo de la familia
+que nunca se ha pedido (GT120) toma fábrica, moneda, precio, caja y
+descripción de sus hermanos y el aviso lo dice (solo la familia registrada
+respalda: GT104-5 no hereda de GT104-3); y la familia solo le da
+el nombre. Se dan de alta en la propia pantalla («Modelos que se piden
+juntos»).
+
 ## 2. El inventario que cuenta es TODO el que existe
 
     en Full + viajando a Full + en cajas en bodega + en FBA y viajando a FBA
@@ -89,8 +106,11 @@ Pedido tiene que cuadrar con el Detalle SKU).
   **Sin receta de ese color, la caja se supone** (`cajaDeRespaldo`; dueño,
   18-oct-2026: «¿para qué necesitas la proforma para poder calcular qué
   hay que pedir?»): primero la receta más reciente del MISMO MODELO en otro
-  color, si no la caja ESTÁNDAR de la fábrica (la más frecuente entre todas
-  las recetas de la cuenta). La corrida se propone por venta, como siempre,
+  color, luego la caja de UNA SOLA TALLA con que se ha pedido ese modelo
+  (`cajasUnitallaDePedidos`; GT180 y GT181 solo se piden «SOLID SIZE 16
+  PRS» y una caja así no es corrida, pero sí dice cuántos pares caben;
+  dueño, 20-oct-2026), si no la caja ESTÁNDAR de la fábrica (la más
+  frecuente entre todas las recetas de la cuenta). La corrida se propone por venta, como siempre,
   y el renglón dice qué caja se supuso. Solo sin NINGUNA receta en la
   cuenta queda sin cajas.
 - **Unitalla**: una talla se separa en cajas de una sola talla cuando ella

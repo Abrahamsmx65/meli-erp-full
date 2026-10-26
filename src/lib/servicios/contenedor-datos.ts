@@ -136,6 +136,12 @@ export async function skusDeContenedoresAnteriores(db: DB, accountId: string, ac
   return salida;
 }
 
+/** «GT104-1» → «GT104»; null si el modelo no lleva sufijo numérico. */
+export function modeloBaseDeCosto(modelo: string): string | null {
+  const m = modelo.toUpperCase().match(/^([A-Z]{1,4}\d{2,5}[A-Z]?)-\d{1,2}$/);
+  return m ? m[1] : null;
+}
+
 /**
  * Por modelo: el título de la publicación, la categoría de MELI con más
  * publicaciones (un modelo trae casi todas sus tallas en la misma) y el
@@ -188,7 +194,11 @@ export async function datosDeModelos(db: DB, accountId: string, modelos: string[
   for (const m of modelos) {
     const p = porModelo.get(m);
     const categoria = p ? ([...p.categorias.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null) : null;
-    const c = config.get(m) ?? config.get(m.toUpperCase());
+    // El costo es por MODELO: «GT104-1»…«GT104-6» son colores del GT104 y
+    // Productos y costos solo tiene «GT104» (S267, 22-oct-2026: el Valor
+    // reposicion salía en blanco).
+    const base = modeloBaseDeCosto(m);
+    const c = config.get(m) ?? config.get(m.toUpperCase()) ?? (base ? config.get(base) : undefined);
     salida.set(m, { titulo: p?.titulo ?? null, categoriaMeli: categoria, costoMxn: c?.costo ?? null });
   }
   return salida;

@@ -13,6 +13,7 @@ import type {
   VentaDiaria,
 } from "../engine/types";
 import type { Corrida, FilaExistencia } from "../importar/excel";
+import { aliasPorInventario, unirPorInventario } from "./alias-inventario";
 
 export type DB = SupabaseClient<any, "public", any>;
 
@@ -394,9 +395,15 @@ export async function cargarInsumos(
     mapeoRaw,
     overridesRaw,
     parametros,
+    apagadosRaw,
   ] = await Promise.all([
     traerTodo<any>(db, "skus", "sku, titulo, inventory_id", (q) => eq(q).eq("activo", true)),
-    traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia, no_disponible, total", eq),
+    traerTodo<any>(
+      db,
+      "stock_full",
+      "sku, disponible, en_transferencia, no_disponible, total, actualizado_en",
+      eq,
+    ),
     traerTodo<any>(db, "ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
       eq(q).gte("fecha", desde),
     ),
@@ -425,16 +432,25 @@ export async function cargarInsumos(
       eq,
     ),
     leerParametros(db, accountId),
+    // Nombres APAGADOS de una variante que sigue viva con otro nombre (mismo
+    // inventory_id): el sync de stock escribe a veces en el apagado.
+    traerTodo<any>(db, "skus", "sku, inventory_id", (q) =>
+      eq(q).eq("activo", false).not("inventory_id", "is", null),
+    ),
   ]);
 
-  return {
-    skus: skusRaw.map((s) => ({ sku: s.sku, titulo: s.titulo })),
+  const alias = aliasPorInventario(
+    skusRaw.map((s) => ({ sku: s.sku, inventoryId: s.inventory_id ?? null })),
+    apagadosRaw.map((s) => ({ sku: s.sku, inventoryId: s.inventory_id ?? null })),
+  );
+  const unidos = unirPorInventario(alias, {
     stockActual: stockRaw.map((s) => ({
       sku: s.sku,
       disponible: s.disponible ?? 0,
       enTransferencia: s.en_transferencia ?? 0,
       noDisponible: s.no_disponible ?? 0,
       total: s.total ?? 0,
+      actualizadoEn: s.actualizado_en ?? null,
     })),
     ventas: ventasRaw.map((v) => ({
       sku: v.sku,
@@ -457,6 +473,14 @@ export async function cargarInsumos(
       deltaDisponible: o.delta_disponible,
       resultadoDisponible: o.resultado_disponible,
     })),
+  });
+
+  return {
+    skus: skusRaw.map((s) => ({ sku: s.sku, titulo: s.titulo })),
+    stockActual: unidos.stockActual,
+    ventas: unidos.ventas,
+    snapshots: unidos.snapshots,
+    operaciones: unidos.operaciones,
     corridas: corridasRaw.map((c) => ({
       pedido: c.pedido,
       modelo: c.modelo,

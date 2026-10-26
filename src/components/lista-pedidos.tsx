@@ -30,6 +30,12 @@ interface Pedido {
   sinSku?: ColorFantasma[];
   /** colores que el dueño ya ligó a mano con MELI (o confirmó nuevos) */
   ligados?: ColorLigado[];
+  /**
+   * Pedido sin barco contra el sheet de China: «confirmado» si China ya lo
+   * subió (con la fecha de su columna «Confirm», si la llenaron), «falta» si
+   * todavía no aparece. Se revisa solo a las 8:00 y cada 10 min en pantalla.
+   */
+  confirmacionChina?: { estado: "confirmado" | "falta" | "fuera"; fecha: string | null };
 }
 
 interface AmarreLinea {
@@ -234,6 +240,26 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                       >
                         {e.texto}
                       </span>
+                      {p.confirmacionChina ? (
+                        <div
+                          className="mt-1 text-[11px] font-medium"
+                          style={{
+                            color:
+                              p.confirmacionChina.estado === "falta"
+                                ? "var(--critico-texto)"
+                                : p.confirmacionChina.estado === "fuera"
+                                  ? "var(--ink-muted)"
+                                  : "var(--exito-texto)",
+                          }}
+                          title="Según el sheet de pedidos pendientes de China"
+                        >
+                          {p.confirmacionChina.estado === "falta"
+                            ? "Falta confirmar en China"
+                            : p.confirmacionChina.estado === "fuera"
+                              ? "Ya no está en el sheet de China"
+                              : `Confirmado en China${p.confirmacionChina.fecha ? ` · ${p.confirmacionChina.fecha}` : ""}`}
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       <div className="flex gap-1.5">

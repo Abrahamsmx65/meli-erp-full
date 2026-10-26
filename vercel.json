@@ -53,6 +53,10 @@
       "schedule": "41 * * * *"
     },
     {
+      "path": "/api/cron/nuevos-fotos",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/cron/packing-lists",
       "schedule": "0 13 * * *"
     },
@@ -73,12 +77,32 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/confirmacion-pedidos",
+      "schedule": "0 14 * * *"
+    },
+    {
       "path": "/api/cron/relampagos",
       "schedule": "0 16 * * *"
     },
     {
+      "path": "/api/cron/relampagos",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/ofertas-meli",
       "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "5 16 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "35 6 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=aporte",
+      "schedule": "50 * * * *"
     },
     {
       "path": "/api/cron/publicidad-correo",

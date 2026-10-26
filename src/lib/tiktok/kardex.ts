@@ -374,3 +374,89 @@ export function frenarSubidasSinCausa(
   }
   return { permitidas, frenadas };
 }
+
+// ---------------------------------------------------------------------------
+// Qué se le puede escribir a TikTok y cómo se cuentan los rechazos
+// ---------------------------------------------------------------------------
+
+/**
+ * Estados de publicación a los que TikTok SÍ acepta escribirles inventario
+ * (12052901 «the product must be in one of these statuses», 22-oct-2026:
+ * el GT100 borrado en TikTok seguía `activo` en `tiktok_skus` y cada corrida
+ * se lo intentaba escribir). Un estado desconocido (null) se intenta: lo que
+ * TikTok rechace se declara.
+ */
+export const ESTADOS_PUBLICACION_ESCRIBIBLE = new Set(["DRAFT", "PENDING", "FAILED", "ACTIVATE", "SELLER_DEACTIVATED"]);
+
+export function sePuedeEscribir(estado: string | null | undefined): boolean {
+  if (!estado) return true;
+  return ESTADOS_PUBLICACION_ESCRIBIBLE.has(String(estado).toUpperCase());
+}
+
+export interface RechazoTikTok {
+  error: string;
+  /** los SKUs del ERP que TikTok rechazó con ese mismo error */
+  skus: string[];
+  /** las publicaciones (product_id) donde pasó */
+  productos: string[];
+}
+
+/**
+ * Agrupa los rechazos de TikTok POR MENSAJE con los SKUs y publicaciones
+ * que cayeron en cada uno. Hasta el 22-oct-2026 el aviso solo enseñaba el
+ * PRIMER error de la tanda: el retiro del GT148 (15 SKU a cero) se rechazó
+ * veintisiete horas seguidas y el aviso decía siempre el del GT100 borrado.
+ */
+export function resumirRechazos(
+  fallidos: { skuId: string; error: string }[],
+  escrituras: Pick<EscrituraTikTok, "skuId" | "productId" | "skuInterno">[],
+): RechazoTikTok[] {
+  const porSkuId = new Map(escrituras.map((e) => [e.skuId, e]));
+  const grupos = new Map<string, RechazoTikTok>();
+  for (const f of fallidos) {
+    const e = porSkuId.get(f.skuId);
+    const g = grupos.get(f.error) ?? { error: f.error, skus: [], productos: [] };
+    const sku = e?.skuInterno ?? f.skuId;
+    if (!g.skus.includes(sku)) g.skus.push(sku);
+    if (e?.productId && !g.productos.includes(e.productId)) g.productos.push(e.productId);
+    grupos.set(f.error, g);
+  }
+  return [...grupos.values()];
+}
+
+/** Un aviso por cada motivo de rechazo, con hasta `muestra` SKUs de ejemplo. */
+export function avisosDeRechazos(rechazos: RechazoTikTok[], muestra = 4): string[] {
+  return rechazos.map((r) => {
+    const n = r.skus.length;
+    const ejemplos = r.skus.slice(0, muestra).join(", ") + (n > muestra ? `… y ${n - muestra} más` : "");
+    return `TikTok rechazó ${n} SKU (${ejemplos}): ${r.error}`;
+  });
+}
+
+/** TikTok no deja bajar el inventario abajo de lo que una promoción tiene reservado (12019024). */
+export function esRechazoPorReserva(error: string): boolean {
+  return /12019024|minimum allowed (open )?stock/i.test(error);
+}
+
+/**
+ * Publicaciones (product_id) que se quisieron dejar EN CEROS y TikTok
+ * rechazó por el stock reservado de una promoción: el modelo se está
+ * retirando y sus relámpagos estorban (dueño, 22-oct-2026: «si un modelo
+ * queda en ceros y hay error 12019024, que todas sus relámpagos se
+ * cancelen para que pueda actualizarse el stock»). Solo cuenta si TODAS las
+ * variantes conocidas de esa publicación van a cero; con una sola talla
+ * viva no se cancela nada.
+ */
+export function productosEnCerosRechazados(
+  rechazos: RechazoTikTok[],
+  publicaciones: Pick<PublicacionTikTok, "productId" | "skuInterno">[],
+  disponibles: Map<string, number>,
+): string[] {
+  const candidatos = new Set(rechazos.filter((r) => esRechazoPorReserva(r.error)).flatMap((r) => r.productos));
+  const salida: string[] = [];
+  for (const productId of candidatos) {
+    const conocidas = publicaciones.filter((p) => p.productId === productId && disponibles.has(p.skuInterno));
+    if (conocidas.length && conocidas.every((p) => disponibles.get(p.skuInterno) === 0)) salida.push(productId);
+  }
+  return salida;
+}

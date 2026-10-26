@@ -76,8 +76,12 @@ export interface RenglonOferta {
 
 export interface ObjetivoOferta {
   pvNormal: number | null;
-  /** envío por par de Números (real o estimado) */
-  envio: number;
+  /**
+   * Envío por par de Números (real o estimado). Null = no se sabe (fundas:
+   * su sheet no lo trae) y una oferta que con el aporte cruza los $299 no se
+   * acepta, porque no hay con qué restar el envío.
+   */
+  envio: number | null;
 }
 
 const num = (x: unknown): number | null => {
@@ -141,7 +145,7 @@ export function decidirOferta(
     return conMotivo("no_es_de_aqui", "Relámpago, Buen Fin y todos los días van por Números");
   }
   if (yaAceptada(item.status)) return conMotivo("aceptada", "Ya está dentro");
-  if (!modelo) return conMotivo("sin_datos", "La publicación no es de un modelo de calzado conocido");
+  if (!modelo) return conMotivo("sin_datos", "La publicación no es de un modelo conocido");
   if (objetivo?.pvNormal == null) return conMotivo("sin_precio", `${modelo} sin PV normal en Números`);
   if (precio == null || precio <= 0) return conMotivo("sin_datos", "MELI no mandó el precio de la oferta");
   if (aporte == null) return conMotivo("sin_datos", "MELI no mandó su aporte");
@@ -155,7 +159,10 @@ export function decidirOferta(
 
   const pv = objetivo.pvNormal;
   const cruza = precio < UMBRAL_ENVIO_VENDEDOR && precio + aporte >= UMBRAL_ENVIO_VENDEDOR && pv < UMBRAL_ENVIO_VENDEDOR;
-  const envioExtra = cruza ? Math.max(0, objetivo.envio) : 0;
+  if (cruza && objetivo.envio == null) {
+    return conMotivo("sin_datos", `Con el aporte se cobra como ≥ $299 y no hay envío de Números para restar`);
+  }
+  const envioExtra = cruza ? Math.max(0, objetivo.envio ?? 0) : 0;
   const efectivo = Math.round((precio + aporte - envioExtra) * 100) / 100;
   const r = { ...base, efectivo, envioExtra };
   const detalle = `${pesos(precio)} + ${pesos(aporte)} de MELI${envioExtra ? ` − ${pesos(envioExtra)} de envío` : ""} = ${pesos(efectivo)}`;

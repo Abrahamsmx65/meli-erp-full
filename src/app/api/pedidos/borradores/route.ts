@@ -44,8 +44,8 @@ export async function GET() {
 }
 
 /**
- * accion = armar       { texto }                      -> un borrador por modelo
- *          actualizar  { id, fabrica?, moneda?, descripcion?, lineas? }
+ * accion = armar       { texto }                      -> UN borrador con todo lo pegado
+ *          actualizar  { id, fabrica?, moneda?, descripcion?, lineas?, pedido? }
  *          descartar   { id }
  *          confirmar   { id }                         -> pedido + correo
  *          correo      { id }                         -> reenviar el correo
@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
             moneda: cuerpo.moneda as "USD" | "RMB" | null | undefined,
             descripcion: cuerpo.descripcion as string | undefined,
             lineas: cuerpo.lineas,
+            pedido: cuerpo.pedido as string | undefined,
           }),
         });
       case "descartar":

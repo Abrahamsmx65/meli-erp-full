@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { etiquetaDeModelos, mismoFiltro, modelosDelPedido, normalizarModelos, pedidosDeSoloModelos, pendientesPorModelo } from "./corte-modelos";
+import { contarMuestras, etiquetaDeModelos, mismoFiltro, modelosDelPedido, normalizarModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo } from "./corte-modelos";
 
 const renglones = new Map([
   ["a", [{ sku: "GT148-CREAM-24-MX", cantidad: 1 }]],
@@ -43,5 +43,24 @@ describe("corte por modelo", () => {
     expect(mismoFiltro(null, [])).toBe(true);
     expect(mismoFiltro(["GT148"], null)).toBe(false);
     expect(mismoFiltro(["GT148"], ["GT148", "GT114"])).toBe(false);
+  });
+});
+
+describe("corte de MUESTRAS", () => {
+  const pendientes = [
+    { orderId: "1", esMuestra: true },
+    { orderId: "2", esMuestra: false },
+    { orderId: "3" },
+    { orderId: "4", esMuestra: true },
+  ];
+
+  it("con el filtro solo entran las muestras gratis; sin él, todas (revueltas)", () => {
+    expect(pedidosDeMuestras(pendientes, true).map((p) => p.orderId)).toEqual(["1", "4"]);
+    expect(pedidosDeMuestras(pendientes, false).map((p) => p.orderId)).toEqual(["1", "2", "3", "4"]);
+  });
+
+  it("cuenta cuántas muestras hay pendientes", () => {
+    expect(contarMuestras(pendientes)).toBe(2);
+    expect(contarMuestras([])).toBe(0);
   });
 });

@@ -20,6 +20,12 @@
  *   23:5 24:10 25:11 X 20   <- o talla:pares en una sola línea
  *   MISMA CORRIDA X 20      <- la corrida del último pedido de ese color
  *
+ *   GT252                   <- o el surtido debajo del color (Wenzhou
+ *   BROWN 50 CTNS           <- Baike, 20-oct-2026): color y CAJAS,
+ *   ASSORTMENT              <- «ASSORTMENT» = cada caja es una corrida
+ *   23 3                    <- y cada línea talla y PARES por caja
+ *   24 8                       (la caja lleva la suma: 24 pares)
+ *
  * Motor puro: solo lee el texto. Lo que no trae la lista (fábrica, precio,
  * pares por caja que no se escribieron, la corrida «misma») lo llena el
  * servicio con la historia de pedidos; aquí queda en null.
@@ -43,6 +49,8 @@ export interface RenglonLista {
 export interface ColorLista {
   color: string;
   renglones: RenglonLista[];
+  /** la lista lo trae como «NEW COLOR»: no existe todavía en MELI */
+  nuevo?: boolean;
 }
 
 export interface ModeloLista {
@@ -67,9 +75,38 @@ const RE_POR_CAJA = [
   // «SOLID SIZE 16 PRS» (cajas de una sola talla con 16 pares; GT180 y
   // GT181, 19-oct-2026: la lista no se reconocía).
   /\bSOLID\s*SIZE\s*(?:OF\s*)?(\d{1,3})\s*(?:PRS|PARES|PAIRS|PR)?\b/,
+  // «CTNS 48» sin «OF» (GT128, 20-oct-2026: «PINK SOLID SIZE CTNS 48»).
+  /\b(?:CTNS?|CARTONS?|CAJAS?)\s*[:=]?\s*(\d{1,3})\s*(?:PRS|PARES|PAIRS)?\b/,
 ];
+// «LT BROWN NEW COLOR»: el color todavía no existe en MELI; se lee el color
+// y se marca NUEVO (GT128, 20-oct-2026: «voy a aumentar colores nuevos […]
+// que me lo pongas en el Excel marcados como nuevos»).
+const RE_COLOR_NUEVO = /\s*(?:\(|\[)?\b(?:NEW\s+COLOU?R|COLOU?R\s+NUEVO|NUEVO|NEW)\b(?:\)|\])?\s*$/;
 /** «16 PRS» suelto: pares por caja SOLO si en la línea no hay otro número. */
 const RE_PARES_SUELTOS = /\b(\d{1,3})\s*(?:PRS|PARES|PAIRS)\b/;
+/** «BROWN 50 CTNS»: color y cajas en la misma línea (sin «OF»). */
+const RE_COLOR_CAJAS = /^(.*?[A-Z]{2,}.*?)\s*[:=X×-]?\s*(\d{1,4})\s*(?:CTNS?|CARTONS?|CAJAS?)$/;
+/** «ASSORTMENT»: las líneas que siguen son la corrida de UNA caja. */
+const RE_SURTIDO = /^(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO|CORRIDA)\s*[:.]?$/;
+// «RED 20 CTNS ASSORTMENT» en UNA línea (el dueño pega la hoja con tabulador,
+// 20-oct-2026, GT142): el letrero al final abre el surtido del color.
+const RE_SURTIDO_AL_FINAL = /\s+(?:ASSORT(?:MENT|ED)?|ASSORTED\s+SIZES?|SURTIDO)\s*[:.]?$/;
+// «BLK SOLID SIZE CTNS OF 48»: «solid size» solo dice que la caja es de UNA
+// talla (lo normal de «talla cajas»); se quita para leer el color y la caja.
+// Pero «SOLID SIZE 48» a secas (GT104, 20-oct-2026) SÍ dice los pares por
+// caja: se deja para que lo lea RE_POR_CAJA.
+const RE_SOLID_SIZE = /\bSOLID\s+SIZES?\b(?!\s*(?:OF\s*)?\d)/g;
+// «GT104» + «5-GREEN»: el pedido y el packing list escriben el modelo
+// GT104-5 color GREEN (MELI lo parte como GT104 + «5-GREEN»); se normaliza
+// para que encuentre su historia (20-oct-2026: «GT104 nunca se ha pedido»).
+const RE_COLOR_CON_NUMERO = /^(\d{1,2})\s*-\s*([A-Z].*)$/;
+
+/** «GT104» + «5-GREEN» → modelo GT104-5, color GREEN; si no, tal cual. */
+export function partirModeloColor(modelo: string, color: string): { modelo: string; color: string } {
+  const m = color.match(RE_COLOR_CON_NUMERO);
+  if (!m || /-\d{1,2}$/.test(modelo)) return { modelo, color };
+  return { modelo: `${modelo}-${m[1]}`, color: m[2].trim() };
+}
 const RE_CAJAS_FINAL = /\s*(?:X|×|\*|=)\s*(\d{1,4})\s*(?:CTNS?|CAJAS?|CARTONS?)?\s*$/;
 
 function esTalla(n: number): boolean {
@@ -81,6 +118,8 @@ function limpiar(linea: string): string {
     .toUpperCase()
     .replace(/[\t ]+/g, " ")
     .replace(/[：]/g, ":")
+    .replace(RE_SOLID_SIZE, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -122,12 +161,18 @@ export function leerLista(texto: string): ListaLeida {
   const sinEntender: string[] = [];
 
   let modelo: ModeloLista | null = null;
+  // el modelo como se escribió («GT104»): un color «5-GREEN» abre GT104-5
+  let modeloBase = "";
   let color: ColorLista | null = null;
   // pares por caja: del color si se dio después de él, si no del modelo
   let porCajaModelo: number | null = null;
   let porCajaColor: number | null = null;
   // tallas de una corrida escritas en su propia línea, esperando sus pares
   let tallasCorrida: string[] | null = null;
+  // cajas anunciadas junto al color («BROWN 50 CTNS») y, tras «ASSORTMENT»,
+  // la corrida de una caja que se va juntando línea por línea
+  let cajasColor: { cajas: number; linea: string } | null = null;
+  let surtido: { corrida: Record<string, number>; linea: string; num: number } | null = null;
 
   const lineas = texto.split(/\r?\n/);
 
@@ -141,26 +186,114 @@ export function leerLista(texto: string): ListaLeida {
     return color;
   };
 
+  /** Cierra el surtido abierto: un renglón de corrida con las cajas del color. */
+  const cerrarSurtido = () => {
+    if (!surtido || !modelo) {
+      surtido = null;
+      return;
+    }
+    const s = surtido;
+    surtido = null;
+    const tallas = Object.keys(s.corrida);
+    if (!tallas.length) {
+      modelo.avisos.push(`Línea ${s.num}: «${s.linea}» sin tallas debajo.`);
+      return;
+    }
+    if (!cajasColor) {
+      modelo.avisos.push(`Línea ${s.num}: surtido sin cajas (escribe «COLOR 50 CTNS»).`);
+      return;
+    }
+    const suma = tallas.reduce((a, t) => a + s.corrida[t], 0);
+    const escrito = porCajaColor ?? porCajaModelo;
+    if (escrito && escrito !== suma) {
+      modelo.avisos.push(`${color?.color || "Sin color"}: la corrida suma ${suma} pares y la caja dice ${escrito}.`);
+    }
+    const c = asegurarColor(s.num);
+    c?.renglones.push({
+      unitalla: null,
+      cajas: cajasColor.cajas,
+      paresPorCaja: escrito ?? suma,
+      corrida: s.corrida,
+      linea: `${cajasColor.linea} · ${s.linea} ${tallas.map((t) => `${t}:${s.corrida[t]}`).join(" ")}`,
+    });
+    cajasColor = null;
+  };
+
   lineas.forEach((cruda, i) => {
     const num = i + 1;
-    const l = limpiar(cruda);
-    if (!l) return;
+    let l = limpiar(cruda);
+    if (!l) {
+      cerrarSurtido();
+      return;
+    }
     if (/^(TOTAL|TTL)\b/.test(l)) return;
+    // «RED 20 CTNS ASSORTMENT» en una sola línea: se lee el color con sus
+    // cajas y se abre el surtido en el mismo paso.
+    const surtidoAlFinal = RE_SURTIDO_AL_FINAL.test(l) && !RE_SURTIDO.test(l);
+    if (surtidoAlFinal) l = l.replace(RE_SURTIDO_AL_FINAL, "").trim();
+    // «… NEW COLOR» al final: el color que se abra en esta línea es nuevo.
+    const colorNuevo = RE_COLOR_NUEVO.test(l) && /[A-Z]{2,}\s/.test(l);
+    if (colorNuevo) l = l.replace(RE_COLOR_NUEVO, "").trim();
+    const abrirColor = (nombreCrudo: string): ColorLista => {
+      // «5-GREEN» bajo GT104 es el modelo GT104-5: si el bloque actual ya
+      // tiene colores, se abre otro modelo con la misma caja; si está
+      // vacío (la línea «GT104 5-GREEN …»), solo se renombra.
+      const parte = partirModeloColor(modeloBase || modelo!.modelo, nombreCrudo);
+      const nombre = parte.color;
+      if (modelo && parte.modelo !== modelo.modelo) {
+        if (modelo.colores.length || modelo.avisos.length) {
+          modelo = { modelo: parte.modelo, colores: [], texto: cruda.trim(), avisos: [] };
+          modelos.push(modelo);
+          color = null;
+          cajasColor = null;
+          porCajaColor = null;
+          tallasCorrida = null;
+        } else modelo.modelo = parte.modelo;
+      }
+      return colorNuevo ? { color: nombre, renglones: [], nuevo: true } : { color: nombre, renglones: [] };
+    };
+    const abrirSurtido = () => {
+      if (surtidoAlFinal) surtido = { corrida: {}, linea: cruda.trim(), num };
+    };
+
+    // ---- Dentro de un surtido: "23 3" = talla y pares de la caja ------------
+    if (surtido && esLineaDeNumeros(l)) {
+      const ns = numerosDe(l);
+      if (ns.length === 2 && esTalla(ns[0]) && ns[1] > 0 && Number.isInteger(ns[1])) {
+        surtido.corrida[normalizarTalla(String(ns[0]))] = ns[1];
+        if (modelo) modelo.texto += "\n" + cruda.trim();
+        return;
+      }
+    }
+    cerrarSurtido();
 
     // ---- Modelo nuevo ------------------------------------------------------
     const mm = l.match(RE_MODELO);
     if (mm && !esLineaDeNumeros(l)) {
       modelo = { modelo: mm[1], colores: [], texto: cruda.trim(), avisos: [] };
+      modeloBase = mm[1];
       modelos.push(modelo);
       color = null;
+      cajasColor = null;
       porCajaModelo = null;
       porCajaColor = null;
       tallasCorrida = null;
       const { porCaja, resto } = sacarPorCaja(mm[2].trim());
       if (porCaja) porCajaModelo = porCaja;
+      const cc = resto.match(RE_COLOR_CAJAS);
+      if (cc && !/\b(?:OF|DE|CON)\b/.test(resto)) {
+        const nombre = limpiarColor(cc[1]);
+        if (nombre && !/\d{2,}/.test(nombre)) {
+          color = abrirColor(nombre);
+          modelo.colores.push(color);
+          cajasColor = { cajas: Number(cc[2]), linea: cruda.trim() };
+          abrirSurtido();
+          return;
+        }
+      }
       const c = limpiarColor(resto);
       if (c && /[A-Z]/.test(c)) {
-        color = { color: c, renglones: [] };
+        color = abrirColor(c);
         modelo.colores.push(color);
       }
       return;
@@ -180,11 +313,32 @@ export function leerLista(texto: string): ListaLeida {
       else porCajaColor = pc.porCaja;
       const c = limpiarColor(pc.resto);
       if (c && /[A-Z]{2,}/.test(c)) {
-        color = { color: c, renglones: [] };
+        color = abrirColor(c);
         modelo.colores.push(color);
         porCajaColor = pc.porCaja;
       }
       return;
+    }
+
+    // ---- «ASSORTMENT»: abre la corrida de una caja --------------------------
+    if (RE_SURTIDO.test(l)) {
+      surtido = { corrida: {}, linea: cruda.trim(), num };
+      return;
+    }
+
+    // ---- «BROWN 50 CTNS»: color y cajas ------------------------------------
+    const cc = l.match(RE_COLOR_CAJAS);
+    if (cc && !/\b(?:OF|DE|CON)\b/.test(l)) {
+      const nombre = limpiarColor(cc[1]);
+      if (nombre && !/\d{2,}/.test(nombre)) {
+        color = abrirColor(nombre);
+        modelo.colores.push(color);
+        porCajaColor = null;
+        tallasCorrida = null;
+        cajasColor = { cajas: Number(cc[2]), linea: cruda.trim() };
+        abrirSurtido();
+        return;
+      }
     }
 
     // ---- «Misma corrida x 20» ------------------------------------------------
@@ -274,15 +428,18 @@ export function leerLista(texto: string): ListaLeida {
     // ---- Un color nuevo del mismo modelo -----------------------------------
     const c = limpiarColor(pc.resto);
     if (c && /[A-Z]{2,}/.test(c) && !/\d{2,}/.test(c)) {
-      color = { color: c, renglones: [] };
+      color = abrirColor(c);
       modelo.colores.push(color);
       porCajaColor = pc.porCaja ?? null;
       tallasCorrida = null;
+      cajasColor = null;
       return;
     }
 
     modelo.avisos.push(`Línea ${num}: «${cruda.trim()}» no se entendió.`);
   });
+
+  cerrarSurtido();
 
   // Colores sin cajas no sirven; se quitan y se avisa.
   for (const m of modelos) {

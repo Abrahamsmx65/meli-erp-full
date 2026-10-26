@@ -45,6 +45,22 @@ export interface LineaHistoria {
 export interface LineaBorrador extends Omit<RenglonPI, "modelo" | "descripcion"> {
   /** de qué pedido salió el precio (o null si se capturó / falta) */
   precioDe: string | null;
+  /**
+   * Solo en un borrador de FAMILIA (varios modelos que se piden juntos,
+   * GT117…GT122): el modelo real del renglón. En un borrador de un solo
+   * modelo no viene y manda el modelo del borrador.
+   */
+  modelo?: string | null;
+  /** la lista lo trajo como «NEW COLOR»: no existe en MELI todavía; va marcado en el Excel */
+  colorNuevo?: boolean;
+}
+
+/** Marca que lleva en el Excel (descripción) un renglón de color nuevo. */
+export const MARCA_COLOR_NUEVO = "(NEW COLOR)";
+
+/** Con qué SKU se crea en MELI una talla de un color nuevo: MODELO-COLOR-TALLA-MX. */
+export function skuMeliDeColorNuevo(modelo: string, color: string, talla: string): string {
+  return `${modelo.toUpperCase()}-${color.toUpperCase()}-${talla}-MX`;
 }
 
 export interface BorradorArmado {
@@ -130,27 +146,71 @@ export function precioDeHistoria(
 }
 
 /**
+ * Modelos cuya historia RESPALDA a uno que nunca se ha pedido: SOLO los de
+ * su FAMILIA registrada (GT117…GT122: el mismo zapato en seis colores,
+ * misma fábrica y mismo precio; dueño, 20-oct-2026: GT120 salía «nunca se
+ * ha pedido» y «números hermanos no se toma a menos que sea la misma
+ * familia»: GT104-5 no hereda de GT104-3). Devuelve claves canónicas.
+ */
+export function hermanosDeModelo(modelo: string, familia: string[] | null | undefined): string[] {
+  const yo = canonizar(modelo);
+  const out = new Set<string>();
+  for (const m of familia ?? []) {
+    const c = canonizar(m);
+    if (c !== yo) out.add(c);
+  }
+  return [...out];
+}
+
+/**
  * @param fabricaElegida clave del perfil si el dueño cambió la fábrica en
  *   el borrador (los precios de otra fábrica ya no sirven).
+ * @param hermanos modelos de su familia cuya historia se usa SOLO si este
+ *   modelo nunca se ha pedido.
  */
-export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[], fabricaElegida?: string | null): BorradorArmado {
+export function armarBorrador(
+  lista: ModeloLista,
+  historiaTodo: LineaHistoria[],
+  fabricaElegida?: string | null,
+  hermanos?: string[] | null,
+): BorradorArmado {
   const avisos = [...lista.avisos];
   const modeloC = canonizar(lista.modelo);
-  const historia = historiaTodo.filter((l) => canonizar(l.modelo) === modeloC).sort(porPedidoDesc);
-  const nuevo = historia.length === 0;
+  const propia = historiaTodo.filter((l) => canonizar(l.modelo) === modeloC).sort(porPedidoDesc);
+  const nuevo = propia.length === 0;
+  const hermanosC = new Set((hermanos ?? []).map(canonizar));
+  const respaldo = nuevo && hermanosC.size ? historiaTodo.filter((l) => hermanosC.has(canonizar(l.modelo))).sort(porPedidoDesc) : [];
+  const historia = propia.length ? propia : respaldo;
 
   const ultima = historia[0];
   const perfil = fabricaElegida ? perfilDeClave(fabricaElegida) : perfilDeProveedor(ultima?.proveedor);
   const deLaFabrica = historia.filter((l) => clavePerfil(perfilDeProveedor(l.proveedor)) === clavePerfil(perfil));
   const moneda = perfil?.moneda ?? deLaFabrica.find((l) => l.moneda)?.moneda ?? null;
 
-  if (nuevo) avisos.push(`${lista.modelo} nunca se ha pedido: elige la fábrica y captura el precio y la descripción.`);
-  else if (!perfil) avisos.push(`El último pedido de ${lista.modelo} no dice de qué fábrica es: elígela.`);
+  if (nuevo && respaldo.length) {
+    const usados = [...new Set(respaldo.map((l) => l.modelo.toUpperCase()))].sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+    avisos.push(
+      `${lista.modelo} nunca se ha pedido: fábrica, moneda, precio, caja y descripción salen de ${usados.join(", ")} (${respaldo[0].pedido}). Revísalos.`,
+    );
+  } else if (nuevo) {
+    avisos.push(
+      `${lista.modelo} nunca se ha pedido: si eliges la fábrica sale en su formato; si no, se manda un Excel sencillo.`,
+    );
+  } else if (!perfil) {
+    avisos.push(`El último pedido de ${lista.modelo} no dice de qué fábrica es: sin fábrica se manda un Excel sencillo.`);
+  }
   else if (!deLaFabrica.length) avisos.push(`${lista.modelo} nunca se le ha pedido a ${perfil.nombre}: captura el precio.`);
   if (perfil && !moneda) avisos.push(`No se sabe en qué moneda cobra ${perfil.nombre}: elígela.`);
 
   const descripcion =
-    historia.map((l) => (l.descripcion ?? "").replace(/\s*\(caja de una sola talla\)\s*$/i, "").trim()).find(Boolean) ?? "";
+    historia
+      .map((l) =>
+        (l.descripcion ?? "")
+          .replace(/\s*\(caja de una sola talla\)\s*$/i, "")
+          .replace(/\s*\(NEW COLOR\)\s*$/i, "")
+          .trim(),
+      )
+      .find(Boolean) ?? "";
 
   const lineas: LineaBorrador[] = [];
   for (const c of lista.colores) {
@@ -159,6 +219,21 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
     const previo = historia.find((l) => mismoColor(l.color, c.color));
     const color = (previo?.color ?? c.color).toUpperCase();
     const delColor = historia.filter((l) => mismoColor(l.color, color));
+    // Color NUEVO: lleva el precio de los demás colores del modelo (el
+    // dueño: «llevan mismo precio»), va marcado en el Excel y se le dice
+    // con qué SKU crearlo en MELI, una variante por talla.
+    const nuevo = Boolean(c.nuevo);
+    if (nuevo) {
+      const tallas = [...new Set(c.renglones.flatMap((r) => (r.unitalla ? [r.unitalla] : Object.keys(r.corrida ?? {}))))].sort(
+        (a, b) => Number(a) - Number(b),
+      );
+      avisos.push(
+        `${color} es COLOR NUEVO de ${lista.modelo}: lleva el precio de los demás colores y va marcado «${MARCA_COLOR_NUEVO}» en el Excel. Créalo en MELI con el SKU ${skuMeliDeColorNuevo(lista.modelo, color, "{talla}")}` +
+          (tallas.length ? ` (tallas ${tallas.join(", ")}: ${tallas.map((t) => skuMeliDeColorNuevo(lista.modelo, color, t)).join(", ")})` : "") +
+          "; al sincronizar, las etiquetas salen solas.",
+      );
+    }
+    const marcaNuevo = nuevo ? { colorNuevo: true as const } : {};
 
     for (const r of c.renglones) {
       // Medidas: de una caja anterior del modelo con los mismos pares.
@@ -188,6 +263,7 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
           medidas: m?.medidas ?? null,
           cbmCaja: m?.cbmCaja ?? null,
           precioDe: p?.pedido ?? null,
+          ...marcaNuevo,
         });
         continue;
       }
@@ -232,12 +308,13 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
         medidas: m?.medidas ?? null,
         cbmCaja: m?.cbmCaja ?? null,
         precioDe,
+        ...marcaNuevo,
       });
     }
   }
 
-  if (!nuevo && lineas.some((l) => l.precio == null)) {
-    avisos.push("Hay renglones sin precio de esa fábrica: captúralo antes de confirmar.");
+  if (historia.length && lineas.some((l) => l.precio == null)) {
+    avisos.push("Hay renglones sin precio de esa fábrica: si no lo capturas, el Excel lo lleva en blanco.");
   }
 
   return {
@@ -253,16 +330,58 @@ export function armarBorrador(lista: ModeloLista, historiaTodo: LineaHistoria[],
 }
 
 /** Lo que falta para poder confirmar el borrador (vacío = listo). */
+/**
+ * Un borrador de FAMILIA: varios modelos que la fábrica hace como un solo
+ * zapato y se piden en UN pedido (GT117…GT122). Cada modelo se arma como
+ * siempre con su propia historia y sus renglones llevan `modelo`; la
+ * fábrica es la del primero que la tenga y los demás se arman con ESA (los
+ * precios de otra fábrica no sirven). Nuevo solo si todos lo son.
+ */
+export function armarBorradorFamilia(
+  nombre: string,
+  listas: ModeloLista[],
+  historiaTodo: LineaHistoria[],
+  fabricaElegida?: string | null,
+  hermanosDe?: (modelo: string) => string[],
+): BorradorArmado {
+  const hermanos = (l: ModeloLista) => hermanosDe?.(l.modelo) ?? null;
+  const primeros = listas.map((l) => armarBorrador(l, historiaTodo, fabricaElegida, hermanos(l)));
+  const fabrica = fabricaElegida ?? primeros.find((b) => b.fabrica)?.fabrica ?? null;
+  const armados = fabrica ? listas.map((l) => armarBorrador(l, historiaTodo, fabrica, hermanos(l))) : primeros;
+
+  const lineas: LineaBorrador[] = [];
+  const avisos: string[] = [];
+  for (const b of armados) {
+    for (const l of b.lineas) lineas.push({ ...l, modelo: b.modelo.toUpperCase() });
+    for (const a of b.avisos) avisos.push(a.startsWith(b.modelo) ? a : `${b.modelo}: ${a}`);
+  }
+  const distintas = new Set(primeros.map((b) => b.fabrica).filter(Boolean));
+  if (distintas.size > 1) {
+    avisos.push(`Los modelos de ${nombre} se han pedido a fábricas distintas; se usa la de ${armados.find((b) => b.fabrica)?.modelo ?? listas[0].modelo}.`);
+  }
+  const con = armados.find((b) => b.fabrica) ?? armados[0];
+  return {
+    modelo: nombre.toUpperCase(),
+    fabrica: con?.fabrica ?? null,
+    proveedor: con?.proveedor ?? null,
+    moneda: con?.moneda ?? armados.find((b) => b.moneda)?.moneda ?? null,
+    descripcion: armados.map((b) => b.descripcion).find(Boolean) ?? "",
+    lineas,
+    nuevo: armados.every((b) => b.nuevo),
+    avisos: [...new Set(avisos)],
+  };
+}
+
 export function faltantesDeBorrador(b: {
   fabrica: string | null;
   moneda: Moneda | null;
   lineas: LineaBorrador[];
 }): string[] {
   const f: string[] = [];
-  if (!b.fabrica) f.push("la fábrica");
-  if (!b.moneda) f.push("la moneda");
+  // Fábrica, moneda y precio NO son obligatorios (dueño, 20-oct-2026: «si un
+  // producto no tiene fábrica, etc., solo mándame un Excel sencillo»): sin
+  // ellos sale el formato sencillo con el precio en blanco.
   if (!b.lineas.length) f.push("renglones con cajas");
-  if (b.lineas.some((l) => l.precio == null && !l.preciosTalla)) f.push("el precio de algún renglón");
   if (b.lineas.some((l) => !(l.paresPorCaja > 0))) f.push("los pares por caja de algún renglón");
   if (b.lineas.some((l) => !(l.cajas > 0))) f.push("las cajas de algún renglón");
   return f;

@@ -98,9 +98,17 @@ export function pedidoBase(crudo: string): string {
   return m ? m[1] : p;
 }
 
-/** "23", "23MX", "23MX=39" -> "23"; "MM" o texto -> null. */
+/** «GT142 (IN10161)» → modelo GT142 + pedido IN10161; sin paréntesis de pedido, tal cual. */
+export function modeloConPedido(crudo: string): { modelo: string; pedido: string | null } {
+  const t = texto(crudo).toUpperCase();
+  const m = t.match(/^(.+?)\s*[(（]\s*([A-Z]{1,4}\d{3,}(?:-\d{1,2})?)\s*[)）]\s*$/);
+  return m ? { modelo: m[1].trim(), pedido: m[2] } : { modelo: t, pedido: null };
+}
+
+/** "23", "23MX", "23MX=39", "Mex 27" -> "23"; "MM", texto o rango -> null. */
 function tallaDeCelda(v: unknown): string | null {
-  const t = texto(v).toUpperCase();
+  // «Mex 27» (S272-2026): la palabra va adelante de la talla mexicana.
+  const t = texto(v).toUpperCase().replace(/^\s*(?:MEX|MX)\.?\s*(?=\d)/, "");
   if (!t) return null;
   // «39 (26)»: europea afuera y MEXICANA en el paréntesis (S263-2026, cajas
   // de una sola talla del GT114). Un rango «36-41 (23-27)» es corrida.
@@ -242,7 +250,9 @@ export async function importarPackingList(
   for (let i = 0; i < Math.min(25, filas.length); i++) {
     const f = filas[i].map((c) => canonizar(texto(c)));
     const iModelo = f.findIndex(
-      (c) => c === "STYLE" || c === "ITEM-NO" || c === "ITEM" || c === "MODELO" || c === "MODEL" || c === "STYLE-NO",
+      (c) =>
+        c === "STYLE" || c === "ITEM-NO" || c === "ITEM" || c === "MODELO" || c === "MODEL" || c === "STYLE-NO" ||
+        c === "ARTICLE" || c === "ARTICLE-NO",
     );
     const iSku = f.findIndex((c) => c === "SKU");
     if (iModelo < 0 && iSku < 0) continue;
@@ -357,7 +367,13 @@ export async function importarPackingList(
     const porCajaFila = col.porCaja >= 0 ? numero(f[col.porCaja]) : 0;
 
     if (pedidoCrudo && /\d{3,}/.test(pedidoCrudo)) pedidoActual = pedidoCrudo.toUpperCase();
-    if (modeloCrudo) modeloActual = modeloCrudo.toUpperCase();
+    if (modeloCrudo) {
+      // «GT142 (IN10161)» / «MY2307（IN10163）»: el pedido viaja en el
+      // paréntesis del modelo (S272-2026, columna «Article no» sin Invoice).
+      const conPedido = modeloConPedido(modeloCrudo);
+      modeloActual = conPedido.modelo;
+      if (conPedido.pedido) pedidoActual = conPedido.pedido;
+    }
 
     // Fila de TOTAL sin etiqueta: trae cajas pero ni pedido, ni modelo, ni
     // color, ni talla, ni pares por caja. Sin esto se leía como otro bloque

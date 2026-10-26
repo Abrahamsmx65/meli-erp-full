@@ -54,6 +54,45 @@ guárdala numerada.
   regla de la mitad / 7 días sigue igual. El rescate del optimizador
   obedece lo mismo (tolerancia infinita para esas tallas). Los productos
   NUEVOS quedan fuera: a ellos se les rellena la caja.
+  **En FULL, desde el 21-oct-2026, la corrida se decide por HERMANAS**
+  (`ajustarCorridaPorHermanas` en `engine/corrida.ts`; el dueño con Daniel,
+  revisando el envío MELI-121 de EnvioPack; lo de arriba —mitad, 7 días,
+  faltante grande— queda SOLO para FBA y para Full con
+  `corridaHermanasMaxDias` = 0): (1) si las cajas que pide la talla corta
+  para sus 30 días dejan a una hermana arriba de `corridaHermanasMaxDias`
+  (45), la talla solo se surte a 15 días (`coberturaSinForzarDias`) y se va
+  mandando en cada envío (GT135 DK BROWN: 2 cajas, no 14); (2) GOTEO de 1
+  caja por envío si la talla trae ≤ 10 % de la caja
+  (`corridaFraccionTallaChica`: 1 de 12, 2 de 24) o si la MAYORÍA de los
+  pares de la caja van a hermanas que ya pasan de 45 días, y solo si le
+  quedan menos de 15 días (GT194 BLK, GT167 BLK, talla 23 de GT135 TABACO
+  BROWN); (3) si las hermanas no pasan de 45, la
+  talla pide su objetivo completo. Se mide contra la mejor caja de la talla:
+  una caja de una sola talla no tiene hermanas y no se recorta.
+  **COLCHÓN DE SUBIDA** (`engine/colchon.ts`, mismo día; «Daniel manda un
+  poco de más cuando va en tendencia de alta por la temporada»): si el
+  modelo + color vende en sus últimos 14 días con stock al menos 1.2× lo
+  que usa el plan (`colchonSubidaFactor`; era 1.3 y se bajó el mismo día
+  para que entraran GT205 NAVY 1.25× y GT229 DK BROWN 1.23×), se usa ese ritmo sin el tope de
+  +50 % de la tendencia, el objetivo es de 45 días (`colchonObjetivoDias`)
+  y la corrida se fuerza mientras el color completo no pase de 60 días a
+  ese ritmo (`colchonTopeColorDias`; la caja que cruza el tope sí va), y
+  nunca más de 5 cajas del color por envío (`colchonMaxCajasEnvio`; dueño,
+  mismo día: el colchón veía subidas de 2 a 3× en GT252, GT122 y GT229 DK
+  BROWN que Daniel no persiguió; se descartó topar por días, por % y por
+  cajas en bodega, y una «apuesta» a mano por modelo; GT150 M BROWN, donde
+  Daniel mandó 20 porque «sabe que se va a vender más», queda en 5; el
+  máximo es del COLOR completo en el optimizador, `maxCajasPorProducto`,
+  no por talla: el 22-oct-2026 GT142 PINK y PURPLE en FBA pedían 6 con cajas
+  de una talla de distintos pedidos). Sin
+  la regla de hermanas para ese color. GT156 BLK: 3 cajas (Daniel 4).
+  **Una variante con DOS nombres de SKU se une por `inventory_id`**
+  (`datos/alias-inventario.ts`, en `cargarInsumos`): el sync diario de
+  stock escribe a veces en el nombre APAGADO («GT134-BLK / BLK-25-MX») y las
+  ventas caen en el activo («GT134-BLK-BLK-25-MX»); el plan veía la talla
+  vendiendo sin stock y le inflaba la demanda (52 variantes, 1,324 pares el
+  21-oct-2026). Stock: gana la lectura más reciente; fotos: la de esa
+  fuente; ventas: se suman.
 - **Tres reglas de producto en el plan de Full** (decididas por el dueño el
   9-sep-2026 al revisar por qué EnvioPack aportaba pocas cajas; la
   preferencia Industher → Caseshop → EnvioPack de `prioridadAlmacen` se
@@ -99,6 +138,21 @@ guárdala numerada.
   se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
   pantalla enseña cada envío por bodega en su propia sección (Caseshop +
   Industher, EnvioPack) con el Excel de ese envío.
+  **Y la corrida por HERMANAS, el goteo y el COLCHÓN DE SUBIDA también**
+  (`planFbaConCajas`; dueño, 21-oct-2026: «FBA va a estar con las mismas
+  reglas que aquí»): `ajustarCorridaPorHermanas` en vez de la mitad / 7
+  días (que vuelve solo con `corridaHermanasMaxDias` = 0), con los 7 días de
+  FBA encima de cada número (hermanas 45 + 7, talla corta 15 + 7, colchón
+  45 + 7, tope del color 60 + 7) y a lo más 5 cajas del color por envío.
+  El colchón compara la venta de Amazon de los últimos 14 días
+  (`amazon_ventas_diarias`, `ventasRecientesFba`; sin ella el plan sale sin
+  colchón y lo dice) contra la del periodo, las dos crudas (Amazon no tiene
+  la venta corregida por agotamiento). La pestaña «Por producto»
+  (`sugerirEnvioFba(…, plan)`) ya no lleva su propia cuenta: enseña las
+  cajas del plan y la regla que tocó al color (`etiquetaAjusteFba`), igual
+  que el Excel, y también lo que se manda a PROBAR sin venta en Amazon
+  (`SugerenciaFba.aProbar`; el 22-oct-2026 faltaban 80 de 368 cajas).
+  `VERSION_MOTOR` 2026-10-22.1.
   **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
   «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
   trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo
@@ -177,17 +231,43 @@ guárdala numerada.
   (`skuMeliDeCaja`; IN10079-GT221-LT BROWN, IN10079-GT221-BLK; con talla si
   la caja es unitalla), amarrado con `amarreDeLineas` (amarres a mano
   incluidos; `conSkusMeli` en `contenedor-datos.ts`); sin variante en MELI
-  lleva el color del pedido y se avisa. Barcode = PEDIDO-MODELO-COLOR(-TALLA)
-  con el color del PEDIDO (BLACK) y cada espacio convertido en GUION
-  (`codigoDeCaja`; IN10079-GT221-LT-BROWN): la almacenadora no acepta
-  espacios, aunque la caja de origen venga con ellos. PRODUCTOS no repite
-  lo que ya viajó en un contenedor ANTERIOR con el mismo barcode (embarque
-  de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
+  lleva el color del pedido y se avisa. Barcode = ESE MISMO SKU de MELI con
+  cada espacio convertido en GUION (`barcodeDeSku`; IN10079-GT221-LT-BROWN):
+  la almacenadora no acepta espacios. Hasta el 22-oct-2026 llevaba el color
+  de la PROFORMA y salía «IN10164-GT297-BLK-WITH-RED» o
+  «IN10147-GT170-LT.BROWN» contra el SKU de MELI (dueño: «no debe ser
+  diferente a eso»). PRODUCTOS no repite lo que ya viajó en un contenedor
+  ANTERIOR (misma caja por pedido + modelo + color + talla, `codigoDeCaja`;
+  embarque de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
   costo por par × pares (`FACTOR_VALOR_REPOSICION`); Atributos = pares por caja; Paquete 1 = medidas del packing list
   de la fábrica en el orden de «Means» (las que faltan salen de otro
   contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
   calzado y Nombre = tipo por código fiscal (PANTUFLAS, BOTAS…). Lo que falta
   va en blanco y la pantalla lo avisa.
+- **FAMILIAS: modelos que se piden JUNTOS** (`modelos_familias`, migración
+  0148; `pedidos-china/familias.ts` puro con pruebas,
+  `servicios/familias-modelos.ts`, `POST /api/pedidos/familias`, sección
+  «Modelos que se piden juntos» en Planeación de compras; dueño,
+  20-oct-2026: «tengo un modelo que es el GT117 a GT122, quiero juntarlo
+  todo para que se pida junto»): GT117 BROWN, GT118 BLK, GT119 OLIVE, GT120
+  GREY, GT121 NAVY y GT122 BLK son el mismo zapato en seis colores (una sola
+  publicación en MELI, un solo IN de Mingtai). La familia se da de alta en
+  la pantalla (modelos + nombre, «GT117-GT122» por omisión); el cálculo
+  sigue por modelo + color, pero `RenglonCompra.familia` hace que la tabla
+  los enseñe como UN modelo (cada número es un color más) y el «Excel del
+  pedido» de la familia traiga todos sus modelos; en Nuevo pedido todo lo
+  pegado ya es un solo borrador (`armarBorradorFamilia`: cada renglón con
+  su `modelo`, la fábrica del primero que la tenga y los demás armados con
+  esa) y la familia solo le da el nombre. **Un modelo de la familia que
+  NUNCA se ha pedido se arma con la historia de sus hermanos**
+  (`hermanosDeModelo`, `armarBorrador(…, hermanos)`, `modelosConFamilia`
+  en el servicio; dueño, 20-oct-2026: GT120 salía «nunca se ha pedido» sin
+  fábrica ni precio): fábrica, moneda, precio, caja y descripción de
+  GT117/GT118 y el aviso lo dice. SOLO la familia registrada respalda:
+  «números hermanos no se toma a menos que sea la misma familia» (GT104-5
+  no hereda de GT104-3; si se quiere, se dan de alta como familia). Al
+  guardar una familia se tumba `compras-china` (hoy `v6`) y se rehace por
+  atrás.
 - **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
   `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
   `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,
@@ -198,21 +278,77 @@ guárdala numerada.
   cada fábrica», «el último ha sido IN10183»). Se pega la lista tal cual
   («GT179 CTNS OF 12 / BROWN / 26 22…»: talla y CAJAS de una sola talla;
   corridas con «23 24 25 / 5 10 11 X 20», «23:5 24:10 X 20» o «misma
-  corrida x 20») y sale UN BORRADOR POR MODELO con su IN consecutivo
+  corrida x 20»; y la HOJA del dueño pegada con tabulador, 20-oct-2026,
+  GT142: «RED 20 CTNS ⇥ ASSORTMENT» en UNA línea abre el surtido de 20
+  cajas y los «talla ⇥ pares» de abajo son la corrida de la caja,
+  «BLK ⇥ SOLID SIZE CTNS OF 48» es color + caja de una talla —«solid
+  size» se quita, `RE_SOLID_SIZE`; «CTNS 48» sin OF también vale— y los
+  «talla ⇥ cajas» de abajo son cajas por talla; y **«LT BROWN NEW COLOR»
+  es un COLOR NUEVO** (`RE_COLOR_NUEVO`, `ColorLista.nuevo`,
+  `LineaBorrador.colorNuevo`; GT128, 20-oct-2026: «voy a aumentar colores
+  nuevos, llevan mismo precio pero no están en sistema»): toma el precio
+  de los demás colores del modelo (misma talla, de esa fábrica), el Excel
+  lo marca «(NEW COLOR)» en la descripción (`descripcionDeRenglon`; la
+  marca viaja a `pedido_lineas.descripcion` y `armarBorrador` la quita al
+  heredar la descripción), la pantalla y el correo dicen «NUEVO» y el
+  aviso del borrador trae el SKU con que crearlo en MELI por talla
+  (`skuMeliDeColorNuevo`: GT128-LT BROWN-23-MX); creado en MELI y
+  sincronizado, las etiquetas del pedido salen solas; y **«SOLID SIZE 48»
+  a secas son los pares por caja** y **«GT104 ⇥ 5-GREEN» es el modelo
+  GT104-5 color GREEN** (`partirModeloColor`; GT104, 20-oct-2026: salía
+  «nunca se ha pedido» y «falta cuántos pares trae la caja»): el pedido y
+  el packing list escriben GT104-5 + GREEN y MELI lo parte como GT104 +
+  «5-GREEN», así que se normaliza al escribir el modelo sin número y el
+  color con él) y sale UN BORRADOR con TODO lo pegado y su IN consecutivo
   (`siguienteIn`: el mayor entre pedidos, borradores vivos y
-  `pedidos_ajustes.ultimo_in`). Lo que la lista no dice sale del último
+  `pedidos_ajustes.ultimo_in`). Hasta el 20-oct-2026 salía un borrador por
+  modelo; ese día el dueño pegó GT180 y GT181 juntos («cuando pego un texto
+  junto es porque es un solo pedido y el sistema me lo generó en dos»): lo
+  que se pega junto es UN pedido (`nombreDeBorrador`: el nombre de la
+  familia si todos son de una, si no los modelos con coma; cada renglón
+  lleva su `modelo`), para dos pedidos se pega dos veces, y el IN se
+  CORRIGE a mano en el borrador (`actualizarBorrador({ pedido })`: forma
+  IN + número, ni cargado en Órdenes de compra ni en otro borrador vivo).
+  El campo de precio guarda lo TECLEADO mientras se escribe (`tecleado` en
+  `nuevo-pedido.tsx`): antes el punto decimal desaparecía al teclearlo. Lo que la lista no dice sale del último
   pedido del modelo: fábrica (cada modelo siempre ha sido de una), moneda,
   descripción, el color como lo escribe la fábrica (BLK → BLACK), pares por
   caja, la corrida «misma» y el PRECIO por color y talla SOLO de pedidos a
   ESA fábrica (cambiar de fábrica en el borrador lo vuelve a armar sin
   precios); medidas de la caja del packing list de un contenedor anterior
-  con los mismos pares. Un modelo NUEVO queda pidiendo fábrica, precio y
-  descripción; no se confirma con nada en blanco (`faltantesDeBorrador`).
-  Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
-  con `origen = 'sistema'` (cuenta como en camino, da de alta corridas) y
-  correo con el Excel adjunto a `pedidos_ajustes.destinatarios` (se edita
-  en la pantalla; un correo que no sale no deshace el pedido, se
-  reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  con los mismos pares. **Fábrica, moneda y precio NO son obligatorios**
+  (dueño, 20-oct-2026: «si un producto no tiene fábrica, etc., solo mándame
+  un Excel sencillo»): sin fábrica el pedido sale en el formato sencillo
+  (`SIN_FABRICA`, encabezado «PURCHASE ORDER») y lo que no tiene precio va
+  en blanco; `faltantesDeBorrador` solo exige renglones, cajas y pares por
+  caja. Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
+  con `origen = 'sistema'` (cuenta como en camino, da de alta corridas:
+  **también las cajas de UNA talla**, una corrida por color y talla con el
+  MISMO pedido y la talla pegada al color: `IN10121 · GT114 · TABACO
+  BROWN-25 · { "25": 24 }`, calcada del sheet de corridas
+  (`corridasDeProforma`; dueño, 20-oct-2026: «los que son de una talla igual
+  crea corrida y toma cada caja color por separado», «así se suben: IN10121
+  GT114 TABACO BROWN-25, no cada talla como otro pedido»; la primera versión
+  las guardó como `IN10172-24` y se corrigieron por SQL; hasta ese día
+  quedaban fuera; el sheet viejo las traía de TRES formas —«IN10057-24 ·
+  GT114 · BLK», «IN10121 · GT114-23 · BEIGE» (que se leía como OTRO modelo)
+  y «TABACO BROWN-25»— y `normalizarCorridaUnitalla` en `importarCorridas`
+  las deja todas en color-talla al leer el sheet (las guardadas se
+  convirtieron por SQL el 20-oct-2026; el sheet se ACUMULA, no borra); la
+  pantalla de Corridas cuelga la caja de una talla de la bodega de su
+  corrida color-talla; `numeroDePedido` toma el PRIMER número) y
+  correo a `pedidos_ajustes.destinatarios` **EN INGLÉS** (`correoDeBorrador`;
+  dueño, 20-oct-2026: «que los correos se hagan en inglés»: lo leen la
+  fábrica y el agente; «Purchase order IN10187 · GT142 · …», Cartons /
+  Pairs / Amount, NEW COLOR) con el Excel y **el ZIP de
+  etiquetas del pedido** (`zipEtiquetasDePedido` en
+  `servicios/etiquetas-pedido.ts`, el mismo de Órdenes de compra: PDF de
+  2 etiquetas por talla, BOX LABEL y Excel de códigos; dueño, 20-oct-2026:
+  «en el correo también se me comparta el PDF de etiquetas»). Un producto
+  nuevo aún no tiene código Full ni FNSKU: esas variantes van en
+  FALTANTES.txt. Si el ZIP no se arma el correo sale con el Excel y el motivo
+  queda en `correo.etiquetas` (se edita en la pantalla; un correo que no
+  sale no deshace el pedido, se reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
   renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
   la talla, precio por talla en fila de continuación), MINGTAI (RMB),
   JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y
@@ -295,6 +431,14 @@ guárdala numerada.
   pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
   viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
   622 de calzado + 35 de bolsas = 657 del BL).
+  **Un embarque del MEDIO que nunca se cargó SÍ se lee** (`esEmbarqueViejo`
+  con los embarques cargados; dueño, 23-oct-2026: «aumenté los contenedores
+  S272 y S273 y no los lee»): S274 entró antes de que S272/S273 estuvieran
+  en Drive y la regla «desde el último cargado» ya ni abría sus carpetas.
+  Viejo es solo lo ya cargado o lo de antes del primer contenedor. Un archivo
+  en `error` se vuelve a probar en cada pasada. Y el lector entiende el
+  formato de FUZHOU del S272: «Article no» con el pedido en el paréntesis
+  («GT142 (IN10161)», `modeloConPedido`) y la talla «Mex 27».
   **BORRAR un contenedor es para volver a armarlo desde Drive**
   (`ESTADO_RELEER`; 13-oct-2026: el dueño corrigió el S265 en Drive, lo
   borró junto con el S271 y «Traer de Drive» ya no los traía): el borrado
@@ -392,6 +536,11 @@ guárdala numerada.
   «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
   esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
   ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
+  Lanzamientos también la prueba (`lecturasDeSku`, `buscadorDeProductos`;
+  21-oct-2026: los nueve colores del GT104 salían sin publicar) y amarra
+  por contención AL REVÉS: el pedido «GT229 BLK / GREY FUR» con el «GT229-BLK»
+  de MELI cuando es el ÚNICO color del modelo que lo contiene. Un renglón
+  del pedido en 0 cajas y 0 pares no sale en Lanzamientos.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el
@@ -406,6 +555,19 @@ guárdala numerada.
   a cada uno le falta por contenedores. Un pedido que la bodega no conoce
   cuenta completo, como antes; uno que ya llegó completo (aunque siga
   abierto) no suma nada.
+- **Una caja que la bodega capturó con el SKU REVUELTO cuenta igual**
+  (`rescatarFilaMalCapturada` en `importar/cajas.ts`, puro con pruebas; se
+  aplica al leer el API de Industher, en `construirCajas` y en la pantalla
+  de Corridas; dueño, 21-oct-2026: «en cualquier manera lo capte para tomar
+  en cuenta como inventario»): Industher dio de alta 24 cajas de GT114 BLK
+  del IN10057 como «IN10057-24-GT114-BLK» (modelo «IN10057», color
+  «24-GT114-BLK», sin talla, 1 par por caja) y no contaban. Si el modelo
+  es un PEDIDO (IN/AR/RT/S###) pasa a pedido y el color se parte en
+  «talla-modelo-color» o «modelo-color»; si el color empieza con una talla
+  («24-BLK») y la caja no trae talla, la talla sale del color. Un renglón
+  normal no se toca. Y una caja de una talla con 0 o 1 «pares por caja»
+  toma los pares de su corrida con la talla pegada al color (IN10057 ·
+  GT114 · BLK-24 · {24: 24}).
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
@@ -846,6 +1008,22 @@ guárdala numerada.
   continuación por tiempo (`corteDeHoyQueContinua`) solo se une a un corte
   de hoy con el MISMO filtro: nunca se mezcla un corte de GT148 con uno
   general. El filtro se apaga solo al terminar, como «sin defensa».
+  **CORTE DE MUESTRAS** (`pedidosDeMuestras`, `contarMuestras` en
+  `tiktok/corte-modelos.ts`; `PendienteConFecha.esMuestra` de
+  `tiktok_ordenes.es_muestra`; `soloMuestras` en `hacerCorte` /
+  `hacerCorteLunes` / `hacerCorteAyer` / `simularCorte` y en el cuerpo de
+  `POST /api/tiktok/cortes` (`?muestras=1` en `/simular`);
+  `tiktok_cortes.muestras`, migración 0152; botón «Corte muestras · N» en
+  la barra de Despacho; dueño, 22-oct-2026: «si no se ocupa, se revuelven
+  igual con los cortes normales, pero es por si quiero dar prioridad a
+  muestras cuando tengo muchos pedidos, y que salga ahí cuántas son las
+  pendientes de muestras»): con el botón prendido, los tres cortes toman
+  SOLO los pedidos marcados muestra gratis (se puede combinar con el filtro
+  por modelo); la defensa se decide sobre todos y se recorta, como en el
+  corte por modelo; el corte se guarda con `muestras = true`, la lista lo
+  enseña («solo muestras») y solo se une al de hoy que también sea de
+  muestras. Apagado (lo normal), las muestras salen revueltas con lo demás.
+  Se apaga solo al terminar.
   **Un corte por modelo se UNE al de hoy del mismo modelo aunque no haya
   nada «por tiempo»** (`corteQueContinua({ sinExigirTiempo })`,
   `hacerCorte({ unirAlDeHoy })`; dueño, 5-oct-2026: el #51 «solo GT114» de
@@ -859,7 +1037,12 @@ guárdala numerada.
   #57 (869 pedidos) porque el #57 no había dejado nada «por tiempo»; se
   unieron a mano por SQL (dueño: «salieron separados, ¿qué pasó ahí?»).
   Ahora un corte se une al de hoy con el mismo filtro (general con general,
-  GT148 con GT148) mientras nadie le haya preparado nada.
+  GT148 con GT148) mientras nadie le haya preparado nada. **Los cortes de
+  un VENDEDOR EXTERNO (David) NO se juntan por ser del mismo día**
+  (`sinExigirTiempo` solo sin `vendedor`, en `hacerCorte`; dueño,
+  22-oct-2026: «hizo un corte y luego otro y le está juntando los cortes»):
+  él despacha desde otra bodega y cada corte es un trabajo aparte; solo se
+  le une la continuación de uno que quedó «por tiempo», como siempre.
   **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
   `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
   compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
@@ -1279,7 +1462,13 @@ guárdala numerada.
   TikTok y la pantalla decía «178 SKU todavía no tienen stock capturado». Se
   rebautizaron 81 renglones por SQL. Lo que sí amarra (GT146-BLK-23-MX, mismo
   nombre que en MELI) se queda con ese nombre: David y el dueño comparten el
-  renglón del kardex si usan el mismo SKU, por eso la «D».
+  renglón del kardex si usan el mismo SKU, por eso la «D». **Su pestaña Stock
+  va en orden ALFABÉTICO natural y con buscador** (`ordenarPorSku` y
+  `filtrarInventario` de `tiktok/inventario-vista.ts`, los mismos del Almacén
+  TikTok; `busquedaStock` en `components/externos-tiktok.tsx`; dueño,
+  25-oct-2026: «que en su inventario pueda buscar por sku y que esté ordenado
+  alfabéticamente»): por pedazos sin guiones ni mayúsculas («gt074 blk 24»,
+  el título también cuenta) y arriba «N de M SKU» mientras se busca.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
@@ -1320,6 +1509,31 @@ guárdala numerada.
   ámbar «N paquetes por guardar · sin señal…» y «Sin señal de wifi. Puedes
   seguir escaneando». La clave de supervisor sí necesita red (la valida el
   servidor) y lo dice. Cargar la página sigue necesitando señal.
+  **RETIRAR del almacén de TikTok** (`tiktok/retiro.ts` puro con pruebas:
+  `planRetiro`, `referenciaDeRetiro` = `RETIRO-<fecha>`; `servicios/
+  tiktok-retiro.ts`, `POST /api/tiktok/retiro`, casillas y botón «Retirar
+  del almacén» en la tabla del Almacén TikTok, SOLO para el dueño; dueño,
+  20-oct-2026: «una opción de poder quitar inventario en TikTok: elijo algún
+  SKU y se pone en 0 en TikTok, en mi kardex y en Industher»): por SKU se
+  retira lo DISPONIBLE (saldo menos apartado de TikTok y de la tienda) como
+  SALIDA del kardex con esa referencia; lo APARTADO en pedidos pagados se
+  queda (quitarlo haría que la defensa cancelara esos pedidos). A Industher
+  se le manda por el MISMO endpoint de salidas de los cortes
+  (`tiktok_salidas_3pl` sin corte, pedido = la referencia `RETIRO-…`,
+  `empujarSalidasAl3pl`): si falla queda pendiente y el cron lo reintenta,
+  y mientras la conciliación la cuenta como salida pendiente. A TikTok se le
+  publica el cero pasando por `sincronizarTikTok` con `soloPedidos` (regla
+  de oro). Lo de David no se retira por aquí. Un SKU sin disponible no
+  cambia y se declara. Para que el par vuelva, una entrada o un conteo.
+  **Y por CANTIDAD, renglón por renglón** (`SkuARetirar.cantidad`,
+  `MOTIVO_DESCUENTO`, `detalle[].recortados`; `cantidades` en el cuerpo de
+  `POST /api/tiktok/retiro` y en `retirarDelAlmacenTikTok`; columna
+  «Descontar» de la tabla con campo de pares, «Descontar» y confirmación
+  «Sí, −N»; dueño, 22-oct-2026: «una barra en la cual se puede poner una
+  cantidad y descontar las piezas»): el mismo camino (salida del kardex con
+  referencia `RETIRO-…`, salida a Industher, cero o disponible nuevo a
+  TikTok), pero solo los pares tecleados, topados a lo disponible (lo
+  apartado nunca se toca; si se pidió de más, el resultado lo dice).
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
   `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
   del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
@@ -1372,6 +1586,17 @@ guárdala numerada.
   publicación y sus pares (hasta 40 y «y N más»). Lo apagado o en borrador
   NO se avisa (el dueño no lo quiso ver; la casilla de la tabla sigue). Ese
   día: 0 sin ninguna publicación y 47 apagadas con 3,784 pares.
+  **ALMACÉN TIKTOK POR FAMILIA** (pestaña «Por familia» de `/tiktok`;
+  `tiktok/familias.ts` puro con pruebas: `armarFamiliasTikTok`,
+  `compararFamiliasTikTok`, `filtrarFamiliasTikTok`; `components/familias-tiktok.tsx`;
+  `PanelTikTok.ventasPorSku` / `ventasDesde`, `cargarPanelTikTok` lee TODA
+  `tiktok_ventas_diarias` y recorta los 30 días; dueño, 20-oct-2026: «quiero
+  uno [por familia] que esté en la sección de inventario TikTok aparte»): un
+  renglón por MODELO con SKU, en almacén, apartado, disponible, lo disponible
+  SIN publicación activa («Sin línea»), vendidos en 30 días y desde que el ERP
+  registra TikTok (1-sep-2026) y «Alcanza» = disponible ÷ ritmo de 30 días;
+  abrir el renglón lo parte por color (`colorDeSku`). Sin lo de David; una
+  familia agotada con historia sí sale (casilla «Solo con stock»).
   **EXCEL POR MODELO del Almacén TikTok** (`tiktok/resumen-modelos.ts`
   motor puro con pruebas, `servicios/tiktok-resumen-modelos.ts`, botón
   «Excel por modelo» en la tabla del inventario → `GET
@@ -1653,6 +1878,112 @@ guárdala numerada.
   TikTok las propias `sin_productos` que no han terminado y borra las
   constancias repetidas de «already in use»), reintenta UNA vez con «·2» si
   el título ya existe (`esTituloRepetido`) y acepta `soloIds`.
+  **Una relámpago A MANO no detiene la cíclica** (`esConflictoDeActividad`,
+  `hastaCuandoBloquear`, `MINUTOS_BLOQUEO_SIN_AJENA` 60;
+  `tiktok_promociones_ciclicas.bloqueada_hasta`, migración 0151; dueño,
+  21-oct-2026: «la de GT148 SAHORY es para creador, no es pública ni chocan
+  esas»): el GT148 llevaba desde el 15-oct sin cíclica porque el fondo tomaba
+  «GT148 SAHORY MONSE MARLU» (ONGOING hasta el 22-oct, armada en el Seller
+  Center para creadoras) como ventana viva y esperaba a que terminara. El API
+  no dice si una actividad es de creadores o pública, así que el fondo ya no
+  adivina: solo las ventanas PROPIAS cuentan para `ventanasQueFaltan`, crea
+  la cíclica y, SOLO si TikTok la rechaza con 17029022, deja la cíclica
+  `bloqueada_hasta` el fin de la ajena viva más larga (o una hora si no se
+  ve cuál), la pantalla lo dice («TikTok la rechazó por otra relámpago
+  pública; se reintenta …») y la revisión barata la salta hasta entonces;
+  la actividad vacía la desactiva `limpiarVentanasVacias` como siempre. Las
+  ajenas se siguen enseñando como «creada a mano» y sugieren el precio.
+  **Probado en vivo ese día, dos veces (14:37 y 14:58 México)**: TikTok
+  rechazó la cíclica del GT148 con 17029022 por variante Y por producto
+  (`NivelProducto` «PRODUCT» queda en el motor, probado, sin uso), y el
+  detalle crudo de la de creadoras (bitácora `diagnostico-promociones`)
+  es una FLASHSALE `duration_type NORMAL`, `product_level PRODUCT`, sin
+  ninguna marca de creador: el API no la distingue y SÍ la cuenta como
+  conflicto. El Seller Center sí deja encimar una pública sobre la de
+  creadoras («gt148 16 a 19 oct» corrió sobre SAHORY), pero por API no hay
+  camino: mientras un modelo tenga una relámpago de creadores viva, su
+  cíclica queda bloqueada hasta que termine y la pantalla lo dice.
+  **La diferencia la hace la RESERVA de cantidades al creador** (dueño,
+  21-oct-2026, al comparar «GT148 LIVE MAFER» con «GT148 SAHORY MONSE
+  MARLU»): una relámpago del creador CON cantidades reservadas queda solo
+  del creador (sin producto en la actividad, GMV 0, el API no la devuelve)
+  y NO estorba a la cíclica; una SIN reserva TikTok la crea como relámpago
+  normal con el producto adentro (el API la devuelve con precio, vende GMV)
+  y bloquea la cíclica por API. Regla práctica: las relámpagos para
+  creadores se hacen reservando cantidades; las tres sin reserva (GT148,
+  GT135, GT150) el dueño las cubre a mano hasta que terminen.
+  **La cíclica se ALARGA antes de crear otra** (`alargarOferta` y
+  `extenderVentana` en `servicios/tiktok-promociones.ts`,
+  `actualizarActividad` en `tiktok/api.ts` = `PUT
+  /promotion/202309/activities/{id}` con `end_time` y los MISMOS `title` y
+  `begin_time` —TikTok los exige aunque no cambien: 36009004 «Title is a
+  required field» y «BeginTime is a required field», probados por el dueño
+  el 22-oct-2026 en «GT150 CICLICA»— y el periodo total NO puede pasar de 3
+  días (17029007 «promotion_period exceeds the allowed range (max 3 days)»,
+  mismo día, al pedir 144 h) **y en una EN CURSO no deja mover el inicio**
+  (17029011 «Cannot edit the promotion start time: the promotion is already
+  ongoing», mismo día, al intentar correr la ventana completa). CONCLUSIÓN
+  PROBADA: una relámpago en curso de 72 h NO se puede alargar por API de
+  ninguna forma; `ventanaAlargada` solo pide algo cuando la en curso dura
+  menos de 72 h (hasta inicio + 72 h, inicio intacto) o cuando está
+  programada (NOT_START: se corre completa con `ventanaCorrida`); en los
+  demás casos contesta null y `alargarOferta` lo declara sin llamar a
+  TikTok («ya dura las 72 h que permite…»). La cíclica sigue creando la
+  siguiente al terminar, como siempre, `finExtendido`
+  puro; bitácora `tiktok_sync_log` tarea `oferta-alargar` (origen cíclica o
+  manual) con lo que contestó TikTok y `ciclica-extender` cuando la cíclica
+  no pudo; `ResultadoProgramacion.extendidas`; botón «Alargar 72 h» en cada
+  oferta viva o programada de la pestaña Ofertas, acción `alargar` de
+  `POST /api/tiktok/promociones`, también para las hechas a mano; dueño,
+  22-oct-2026: «en vez de crear cada vez cíclicas nuevas, cambiar las fechas
+  de terminación»): cuando la relámpago viva de una cíclica está por
+  terminar (dentro del margen de 75 s), el fondo PRIMERO le pide a TikTok
+  que la alargue su fin + las horas de la cíclica y lo confirma releyendo la
+  actividad (un «sí» con el fin sin cambiar cuenta como rechazo); si entra,
+  el renglón de `tiktok_promociones` toma el fin nuevo y no se crea nada
+  (el producto nunca se queda sin relámpago y una de creadores que entre
+  mientras no estorba); si TikTok lo rechaza (tope de 72 h o lo que diga),
+  se espera a que termine y se crea la siguiente como antes. Un intento por
+  ventana. **Una ventana propia que TikTok tiene VIVA con el producto
+  cuenta como viva aunque el ERP la diera por vacía** (`revivirVentanasPropias`,
+  `ResultadoProgramacion.revividas`; 22-oct-2026): el 21-oct el ERP creó la
+  «Cíclica GT148 21/10 15:00 · producto», TikTok rechazó meterle el producto
+  (17029022) y el ERP la desactivó; a las 15:16 el dueño la rearmó a mano en
+  el Seller Center con el GT148 a $199.99 (ONGOING hasta el 24-oct 15:13) y
+  el ERP, que solo creía en su renglón `desactivada`, la tomaba como AJENA:
+  bloqueaba la cíclica contra su propia relámpago, la pantalla decía «GT148
+  sin cíclica» y esa misma relámpago (con el producto adentro, aunque sea
+  sin tope) le reservaba stock: por eso TikTok contestó 12019024 «minimum
+  allowed open stock» al retiro a cero del GT148. Ahora el fondo, cada vez
+  que lee las relámpagos por producto, vuelve a dar por `creada` (inicio y
+  fin de TikTok) la ventana propia que TikTok traiga ONGOING o NOT_START con
+  el producto, y le quita el bloqueo a su cíclica.
+  **Lo que TikTok rechaza al ESCRIBIR INVENTARIO se declara POR
+  MOTIVO** (`resumirRechazos`, `avisosDeRechazos`, `sePuedeEscribir`,
+  `ESTADOS_PUBLICACION_ESCRIBIBLE` en `tiktok/kardex.ts`; `rechazos` y
+  `sinEscribir` en el detalle de la tarea `sincronizar`; 22-oct-2026): el
+  aviso enseñaba solo el PRIMER error de la tanda, y como el GT100 (producto
+  DELETED en TikTok, que sigue `activo` en `tiktok_skus` porque el catálogo
+  lo sigue trayendo) fallaba siempre primero con 12052901, el retiro a cero
+  del GT148 (15 SKU) se rechazó 27 horas seguidas sin que nadie viera por
+  qué (dueño: «usé el sistema para poner en 0 todo el GT148 y sigue activo
+  en TikTok»). Ahora una publicación cuyo estado no admite inventario
+  (DRAFT, PENDING, FAILED, ACTIVATE y SELLER_DEACTIVATED sí; DELETED y
+  demás no) no se intenta y se declara, y cada motivo sale con sus SKUs.
+  **Un modelo que se deja EN CEROS y TikTok rechaza por stock reservado
+  (12019024) cancela sus relámpagos solo** (`productosEnCerosRechazados`,
+  `esRechazoPorReserva` en `tiktok/kardex.ts` puros con pruebas;
+  `cancelarRelampagosDePublicacionesEnCeros` en `servicios/tiktok.ts`,
+  bitácora tarea `relampagos-por-cero`; dueño, 22-oct-2026: «si un modelo
+  queda en ceros y hay error 12019024, que todas las relámpagos que tiene
+  se cancelen para que pueda actualizarse el stock»): solo si TODAS las
+  variantes conocidas de la publicación van a cero (una talla viva no
+  cancela nada), se desactivan en TikTok las relámpagos en curso y
+  programadas que tienen ese producto (las de `relampagosPorProducto`,
+  masticadas 10 min), se PAUSA la cíclica del modelo (si no, el fondo
+  crearía otra en un minuto; `ultimo_error` dice por qué y se reactiva a
+  mano) y se vuelve a mandar el cero una vez; si TikTok sigue rechazando,
+  la siguiente corrida lo reintenta.
   **Alta masiva** (`guardarCiclicas`, acción `ciclica-guardar-varios`;
   dueño, 19-oct-2026: «una sección de listas de todos los productos activos
   en TikTok para poner muchos cíclicos masivamente» y «que el precio de la
@@ -2600,6 +2931,23 @@ guárdala numerada.
   PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
   `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
   capturado no entra a nada.
+- **EXISTENCIAS POR FAMILIA con sus ventas** (`servicios/familias-existencias.ts`
+  puro con pruebas: `armarFamiliasExistencias`, `colorDeSku`,
+  `compararFamilias`, `filtrarFamilias`; `servicios/ventas-familias.ts`
+  masticado en `app_cache` `existencias:ventas-sku:v1` 15 min;
+  `VistaBodega.skusExistencias`; `components/familias-existencias.tsx`,
+  pestaña «Por familia» de Existencias; dueño, 20-oct-2026: «una lista que no
+  sea por SKU sino por familia con sus totales de stock y que tenga ahí las
+  ventas que ha tenido el producto»): un renglón por MODELO con pares en
+  bodega, barco, fábrica (fuera del total), Full + transferencia, FBA y
+  TikTok (sin lo de David), las cajas contadas una vez, lo vendido en 30 días
+  y desde que el ERP registra por canal (MELI calzado, Amazon, TikTok, de
+  `inicio_ventas_skus` en dos llamadas; la histórica tarda ~1.5 s por el
+  barrido de Amazon, por eso va masticada) y «Alcanza» = total ÷ ritmo de 30
+  días. Abrir el renglón lo parte por COLOR (`colorDeSku`: a un SKU de Amazon
+  con la talla antes del color se le quita la talla; sin color, el par cuenta
+  solo en la familia). Sustituyó al «Total en México por familia»
+  (`TotalMexico`), que solo traía cajas y pares de bodega.
 - **FUNDAS en Existencias y «Todo junto»** (`servicios/existencias-fundas.ts`,
   `app_cache` `existencias:fundas:v1` 15 min; dueño, 16-oct-2026: «una
   sección de fundas, lo que hay en stock y en MELI y Amazon y lo que se gana,
@@ -2715,6 +3063,50 @@ guárdala numerada.
   $410,966, retiros $3,692,260 y $3,181,615). El sheet NUNCA se escribe;
   si Google no lo entrega (deja de estar compartido) no se toca nada y el
   error queda en la constancia.
+- **CALCULADORA FISCAL: precio de compra entre empresas** (`/finanzas/calculadora`
+  «Calculadora fiscal» en Negocio; `finanzas/calculadora-precios.ts` motor
+  puro con pruebas, `servicios/calculadora-precios.ts`, `POST
+  /api/finanzas/calculadora` guarda los parámetros en `app_cache`
+  `calculadora-precios:config`, `GET /api/finanzas/calculadora/contenedor?id=`
+  el Excel de la factura; dueño, 21-oct-2026). Cadena: proveedor → INDUSTHER
+  (se queda la ganancia) → KOMERLINE (vende en MELI y NO debe quedarse con
+  ganancia). Komerline compra a = depósito real de MELI por par − gastos de
+  Full por par del canal − publicidad por par (la del modelo + la sin amarre
+  del canal), promedio de los meses CERRADOS elegidos (3 por omisión) del
+  estado de resultados guardado (canal calzado en MELI). Producto NUEVO (< 10
+  pares en esos meses): depósito al precio relámpago de Números (real al
+  relámpago o con las tasas de Números) − Full y publicidad promedio del
+  canal. Industher compra a = precio Komerline − gasto de logística y
+  empleados (~$400,000 al mes) ÷ unidades al mes de TODAS las plataformas
+  (promedio real o a mano) − 3 % de lo que le factura a Komerline. Todo CON
+  IVA trasladado (base = ÷ 1.16). El Excel del contenedor trae una hoja por
+  compra: modelo, código SAT (`codigoFiscalDeCategoria`), pares, precio sin
+  IVA, IVA y total, y ANTES una hoja «Resumen» con la cuenta completa y los
+  DOS precios lado a lado por modelo (`hojaResumen`; dueño, 21-oct-2026: «en
+  el Excel no sale el precio de Industher»); la pantalla enseña la resta
+  debajo de cada precio; lo que no tiene precio o código va en blanco y en
+  «Avisos». El Resumen trae cada precio con y SIN IVA y los totales de las dos compras
+  sin y con IVA (dueño, 21-oct-2026). **El precio sin IVA va con 3
+  decimales** (`precioSinIva`, `importeFactura`; dueño, 23-oct-2026: «no me
+  cuadra el total, te faltan centavos» y luego «solo 3 decimales como máximo
+  y cuadras todo según eso»): con dos, 101.18
+  × 4,800 no daba el total; ahora importe = pares × precio sin IVA, IVA = 16 %
+  de ese importe y total = la suma, igual en las facturas, el Resumen, la
+  pantalla y el correo (puede quedar unos centavos abajo de precio con IVA × pares). **La solicitud se MANDA POR CORREO**
+  (`servicios/calculadora-correo.ts`, `POST
+  /api/finanzas/calculadora/contenedor` con `{ numero, para }`; dueño: «con
+  su correo bonito como el de los pedidos»): `plantillaCorreo` con las dos
+  facturas (precio sin y con IVA, importe, IVA, total) y el mismo Excel
+  adjunto; los destinatarios se recuerdan en `app_cache`
+  `calculadora-precios:correo` y cada envío deja constancia en `sync_log`
+  tarea `correo-factura`. Se ofrecen los contenedores DESDE EL S245
+  (`PRIMER_EMBARQUE_FACTURA`, `?numero=S245`; dueño, mismo día): de
+  Contenedores (desde S250, pares del packing list) y, los que nunca se
+  cargaron ahí (S245–S249), del Excel de costeo de la fábrica
+  (`finanzas:costeo-excel`, modelo y pares); si está en los dos, manda
+  Contenedores. **Es PURAMENTE FISCAL** (dueño: «no se debe confundir con el
+  corte general»): solo LEE el estado de resultados guardado y Números,
+  nunca escribe ni cambia el corte general.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
   del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
@@ -2776,10 +3168,14 @@ guárdala numerada.
   IN10128_GT125.zip (carpeta `PEDIDO (MODELO)`, un "…, 2 LABEL.pdf" por
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
   AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras: una
-  etiqueta por color para las cajas de corrida y UNA POR TALLA
-  (`PEDIDO-MODELO-COLOR-TALLA`, `etiquetas/carton.ts`) para las cajas de una
-  sola talla, como el IN10172 de GT148 con 48 pares de la misma talla por
-  caja; pedido del dueño el 22-sep-2026).
+  etiqueta por color para las cajas de corrida y UNA POR TALLA para las
+  cajas de una sola talla, como el IN10172 de GT148 con 48 pares de la misma
+  talla por caja; pedido del dueño el 22-sep-2026). **El texto del BOX LABEL
+  es el SKU de MELI de la caja con guiones** (`barcodeDeSku(skuMeliDeCaja(…))`
+  en `etiquetas-pedido.ts`), EL MISMO barcode de «Bodega: productos» (dueño,
+  22-oct-2026: «tiene que coincidir 100 % con las etiquetas que se crearon
+  cuando se hizo el pedido»): hasta ese día llevaba el color de la proforma
+  sin espacios («IN10164-GT297-BLKWITHRED»).
 
 ## Regla de arquitectura: datos ya masticados, decidida por el dueño
 
@@ -2926,6 +3322,23 @@ login, la base y el deploy.
   de la ventana (cada bloque ÷ sus días con stock; un bloque sin stock no
   cuenta como cero, se deja fuera), y la ventana termina AYER: hoy va a
   medias. Verificado con 601-iPad10 (pasó de 35 a 65 al día a media ventana).
+  **Lo AGOTADO con historia se repone y lo que NUNCA vendió se estrena**
+  (`HistoriaPrevia`, `ventaDiariaDeHistoria`, `DIAS_HISTORIA` 180, motivos
+  `historia` y `estreno`, `LineaPlan.ventaDeHistoria` en `yapanizcel/plan.ts`;
+  `cargarHistoriaPrevia` en `agregados.ts` con los mismos dos RPC de los
+  bloques sobre los 180 días ANTERIORES a la ventana; dueño, 21-oct-2026:
+  «no me pide mandar 567-i11-transparent pero no hay stock»): un SKU sin
+  venta en la ventana y con NADA en Full ni en camino no le dice nada a la
+  ventana, así que se decide con la historia: si vendió en esos 180 días, su
+  venta diaria sale de ahí (unidades ÷ días con stock, calendario sin fotos,
+  mismo piso) y se repone con eso (567-i11-purple: 58 vendidas hasta julio,
+  10 en bodega, 0 en Full, pedía 0 para siempre; ese día eran 123 SKU con
+  7,619 piezas en bodega); si NUNCA ha vendido y la bodega tiene al menos una
+  decena, va UNA decena de prueba (`minimoEnvio`), salvo publicación cerrada
+  en MELI (31 SKU ese día). No se repite: con la decena en camino o en Full ya
+  no es estreno y, si no vende, Full ya cubre el objetivo. La pantalla lo dice
+  en la columna de motivo y marca la venta diaria con «ᴴ». Sin historia
+  cargada el motor no aplica ninguna de las dos (las pruebas viejas siguen).
 - **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
   una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
   encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se
@@ -3043,6 +3456,28 @@ login, la base y el deploy.
   `yz_fijar_publicado`) no se juzga solo; un diseño con puras variantes
   nuevas/sin fecha es lanzamiento y no se retira; y sin 180 días de
   historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
+  **Los diseños ELEGIDOS en Pedidos a China se guardan por cuenta**
+  (`yz_parametros.pedidos_disenos`, migración 0150; `leerDisenosElegidos`
+  / `guardarDisenosElegidos`, `POST /api/yapanizcel/pedidos/seleccion`;
+  dueño, 20-oct-2026: «que no se desliguen solos, se quedan guardados»):
+  hasta ese día vivían en localStorage y en la URL, y al cargar la
+  pantalla se recortaban contra los diseños del resumen del momento y se
+  volvían a guardar recortados. Ahora la URL (`?disenos=`) manda sobre lo
+  guardado, lo guardado sobre el navegador, cada cambio se guarda medio
+  segundo después del último clic y la elección NUNCA se recorta contra el
+  catálogo: un diseño que el resumen no trae sigue elegido y reaparece.
+  **A China se pide SOLO lo que falta de verdad, en números cerrados**
+  (`redondearPedido`, `multiploDeDiseno` en `yapanizcel/compras.ts`, puros con
+  pruebas; `yz_parametros.pedido_minimo` 50, `pedido_multiplo` 10 y
+  `pedido_multiplos` por diseño `{"662": 20}`, migración 0151; campos en
+  Configuración de fundas; dueño, 21-oct-2026: «solamente modelos que
+  necesitan mínimo 50 unidades y todo con números cerrados redondeando hacia
+  arriba en 10 y 10; de la fábrica 662 es 40 o 60, no 50»): por SKU, la
+  FALTA = objetivo de 120 días − posición (`VarianteCompra.necesidad`); si
+  es menor al mínimo no se pide nada (la pantalla la enseña en gris entre
+  paréntesis y el Excel en «Falta»), y si llega, se sube al múltiplo cerrado
+  del diseño (el 662 de 20 en 20: una falta de 50 se pide como 60). Los
+  totales por diseño y el Excel suman lo ya redondeado.
   **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
   (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
   diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`
@@ -3070,6 +3505,34 @@ login, la base y el deploy.
   `almacenYz` (bitácora en `yz_sync_log`, tarea `cargos`), gastos a mano en
   `yz_gastos`, cortes en `yz_cortes`. Todo el fondo (netos, revisión,
   facturación) corre en el cron de `/api/yapanizcel/netos` cada 10 min.
+- **OFERTAS de las fundas: relámpago, Buen Fin, todos los días y con aporte,
+  solas** (`/yapanizcel/ofertas` «Ofertas»; `yapanizcel/precios-sheet.ts`
+  puro con pruebas sobre el sheet real, `servicios/fundas-ofertas.ts`,
+  `/api/yapanizcel/ofertas{,/relampagos,/buen-fin,/buen-fin/aceptar}`, cron
+  `/api/cron/yapanizcel-ofertas?que=promos` a las 10:05 y 00:35 de México y
+  `?que=aporte` cada hora; dueño, 23-oct-2026: «una sección igual para las
+  ofertas en fundas […] que se confirmen solas», «puede tomar el precio del
+  sheet de Números de la sección fundas», regulares = todos los días Y con
+  aporte). EL MISMO motor que el calzado (`promosDeItems`,
+  `confirmarRelampagosPendientes`, `confirmarBuenFinPendientes` con
+  `clases: ["buen_fin", "todos_los_dias"]`, `revisarOfertasCon` con
+  `fuenteFundas`, la bitácora de `bitacora-ofertas.ts`), con el precio por
+  DISEÑO de la pestaña FUNDAS del sheet «Números» (se baja en cada corrida):
+  relámpago = su columna «5% MAS PARA RELAMPAGO» (las MICAS no la tienen
+  porque su categoría en MELI no permite relámpago: sin precio, no se les
+  inscribe ninguna; dueño, 23-oct-2026); Buen Fin, todos los días
+  y el piso de las ofertas con aporte = PV MELI; los dos a .99. Un diseño en
+  dos renglones del sheet (582, 380 GRANDE/CHICO, 599 GRANDE/CHICA) toma el
+  precio MÁS ALTO; una publicación con varios diseños o un diseño sin PV en
+  el sheet no se toca, y las dos cosas se avisan. El sheet de fundas no trae
+  envío: una oferta con aporte que cruza los $299 queda «sin datos»
+  (`ObjetivoOferta.envio` null). Publicación → diseño por `yz_skus` no
+  cerradas. Bitácora en `yz_sync_log` con la tarea en `detalle` (las mismas
+  tareas que calzado: `relampagos-auto`, `buen-fin-auto`, `buen-fin-aceptar`,
+  `ofertas-aporte`); revisión de las de aporte en `yz_cache` `ofertas-meli`
+  con los precios leídos (pestaña «Precios del sheet»). «Confirmar solas»
+  (`yz_cache` `ofertas-meli:config`) nace PRENDIDO; apagado, el cron solo
+  revisa las de aporte.
 - Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
   `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con
   cron propio CADA 10 MINUTOS porque MELI entrega ~1 user product por segundo y el
@@ -3082,14 +3545,15 @@ login, la base y el deploy.
 | Motor de demanda / stock / cajas | `src/lib/engine/` (`demand.ts`, `stockHistory.ts`, `boxes.ts`, `replenish.ts`) |
 | Sincronización con MELI          | `src/lib/servicios/sync.ts`, `webhooks.ts`  |
 | Latido (drena avisos, recalcula, repara historial; candado atómico `candados_trabajo` recurso `latido`, las lecturas de `sync_log` solo son pre-filtro) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
-| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
+| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). **Lanzamientos se pone al día SOLO** (21-oct-2026, dueño: «no se actualizan los que ya tienen fotos y salen sin fotos»: lo guardado era del 13-oct y solo el botón o un contenedor nuevo volvían a preguntar): cron `/api/cron/nuevos-fotos` cada hora, la pantalla pregunta sola lo que falta al abrir si la revisión tiene más de `MINUTOS_REVISION_FOTOS` (30) o hay un producto sin revisar, y Amazon también cuenta las fotos que el catálogo nocturno ya leyó (`catalogo-amazon:asins`, todos los ASIN del color): ese día 32 colores tenían fotos ahí y salían en 0. Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
 | Lógica del pedido a China explicada para el dueño | `docs/PLANIFICACION-CHINA.md` |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
-| Sugerencia de compra a China (MELI = lo que cada talla VENDE CON STOCK, `engine/demanda-surtida.ts`: días surtidos ≥ 0.75 ponderados por recencia en tandas por conteo 50/30/20, sin tope de 3× ni tendencia, decisión del dueño el 11-oct-2026 «calcular según el stock alto»; sin 14 días surtidos cae a la demanda del plan de Full y el renglón lo dice; `DemandaSku.tasaSurtida` → `LineaGuardada.demandaSurtida` → `demandaChinaDeLinea`; **una talla que va unitalla va SOLO unitalla**, redondeada hacia arriba y fuera de la corrida, y **sin receta de ese color la caja se supone**: la del mismo modelo en otro color o la estándar de la cuenta (`cajaDeRespaldo`, `RenglonCompra.cajaSupuesta`, declarado en el renglón; dueño, 18-oct-2026); Amazon corregida por agotamiento + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado; caché `compras-china:v4`) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
+| Sugerencia de compra a China (MELI = lo que cada talla VENDE CON STOCK, `engine/demanda-surtida.ts`: días surtidos ≥ 0.75 ponderados por recencia en tandas por conteo 50/30/20, sin tope de 3× ni tendencia, decisión del dueño el 11-oct-2026 «calcular según el stock alto»; sin 14 días surtidos cae a la demanda del plan de Full y el renglón lo dice; `DemandaSku.tasaSurtida` → `LineaGuardada.demandaSurtida` → `demandaChinaDeLinea`; **una talla que va unitalla va SOLO unitalla**, redondeada hacia arriba y fuera de la corrida, y **sin receta de ese color la caja se supone**: la del mismo modelo en otro color, la de UNA talla con que se ha pedido el modelo (`cajasUnitallaDePedidos`; al confirmar un borrador solo las cajas de corrida se vuelven receta, una «SOLID SIZE 16 PRS» no es corrida pero sí dice la caja; dueño, 20-oct-2026) o la estándar de la cuenta (`cajaDeRespaldo`, `RenglonCompra.cajaSupuesta`, declarado en el renglón; dueño, 18-oct-2026); Amazon corregida por agotamiento + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado; caché `compras-china:v4`) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Nuevo pedido a China (lista → borrador por modelo → Excel en formato de la fábrica → correo) y Pendientes por enviar | `src/lib/pedidos-china/` (`lista.ts`, `armar.ts`, `fabricas.ts`, `excel.ts`) + `src/lib/servicios/pedidos-borradores.ts`, `pedidos-pendientes.ts` + `src/app/pedidos/{nuevo,pendientes}` + `/api/pedidos/borradores` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
 | Cargar pedidos (muchas proformas, lista con filtros) y faltantes contra el sheet de pendientes (`PEDIDOS_SHEET_URL`, pestaña por `gid`, AR* ignorados) | `src/app/pedidos/cargar` + `components/cargar-pedidos-lote.tsx` + `src/lib/servicios/pedidos-sheet.ts` |
+| CONFIRMACIÓN DE CHINA: China confirma un pedido SUBIÉNDOLO al mismo sheet de pendientes (dueño, 21-oct-2026: «para saber que en China me confirmaron el pedido hay que revisar que lo subieron al sheets; que a las 8 am corra y me salga ahí confirmado o falta confirmar»). `confirmacionDePedidos` (puro, en `pedidos-sheet.ts`) juzga SOLO los pedidos sin barco (estado `creado`): en el sheet = «Confirmado» con la fecha de la columna «Confirm» si la llenaron; fuera = «Falta confirmar»; pares distintos entre el ERP y el sheet se dicen. Órdenes de compra lo enseña en la ficha «Falta confirmar en China», debajo del estado de cada pedido y en la pestaña «Confirmación de China» (el sheet se relee cada 10 min al abrir la pantalla). El cron `/api/cron/confirmacion-pedidos` (14:00Z = 8:00 México) relee el sheet, lo deja masticado (`app_cache` `pedidos-sheet`), anota en `sync_log` tarea `confirmacion-pedidos` (faltan, confirmados, fuera) y la pantalla dice cuándo fue la última revisión y qué vio (`ultimaRevisionConfirmacion`). SIN correo (dueño, mismo día: «no necesito un correo para que me recuerde, solo el cron y poder verlo en el sistema») | `src/lib/servicios/confirmacion-pedidos.ts` + `/api/cron/confirmacion-pedidos` |
 | Packing list de la fábrica → contenedor (lector + amarre pedido/modelo/color/talla) | `src/lib/importar/packing-list.ts` + `src/lib/servicios/packing-list.ts` + `/api/contenedores/packing-list` |
 | Productos nuevos en camino (pedidos sin stock nunca; fotos en MELI y Amazon, mínimo 2) | `src/lib/servicios/productos-nuevos.ts` (+ `-revisar.ts`, `-fotos.ts`) + `src/app/pedidos/nuevos` + `/api/pedidos/nuevos/fotos` |
 | Packing lists desde la carpeta de Drive de la fábrica (cron diario 13:00Z + botón; una subcarpeta por contenedor; solo se entra a los embarques desde el último cargado, `numeroDeEmbarque`; el contenedor ya cargado se reconoce por NÚMERO de embarque, "S259" = "S259-2026"; facturas y pedidos de la misma carpeta se omiten; entran como contenedor `borrador` que el dueño confirma; solo calzado: lo que no amarra con un pedido se omite; un contenedor confirmado no se toca; bitácora en `drive_packing_lists`, migración 0077). SIN llave (decisión del dueño): carpeta pública leída por `embeddedfolderview` + `uc?export=download`; `GOOGLE_DRIVE_API_KEY` es opcional (API v3 con md5); `DRIVE_PACKING_FOLDER_ID` opcional | `src/lib/servicios/drive.ts` + `drive-packing.ts` + `/api/cron/packing-lists` + `/api/contenedores/drive` + `components/packing-drive.tsx` |
@@ -3099,11 +3563,12 @@ login, la base y el deploy.
 | Resumen de ventas de AYER por correo a las 8:00 de México (cron `/api/cron/resumen-diario` 14:00Z; pedido del dueño, 28-sep-2026) y cada LUNES además la SEMANA pasada de lunes a domingo (`semanaQueCierra`, `tramosPorMes` si cruza de mes, `sumarFilas`): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatarios `CORREO_RESUMEN_DIARIO` separados por coma (por omisión los tres del dueño, `DESTINATARIOS_RESUMEN`); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar). **Lleva la cara de la página** (dueño, 9-oct-2026): franja café con el logo por URL (`/getac-logo.png`, público), tarjeta blanca sobre crema, tres cifras grandes, tablas con el punto de color de cada plataforma y botón al Estado de resultados; la plantilla y los tonos viven en `correo-marca.ts` (`plantillaCorreo`, `TONO`), todo en línea y en tablas, con reglas para celular | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
 | Foto de producto junto a cada SKU en Contenedores (columna «Qué viene», Contenido y pendientes del packing list) y Catálogo y costos (pedido del dueño, 11-oct-2026). Sale de lo ya leído del catálogo de Amazon (`catalogo-amazon:asins`, primera foto del ASIN de cada color, activas primero; si no, la imagen del padre) con respaldo del modelo en la foto de TikTok (`tienda_productos`); el color se compara laxo (`claveColor`) y si no amarra se usa la foto del modelo. Masticado en `app_cache` `fotos-producto`, se rearma en cada lectura del catálogo de Amazon. Las fundas no llevan foto. El 11-oct-2026: 136 de 143 modelos de calzado con foto (GT211, GT212, GT215, GT216, GT220, GT222 y GT303 sin fotos en Amazon) | `src/lib/fotos/producto.ts` + `src/lib/servicios/fotos-producto.ts` + `components/ui/foto-producto.tsx` |
 | Correo de PUBLICIDAD los LUNES y JUEVES (cron `/api/cron/publicidad-correo` `15 14 * * 1,4` = 8:15 México; dueño, 11-oct-2026: «qué cambios hay que hacer» en publicidad, «en los 3: Amazon, MELI calzado y MELI fundas, lunes y jueves, solo lo recibo yo»): las MISMAS recomendaciones del panel de Publicidad (`armarRecomendaciones`: gasto × stock × margen) sobre los 14 días completos hasta ayer, una sección por canal y agrupadas como en la pantalla (apagar/pausar, bajar, subir/encender, anunciar). Calzado = Product Ads + stock de Full. Fundas (`publicidadFundas`) = Product Ads de la cuenta de fundas por DISEÑO + `yz_stock_full`, con cobertura corta 5 días y larga 30 (a Full se le manda para 15; con 14/45 casi toda funda saldría «por agotarse»). Amazon (`publicidadAmazon`) = SKU Economics por SKU (gasto, venta y margen ANTES de publicidad = neto + publicidad − costo, mismos días; llega con días de retraso y el correo dice hasta cuándo) + stock de FBA (disponible + enviado + recibiendo + transferencia); Amazon no dice qué anuncio está pausado: modelo con gasto = anunciado; historia de toda la vida (`amazon_historia_sku`). Cada envío guarda su lista en `sync_log` tarea `correo-publicidad` y el siguiente la compara (`compararConAnterior`, por canal + modelo + acción): lo NUEVO desde el correo anterior va marcado, lo pendiente dice desde hace cuántos días y lo que ya no sale va en «Ya no hace falta»; un canal que no se pudo leer no da nada por resuelto y su lista se arrastra. **TACOS tope 10 %** (`TACOS_TOPE`, regla del dueño, 14-oct-2026: «el TACOS ideal que tenemos es 10 %, no hay que gastar más que eso»): arriba del 10 % de la venta del modelo se pide BAJAR (aunque el margen aguante) con el gasto al día que lo deja en el tope; SUBIR solo con TACOS abajo del 5 % y hasta ese 10 %; el correo marca en rojo el canal que pasa del tope. **Y mira el PRESUPUESTO DE HOY de cada campaña** (`presupuestoPorModelo` con `traerCampanasAds`, calzado y fundas; 14-oct-2026, dueño: «me llegó subir el gasto en fundas 650 pero ya se había subido»): el gasto de 14 días va atrasado, así que no se pide subir si el presupuesto de hoy ya llega al ~10 % ni bajar si ya está ahí; mover menos de `GASTO_DIA_MINIMO` ($10) al día tampoco se pide. Amazon no da presupuestos por aquí. **PRODUCTO POSICIONADO: bajar el gasto** (`esPosicionado`, regla 4b de `armarRecomendaciones`, calzado y fundas; dueño, 16-oct-2026: «no vale la pena gastar en productos ya posicionados, quiero revisar cuáles ya están estables y bajarles el gasto»): vende ≥ `POSICIONADO_RITMO_MIN` (10) al día hoy y en los 60 días anteriores (`ritmoPrevioDeModelo`, de `unidades_prev` de `ventas_resumen_sku` y de `yz_ventas_resumen`), la venta no cambió fuera de 0.8×–1.5× y a lo más el 50 % de lo vendido lo atribuye MELI a la publicidad → bajar el gasto a la MITAD, aunque el TACOS sea bajo, y nunca «subir»; si el presupuesto de hoy ya anda en la mitad no se repite, y a las dos semanas, si sigue igual, vuelve a pedir otra mitad. Medido ese día en calzado: MY2307, GT114, GT142, GT134, GT110 y GT135 entre 27 % y 50 % por publicidad; el resto de los modelos con anuncio, 70–120 %. Amazon no se toca (no hay unidades por publicidad por aquí). **Y el correo lista TODAS las campañas de MELI** (calzado y fundas; `armarDependencias`, `clasificarDependencia`, `DependenciaAds`; dueño, mismo día: «hazme de todas las campañas que tengo de qué dependo»): por modelo con gasto, sus campañas, venta al día contra los 60 días anteriores, % de lo vendido por anuncio, gasto al día y presupuesto de hoy, TACOS y la clase —posicionado, en medio (50–70 % por anuncio), depende (≥ 70 %), creciendo (> 1.5× o nuevo), cayendo (< 0.8×) o gasta sin vender— con el resumen de gasto por clase; queda en `porCanal.dependencias` de la bitácora. **«Pausar» solo con el anuncio CORRIENDO y sin bodega para reponer** (`anuncioCorriendo`, `stockBodegaDeModelo`; dueño, mismo día: «GT181 me pones que apague pero ya está pausado», «GT259 me pones que pause porque no hay stock, pero sí hay en mi bodega»): «paused», «hold» (MELI lo detiene sola sin stock) e «idle» ya no cuentan como prendidos —GT181 tenía tres tallas en hold y por eso seguía saliendo—, y si las bodegas propias (`inventario_cache` en calzado, `yz_inventario` en fundas) más Full cubren la cobertura corta, no se pausa: lo que falta es mandar a Full (GT259: 47 pares en Full y 528 en bodega). **ROAS objetivo en vez de presupuesto** (`roasObjetivoPorModelo`, `roasDeCampana` —`roas_target` o 100 ÷ `acos_target`—, `roasParaGasto`, `PRESUPUESTO_LLENO` 0.8; dueño, mismo día: «el presupuesto es 150 y gasta 50 […] si está bien posicionado, en vez de bajar el gasto podemos subir el ROAS objetivo, o al revés, bajarlo para que se mueva mejor»): para BAJAR el gasto (tope de TACOS o posicionado) se pide SUBIR el ROAS objetivo de la campaña; para SUBIRLO, si el presupuesto no se gasta (gasto al día < 80 % del de hoy), BAJAR el ROAS objetivo sin pasar del piso que deja la publicidad en el 10 % de la venta (ventas por anuncio ÷ venta ÷ 0.10); con el presupuesto lleno, subir el presupuesto como antes. El ROAS nuevo es el objetivo de HOY movido por la proporción de gasto que se busca, en pasos de 15 % a 50 % (bajar a la mitad = ×1.5); NO se parte del ROAS real, que MELI deja muy arriba del objetivo (GT135: objetivo 8, real 22; la primera versión pedía subirlo a 33.6). Lo ya movido se reconoce por el gasto de los últimos `DIAS_GASTO_RECIENTE` (3) días (`gastoDiaPorModelo`): si ya llegó a la meta, no se vuelve a pedir. Sin ROAS objetivo (campaña automática) se queda la regla del presupuesto. La lista de campañas enseña ROAS objetivo y real. Desde ese día las recomendaciones (panel y correo) también piden anuncio para un PRODUCTO NUEVO con stock y sin anuncio (no vendía antes del periodo; hasta `MAX_NUEVOS_SIN_ANUNCIO` 10, los de más stock). Va SOLO al dueño (`DESTINATARIO_PUBLICIDAD`; `CORREO_PUBLICIDAD` lo cambia); `?forzar=1&para=…` para probar | `src/lib/servicios/publicidad-correo.ts` + `publicidad-canales.ts` + `/api/cron/publicidad-correo` |
-| Precios de Números → MELI y Amazon (Números → «Llevar precios a MELI y Amazon»: revisar en vivo y aplicar relámpago = precio relámpago, Buen Fin y todos los días = PV normal a .99, Amazon = PVP deal a .99 y su PRECIO MÍNIMO más de 15 % abajo en .99, `precioMinimoAmazon`, copiando lo demás de `purchasable_offer`; el dueño elige qué oferta es cada promoción; una relámpago candidata se inscribe reservando pares: lo que pida MELI o, sin mínimo, 5 y luego 1, «la cantidad no me importa». El rango min–max de MELI solo avisa: decide MELI. Una promoción CON APORTE de MELI (`meli_percentage` × precio original) que deja la venta en ≥ $299 cuando el precio propio es menor NO se toca (`cruzaEnvioPorAporte`, `pagarias_envio`): arriba de $299 el vendedor paga el envío; dueño, 14-oct-2026, GT266 en Buen Fin 26. Solo se deja sin tocar cuando MELI MANDA su aporte y con él cruza los $299; sin el dato NO se supone nada (dueño, 18-oct-2026: GT151 a $249.99 y GT272 a $298.99 en Buen Fin 26, «no es con aporte» — antes se suponía aporte en todo Buen Fin y luego un 3 %, y las dos veces se quedaron sin inscribir precios buenos)). Cron `/api/cron/relampagos` a las 10:00 de México (16:00Z): inscribe TODAS las relámpago candidatas al precio relámpago de Números (MELI rechaza lo que no acepta), con los pares de arriba; bitácora `sync_log` tarea `relampagos-auto` (dueño, 13 y 14-oct-2026). **Todas las relámpago de una publicación comparten `promotion_id` (LGH-MLM1000)**: sin el folio de la propuesta (`offer_id`, que ahora viaja en el POST si MELI lo manda) MELI inscribe UNA fecha y contesta «sí» a las demás (GT183, 17 al 19-oct-2026: dos «inscritas» al día y la del 20-oct siguió como propuesta). Por eso, tras inscribir, se relee cada publicación y las «inscritas» que siguen como propuesta pasan a fallidas («MELI contestó que sí pero…»); la bitácora guarda una `muestra` cruda de las propuestas que quedaron. Botón «Confirmar relámpagos» en Números hace lo mismo a mano (`POST /api/finanzas/numeros/relampagos`, `origen: manual` en la bitácora; dueño, 16-oct-2026: para cuando el asesor carga ofertas) | `src/lib/precios/promociones.ts` + `src/lib/servicios/precios-modelos.ts` + `/api/finanzas/numeros/precios` |
+| Precios de Números → MELI y Amazon (Números → «Llevar precios a MELI y Amazon»: revisar en vivo y aplicar relámpago = precio relámpago, Buen Fin y todos los días = PV normal a .99, Amazon = PVP deal a .99 y su PRECIO MÍNIMO más de 15 % abajo en .99, `precioMinimoAmazon`, copiando lo demás de `purchasable_offer`; el dueño elige qué oferta es cada promoción; una relámpago candidata se inscribe reservando pares: lo que pida MELI o, sin mínimo, 5 y luego 1, «la cantidad no me importa». El rango min–max de MELI solo avisa: decide MELI. Una promoción CON APORTE de MELI (`meli_percentage` × precio original) que deja la venta en ≥ $299 cuando el precio propio es menor NO se toca (`cruzaEnvioPorAporte`, `pagarias_envio`): arriba de $299 el vendedor paga el envío; dueño, 14-oct-2026, GT266 en Buen Fin 26. Solo se deja sin tocar cuando MELI MANDA su aporte y con él cruza los $299; sin el dato NO se supone nada (dueño, 18-oct-2026: GT151 a $249.99 y GT272 a $298.99 en Buen Fin 26, «no es con aporte» — antes se suponía aporte en todo Buen Fin y luego un 3 %, y las dos veces se quedaron sin inscribir precios buenos)). Cron `/api/cron/relampagos` a las 10:00 de México (16:00Z) y a las 00:30 (06:30Z): inscribe TODAS las relámpago candidatas al precio relámpago de Números (MELI rechaza lo que no acepta), con los pares de arriba; bitácora `sync_log` tarea `relampagos-auto` (dueño, 13 y 14-oct-2026). **Todas las relámpago de una publicación comparten `promotion_id` (LGH-MLM1000)**: sin el folio de la propuesta (llega como `ref_id` «CANDIDATE-MLM…-…» en `/seller-promotions/items/{id}` y viaja en el POST como `offer_id`; el 20-oct-2026 sin él entraron 88 de 737) MELI inscribe UNA fecha y contesta «sí» a las demás (GT183, 17 al 19-oct-2026: dos «inscritas» al día y la del 20-oct siguió como propuesta). Por eso, tras inscribir, se relee cada publicación y las «inscritas» que siguen como propuesta pasan a fallidas («MELI contestó que sí pero…»); la bitácora guarda una `muestra` cruda de las propuestas que quedaron. **Y por el API MELI deja UNA SOLA relámpago programada por publicación** (prueba del 20-oct-2026, `GET /api/finanzas/numeros/relampagos/prueba`, bitácora `relampagos-prueba`; GT130 con la del 21-oct ya «pending»: seis formas del POST contestaron «sí» y todas devolvieron la MISMA `OFFER-…` del 21-oct, solo le cambiaron el precio; la del 23-oct siguió candidata; en la página «Participar» sí deja varias): una publicación con relámpago `pending`/`started` no se intenta (va a omitidas, una vez por publicación) y de las demás se inscribe UNA fecha por corrida; la siguiente entra cuando pase la programada, y la corrida de las 00:30 alcanza la relámpago del día en cuanto termina la de ayer. Botón «Confirmar relámpagos» en Números hace lo mismo a mano (`POST /api/finanzas/numeros/relampagos`, `origen: manual` en la bitácora; dueño, 16-oct-2026: para cuando el asesor carga ofertas). **Buen Fin de golpe** (`confirmarBuenFinPendientes`, botón «Confirmar Buen Fin» en Números y en Ofertas MELI → `POST /api/finanzas/numeros/buen-fin`; dueño, 22-oct-2026: «activar todo lo de Buen Fin de golpe, igual que las relámpago»): en el MISMO cron y con la MISMA lectura de promociones (`revisarTodoNumeros`), cada promoción reconocida como Buen Fin se inscribe o se corrige al PV normal a .99 (de cinco en cinco); no se tocan las que ya están, las que con el aporte de MELI cruzan los $299 ni los modelos sin precio, y lo que MELI dijo que sí pero quedó como propuesta o a otro precio pasa a fallida; bitácora `sync_log` tarea `buen-fin-auto`. El botón trabaja por atrás (`after()`, la pantalla pregunta cada 10 s por la bitácora; con 1,500 promociones el navegador soltaba la conexión). **Lo que MELI rechaza por precio se acepta AHÍ MISMO** (`AceptarBuenFin` en la fallida, `minimoCreible`, `aceptarBuenFinAMinimo`, `POST /api/finanzas/numeros/buen-fin/aceptar`, `ResultadoBuenFin`; dueño, 22-oct-2026: «ponme el precio que pide como mínimo MELI y poder aceptarlas ahí donde sale el renglón de error, y cuánto más abajo es que el precio que lo queríamos»): «no creíble» (ERROR_CREDIBILITY_DISCOUNTED_PRICE, 577 de 1,512 la primera vez) enseña hasta qué precio acepta MELI: en una DEAL el rango es `min_discounted_price` (piso) a `max_discounted_price` (el MÁS ALTO que acepta; GT130: $99.80 a $242.49 contra $249.99 de Números, sonda `/api/finanzas/numeros/buen-fin/diagnostico?item=…`, bitácora `buen-fin-diagnostico`), así que se ofrece el .99 más alto que no pasa del máximo (241.99; sin dato en la lectura se le vuelve a preguntar) con la diferencia contra Números y botón «Aceptar a $X» o «Aceptar todas a su máximo»; PRICE_GT_CURRENT (ya inscrita más barata, MELI no deja subirla) solo enseña su precio y la diferencia. **Todo va agrupado por FAMILIA** (`precios/buen-fin-grupos.ts`, `agruparPorFamilia`; dueño, 23-oct-2026: «agrupar por familias cuando son productos de muchas variantes pero llevan mismo precio, para confirmar todo junto»): mismo modelo + promoción + precios = un renglón con «Aceptar las N a $X» y las publicaciones plegadas; cada familia trae su casilla y «Aceptar seleccionadas» manda solo las marcadas (dueño, mismo día). **Lo aceptado después de la corrida cuenta** (`leerAceptadasBuenFin`, `precioAceptado`; dueño, mismo día: «acepté varias pero me sigue saliendo así»): el GET de la última corrida trae lo aceptado desde entonces (bitácora `buen-fin-aceptar`), esas familias dejan de salir (la pantalla enseña SOLO lo pendiente: ni lo aceptado ni lo ya inscrito más barato, «si ya acepté e inscribí manualmente ya no me interesa que salga»), y la siguiente corrida no intenta subir al PV de Números lo que el dueño aceptó a ese precio (va a omitidas). Números y Ofertas MELI cargan la ÚLTIMA corrida al abrir; bitácora de lo aceptado `buen-fin-aceptar` | `src/lib/precios/promociones.ts` + `src/lib/servicios/precios-modelos.ts` + `/api/finanzas/numeros/precios` |
 | Ofertas MELI: ofertas CON APORTE de Mercado Libre (SMART, PRICE_MATCHING, MARKETPLACE_CAMPAIGN, UNHEALTHY_STOCK, PRE_NEGOTIATED) a las que invitan al calzado; se aceptan las que cumplen el PV NORMAL de Números contando el aporte: precio al cliente + aporte de MELI ≥ PV normal (a .99, como «Llevar precios»), y si el precio queda abajo de $299 pero con el aporte cruza los $299 (y el PV normal está abajo de $299) se resta el envío de Números y solo se acepta si aun así cumple (dueño, 19-oct-2026: «aceptar todas las ofertas con aporte que cumplen los criterios de Números para precio normal», automático y solo calzado). Relámpago, Buen Fin y todos los días NO se tocan aquí (son de Números y del cron de relámpagos). Lectura en bloque: `/seller-promotions/users/{id}` y `/seller-promotions/promotions/{id}/items` por `search_after`, no una llamada por publicación; aceptar = `POST /seller-promotions/items/{item}` con `promotion_id`, `promotion_type` y el `offer_id` si el tipo lo lleva. Sin precio, aporte u `offer_id` NO se acepta nada (`sin_datos`); con aporte 0 % va a «Sin aporte de MELI» (`sin_aporte`): «Acelera tus ventas de Full» (UNHEALTHY_STOCK) llegó así, con todo el descuento del vendedor. Masticado en `app_cache` `ofertas-meli`; cron `/api/cron/ofertas-meli` cada hora (`20 * * * *`) que revisa y, con «Aceptar solas» prendido (`app_cache` `ofertas-meli:config`; se prendió el 19-oct-2026 tras verificar la primera lectura real: `price` es lo que paga el cliente y llegan `offer_id`, `original_price` y `meli_percentage`), acepta; botones «Revisar ahora» y «Aceptar las que cumplen»; candado `ofertas-meli`; bitácora `sync_log` tarea `ofertas-aporte` con lo aceptado, lo rechazado por MELI y una muestra cruda de lo que contestó | `src/lib/precios/ofertas-aporte.ts` (puro con pruebas) + `src/lib/servicios/ofertas-meli.ts` + `src/app/ventas/ofertas` + `/api/ventas/ofertas` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
+| Industher LEE del ERP en SUS formatos (solo lectura; dueño, 21 y 22-oct-2026: «que jale nuestra información, solo lo de las corridas», «que también le mande los contenedores pendientes como borradores», «este es el formato que ocupa en su sistema»): `GET /api/integracion/corridas` = PEDIDO \| MODELO \| COLOR \| tallas \| TOTAL (calcado de su 686_19.xlsx; `?limit&offset&desde`, `?contenedor=S271`, `?formato=xlsx` con «-» en vacío) y `GET /api/integracion/contenedores` = los NO recibidos (borrador y en tránsito) como PARES POR CAJA \| Cantidad \| NUMERO DE CONTENEDOR \| Sku \| PRECIO \| TITULO (calcado de su S260.xlsx, el mismo armado que «Bodega: productos»: Sku de MELI, PRECIO = valor de reposición de la caja con el costo de HOY; `?numero=S271`, `?formato=xlsx`). El COLOR de la corrida es el del Sku de la caja (`colorParaIndusther`) para que PEDIDO-MODELO-COLOR = Sku. Un borrador de llegada en Industher NUNCA es existencia. Llave `x-api-key` = `CORRIDAS_API_KEY` (`integracion-llave.ts`; rutas públicas en el middleware). Instrucciones para el sistema de Industher en `docs/INDUSTHER-CORRIDAS.md` | `src/lib/servicios/corridas-integracion.ts` + `contenedores-integracion.ts` + `src/app/api/integracion/{corridas,contenedores}` |
 | Vista de inventario precalculada (`inventario_cache`, como `plan_cache`: la invalida `invalidar()` y el latido la deja lista para Bodega y Planificación China) | `src/lib/servicios/inventario.ts` (`cargarInventario`/`recalcularInventario`) |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |

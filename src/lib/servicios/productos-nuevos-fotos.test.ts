@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fotosGuardadasVigentes, huellaPublicaciones, tocaRevisar, type FotosGuardada } from "./productos-nuevos-fotos";
+import { fotosGuardadasVigentes, huellaPublicaciones, revisionVieja, tocaRevisar, type FotosGuardada } from "./productos-nuevos-fotos";
 
 const producto = {
   meli: { publicaciones: [{ sku: "GT190-BLK-25", itemId: "MLM1", variationId: "9" }] },
@@ -53,5 +53,17 @@ describe("fotos guardadas que la pantalla enseña al abrir", () => {
   });
   it("sin nada guardado, vacío", () => {
     expect(fotosGuardadasVigentes([conClave], null)).toEqual([]);
+  });
+});
+
+describe("revisionVieja", () => {
+  const ahora = Date.parse("2026-10-21T20:00:00Z");
+  it("sin fecha o de hace más de 30 min, toca preguntar al abrir", () => {
+    expect(revisionVieja(null, ahora)).toBe(true);
+    expect(revisionVieja("2026-10-13T13:00:46Z", ahora)).toBe(true);
+    expect(revisionVieja("2026-10-21T19:20:00Z", ahora)).toBe(true);
+  });
+  it("de hace un rato, se enseña lo guardado", () => {
+    expect(revisionVieja("2026-10-21T19:45:00Z", ahora)).toBe(false);
   });
 });

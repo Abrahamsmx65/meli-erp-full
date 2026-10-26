@@ -21,7 +21,10 @@ import {
   ofertaAmazon,
   precioMinimoAmazon,
   stockParaRelampago,
+  estaInscrita,
+  minimoCreible,
   type Asignaciones,
+  type ClasePromo,
   type Objetivos,
   type PromoMeli,
   type RenglonPromo,
@@ -31,6 +34,7 @@ import { listarNumeros } from "./numeros";
 import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_TARIFAS, type TarifasGuardadas } from "./tarifas-reales";
 import { cuentaAmazon } from "./amazon";
+import { bitacoraCalzado, type Bitacora } from "./bitacora-ofertas";
 
 export interface RenglonAmazon {
   sku: string;
@@ -51,6 +55,26 @@ export interface ResultadoPrecio {
   donde: string;
   detalle: string;
   ok: boolean;
+  /** Buen Fin que MELI rechazó por precio: con qué aceptarla a su mínimo */
+  aceptar?: AceptarBuenFin;
+}
+
+/**
+ * Lo que hace falta para aceptar a mano una promoción de Buen Fin que MELI
+ * rechazó por precio (dueño, 22-oct-2026): `credibilidad` = el nuestro es
+ * «no creíble» y `precio` es el mínimo que MELI acepta (null si no lo dijo);
+ * `mayor_que_actual` = ya está inscrita más barata y MELI no deja subirla.
+ */
+export interface AceptarBuenFin {
+  razon: "credibilidad" | "mayor_que_actual";
+  itemId: string;
+  promoId: string | null;
+  tipo: string;
+  offerId: string | null;
+  accion: "inscribir" | "cambiar";
+  queriamos: number;
+  precio: number | null;
+  actual: number | null;
 }
 
 const PLAZO_MS = 240_000;
@@ -86,7 +110,7 @@ async function itemsDeModelos(db: DB, accountId: string, modelos: string[]): Pro
   return items;
 }
 
-async function promosDe(cliente: MeliClient, itemId: string): Promise<PromoMeli[]> {
+export async function promosDe(cliente: MeliClient, itemId: string): Promise<PromoMeli[]> {
   const r = await cliente.get<PromoMeli[] | { results?: PromoMeli[] }>(`/seller-promotions/items/${itemId}`, { app_version: "v2" });
   return Array.isArray(r) ? r : r?.results ?? [];
 }
@@ -118,6 +142,36 @@ async function publicacionesAmazon(admin: DB, modelos: string[]): Promise<{ cuen
   return { cuentaId: (cuenta as { id: string }).id, filas };
 }
 
+/**
+ * Las promociones de MELI de cada publicación (`items`: publicación → clave
+ * del precio, el modelo en calzado o el diseño en fundas) contra su precio
+ * objetivo. De cinco en cinco: con todo el catálogo (el cron diario) son
+ * cientos de publicaciones y en serie no cabían en la función.
+ */
+export async function promosDeItems(
+  cliente: MeliClient,
+  items: Map<string, string>,
+  objetivos: Map<string, Objetivos>,
+  asignadas: Asignaciones = {},
+): Promise<{ meli: RenglonPromo[]; avisos: string[] }> {
+  const avisos: string[] = [];
+  const meli: RenglonPromo[] = [];
+  const leidas = await enLotes([...items], 5, async ([itemId, modelo]) => {
+    try {
+      return { itemId, modelo, promos: await promosDe(cliente, itemId), error: null as string | null };
+    } catch (err) {
+      return { itemId, modelo, promos: [] as PromoMeli[], error: mensajeMeli(err) };
+    }
+  });
+  for (const { itemId, modelo, promos, error } of leidas) {
+    const o = objetivos.get(modelo);
+    if (!o) continue;
+    if (error) avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${error}`);
+    for (const p of promos) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
+  }
+  return { meli: ordenarPlan(meli), avisos };
+}
+
 export async function revisarPrecios(
   db: DB,
   admin: DB,
@@ -135,22 +189,9 @@ export async function revisarPrecios(
   }
 
   const items = await itemsDeModelos(db, accountId, modelos);
-  const meli: RenglonPromo[] = [];
-  // De cinco en cinco: con todo el catálogo (el cron diario) son cientos de
-  // publicaciones y en serie no cabían en la función.
-  const leidas = await enLotes([...items], 5, async ([itemId, modelo]) => {
-    try {
-      return { itemId, modelo, promos: await promosDe(cliente, itemId), error: null as string | null };
-    } catch (err) {
-      return { itemId, modelo, promos: [] as PromoMeli[], error: mensajeMeli(err) };
-    }
-  });
-  for (const { itemId, modelo, promos, error } of leidas) {
-    const o = porModelo.get(modelo);
-    if (!o) continue;
-    if (error) avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${error}`);
-    for (const p of promos) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
-  }
+  const leidas = await promosDeItems(cliente, items, porModelo, asignadas);
+  const meli = leidas.meli;
+  avisos.push(...leidas.avisos);
 
   if (opciones.soloMeli) return { objetivos, meli: ordenarPlan(meli), amazon: [], avisos };
 
@@ -289,12 +330,71 @@ async function inscribirRelampago(
       return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares` };
     } catch (err) {
       ultimo = mensajeMeli(err);
+      // Si MELI no acepta el folio, se intenta como antes (sin él).
+      if (r.offerId && /offer/i.test(ultimo)) {
+        try {
+          await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
+            promotion_id: r.promoId,
+            promotion_type: r.tipo,
+            deal_price: r.nuevo,
+            stock,
+          });
+          return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares (MELI no aceptó el folio: ${ultimo})` };
+        } catch (err2) {
+          ultimo = mensajeMeli(err2);
+        }
+      }
     }
   }
   return { ok: false, detalle: ultimo };
 }
 
 export const TAREA_RELAMPAGOS = "relampagos-auto";
+export const TAREA_BUEN_FIN = "buen-fin-auto";
+export const TAREA_BUEN_FIN_ACEPTAR = "buen-fin-aceptar";
+
+/**
+ * Lo que el dueño ya aceptó a mano al máximo de MELI (bitácora
+ * `buen-fin-aceptar`), lo más nuevo por publicación (23-oct-2026: aceptó 501
+ * después de la corrida y la pantalla las seguía enseñando como rechazadas).
+ * `desde` recorta a lo aceptado después de esa hora.
+ */
+export async function leerAceptadasBuenFin(
+  admin: DB,
+  accountId: string,
+  desde?: string,
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
+): Promise<ResultadoPrecio[]> {
+  const renglones = await bitacora.leer(TAREA_BUEN_FIN_ACEPTAR, {
+    desde: desde ?? new Date(Date.now() - 45 * 86_400_000).toISOString(),
+    limite: 200,
+    ascendente: true,
+  });
+  const porDonde = new Map<string, ResultadoPrecio>();
+  for (const renglon of renglones) {
+    for (const x of ((renglon.detalle as { resultados?: ResultadoPrecio[] }).resultados ?? [])) if (x?.donde) porDonde.set(x.donde, x);
+  }
+  return [...porDonde.values()];
+}
+
+/** Precio con que se aceptó, de «aceptada a $212.99». */
+export function precioAceptado(r: ResultadoPrecio): number | null {
+  const m = r.ok ? /\$([\d,.]+)/.exec(r.detalle) : null;
+  return m ? Number(m[1].replace(/,/g, "")) : null;
+}
+
+
+export interface RevisionDeNumeros {
+  modelos: string[];
+  revision: RevisionPrecios;
+}
+
+/** Las promociones de MELI de TODOS los modelos de Números (lo comparten relámpagos y Buen Fin). */
+export async function revisarTodoNumeros(admin: DB, cliente: MeliClient, accountId: string): Promise<RevisionDeNumeros> {
+  const filas = await traerTodo<{ modelo: string }>(admin, "numeros_modelos", "modelo", (q) => q.eq("account_id", accountId));
+  const modelos = normalizarModelos(filas.map((f) => f.modelo));
+  return { modelos, revision: await revisarPrecios(admin, admin, cliente, accountId, modelos, {}, { soloMeli: true }) };
+}
 
 /**
  * Cron de las 10:00 de México (dueño, 14-oct-2026: «un cron que todos los
@@ -314,21 +414,70 @@ export async function confirmarRelampagosPendientes(
   cliente: MeliClient,
   accountId: string,
   origen: "cron" | "manual" = "cron",
+  previa?: RevisionDeNumeros,
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
-  const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
-    q.eq("account_id", accountId).not("precio_relampago", "is", null),
-  );
-  const modelos = normalizarModelos(filas.map((f) => f.modelo));
-  const revision = await revisarPrecios(admin, admin, cliente, accountId, modelos, {}, { soloMeli: true });
+  const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
 
   const inscritas: ResultadoPrecio[] = [];
   const fallidas: ResultadoPrecio[] = [];
   const omitidas: string[] = [];
   const porItem = new Map<string, ResultadoPrecio[]>();
-  for (const r of revision.meli) {
+  // Por el API, MELI deja UNA relámpago programada por publicación: con una
+  // ya «pending», el POST de otra fecha le contesta «sí» y solo le cambia el
+  // precio a la programada (prueba del 20-oct-2026, GT130: las seis formas
+  // devolvieron la misma OFFER del 21-oct y la del 23-oct siguió candidata).
+  // Esas publicaciones esperan a que pase su relámpago, y de las que no
+  // tienen ninguna se inscribe solo una fecha por corrida.
+  const conProgramada = new Set(
+    revision.meli
+      .filter((r) => r.tipo.toUpperCase() === "LIGHTNING" && ["pending", "started", "active", "programmed"].includes(r.estado.toLowerCase()))
+      .map((r) => r.itemId),
+  );
+  // Las propuestas de `/seller-promotions/items` no traen fecha: se leen del
+  // listado de la promoción para inscribir PRIMERO la más próxima (así la
+  // corrida de las 00:30 encadena la del día en cuanto termina la de ayer).
+  const candidatas = revision.meli.filter(
+    (r) => r.tipo.toUpperCase() === "LIGHTNING" && r.estado.toLowerCase() === "candidate" && r.accion === "inscribir" && r.nuevo != null,
+  );
+  const fechaDe = new Map<string, string>();
+  const itemsSinFecha = [...new Set(candidatas.filter((r) => !conProgramada.has(r.itemId)).map((r) => r.itemId))];
+  await enLotes(itemsSinFecha, 5, async (itemId) => {
+    const promo = candidatas.find((r) => r.itemId === itemId)?.promoId ?? "LGH-MLM1000";
+    try {
+      const lista = await cliente.get<{ results?: { id?: string; ref_id?: string; status?: string; start_date?: string }[] }>(
+        `/seller-promotions/promotions/${promo}/items`,
+        { app_version: "v2", promotion_type: "LIGHTNING", item_id: itemId, limit: 50 },
+        { reintentos: 1 },
+      );
+      for (const x of lista?.results ?? []) {
+        if (x.id && x.id !== itemId) continue;
+        const estado = (x.status ?? "").toLowerCase();
+        if (["pending", "started", "active", "programmed"].includes(estado)) conProgramada.add(itemId);
+        if (x.ref_id && x.start_date) fechaDe.set(`${itemId}|${x.ref_id}`, x.start_date);
+      }
+    } catch {
+      // sin fechas se queda el orden de MELI
+    }
+  });
+  const fecha = (r: RenglonPromo) => r.inicio ?? (r.offerId ? fechaDe.get(`${r.itemId}|${r.offerId}`) : undefined) ?? "9999";
+  const enOrden = [...revision.meli].sort((a, b) => a.itemId.localeCompare(b.itemId) || fecha(a).localeCompare(fecha(b)));
+
+  const yaAvisadas = new Set<string>();
+  const intentadas = new Set<string>();
+  for (const r of enOrden) {
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
-    const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
+    const dia = fecha(r) === "9999" ? null : fecha(r).slice(0, 10);
+    const donde = `${r.itemId} · ${r.nombre}${dia ? ` · ${dia}` : ""}`;
     if (r.accion !== "inscribir" || r.nuevo == null) continue;
+    if (conProgramada.has(r.itemId) || intentadas.has(r.itemId)) {
+      if (!yaAvisadas.has(r.itemId)) {
+        yaAvisadas.add(r.itemId);
+        omitidas.push(`${donde}: ya tiene una relámpago programada; MELI solo deja una por el API y la siguiente entra cuando pase esa`);
+      }
+      continue;
+    }
+    intentadas.add(r.itemId);
     const s = stockParaRelampago(r, undefined);
     if ("error" in s) {
       omitidas.push(`${donde}: ${s.error}`);
@@ -363,12 +512,264 @@ export async function confirmarRelampagosPendientes(
     }
   });
 
-  await admin.from("sync_log").insert({
-    account_id: accountId,
-    tarea: TAREA_RELAMPAGOS,
-    estado: fallidas.length ? "error" : "ok",
-    fin: new Date().toISOString(),
-    detalle: { origen, modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50), muestra },
+  await bitacora.anotar(TAREA_RELAMPAGOS, fallidas.length ? "error" : "ok", {
+    origen,
+    modelos: modelos.length,
+    inscritas,
+    fallidas,
+    omitidas,
+    avisos: revision.avisos.slice(0, 50),
+    muestra,
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
+}
+
+export interface ConteoRelampagos {
+  publicaciones: number;
+  propuestas: number;
+  programadas: number;
+  conProgramada: number;
+  /** propuestas por día de inicio (México) */
+  porFecha: Record<string, number>;
+  /** propuestas que empiezan antes de que termine la programada: el API no las alcanza */
+  sePierden: { itemId: string; nombre: string; inicio: string; programadaHasta: string }[];
+  sinFecha: number;
+}
+
+/**
+ * Cuántas relámpago propuestas siguen sin confirmar (dueño, 21-oct-2026:
+ * «creo que no está funcionando, ¿cuántas tenemos con opción pendiente de
+ * confirmar?»). Solo lee: de cada publicación con relámpago, el listado de
+ * la promoción da las fechas de las propuestas y de la programada, y una
+ * propuesta que empieza antes de que termine la programada no la alcanza
+ * el cron (MELI deja una por el API).
+ */
+export async function contarRelampagosPendientes(admin: DB, cliente: MeliClient, accountId: string): Promise<ConteoRelampagos> {
+  const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
+    q.eq("account_id", accountId).not("precio_relampago", "is", null),
+  );
+  const revision = await revisarPrecios(admin, admin, cliente, accountId, normalizarModelos(filas.map((f) => f.modelo)), {}, { soloMeli: true });
+  const relampagos = revision.meli.filter((r) => r.tipo.toUpperCase() === "LIGHTNING");
+  const nombres = new Map(relampagos.map((r) => [r.itemId, r.nombre]));
+  const items = [...new Set(relampagos.map((r) => r.itemId))];
+  const dia = (x: string) => new Date(new Date(x).getTime() - 6 * 3600_000).toISOString().slice(0, 10);
+  const conteo: ConteoRelampagos = { publicaciones: items.length, propuestas: 0, programadas: 0, conProgramada: 0, porFecha: {}, sePierden: [], sinFecha: 0 };
+  await enLotes(items, 5, async (itemId) => {
+    const promo = relampagos.find((r) => r.itemId === itemId)?.promoId ?? "LGH-MLM1000";
+    let lista: { id?: string; status?: string; start_date?: string; finish_date?: string }[] = [];
+    try {
+      const r = await cliente.get<{ results?: typeof lista }>(
+        `/seller-promotions/promotions/${promo}/items`,
+        { app_version: "v2", promotion_type: "LIGHTNING", item_id: itemId, limit: 50 },
+        { reintentos: 1 },
+      );
+      lista = (r?.results ?? []).filter((x) => !x.id || x.id === itemId);
+    } catch {
+      const n = relampagos.filter((r) => r.itemId === itemId && r.estado.toLowerCase() === "candidate").length;
+      conteo.propuestas += n;
+      conteo.sinFecha += n;
+      return;
+    }
+    const programadas = lista.filter((x) => ["pending", "started", "active", "programmed"].includes((x.status ?? "").toLowerCase()));
+    const propuestas = lista.filter((x) => (x.status ?? "").toLowerCase() === "candidate");
+    conteo.programadas += programadas.length;
+    conteo.propuestas += propuestas.length;
+    if (programadas.length) conteo.conProgramada++;
+    const hasta = programadas.map((x) => x.finish_date ?? "").sort().pop() ?? "";
+    for (const p of propuestas) {
+      if (!p.start_date) {
+        conteo.sinFecha++;
+        continue;
+      }
+      const d = dia(p.start_date);
+      conteo.porFecha[d] = (conteo.porFecha[d] ?? 0) + 1;
+      if (hasta && p.start_date < hasta)
+        conteo.sePierden.push({ itemId, nombre: nombres.get(itemId) ?? "", inicio: p.start_date, programadaHasta: hasta });
+    }
+  });
+  conteo.porFecha = Object.fromEntries(Object.entries(conteo.porFecha).sort());
+  return conteo;
+}
+
+/**
+ * Buen Fin de golpe (dueño, 22-oct-2026: «quiero activar todo lo de Buen Fin
+ * de golpe, que el sistema revise todo lo que tengo de Buen Fin y lo active
+ * si cumple con los criterios, igual que con las relámpago»): en TODOS los
+ * modelos de Números, cada promoción reconocida como Buen Fin
+ * (`clasificarPromo`) se inscribe o se corrige al PV NORMAL a .99, con las
+ * mismas reglas de «Llevar precios»: lo que ya está a ese precio no se toca,
+ * ni la que con el aporte de MELI cruza los $299 (`pagarias_envio`), ni un
+ * modelo sin precio en Números. Luego se relee cada publicación: la que MELI
+ * dijo que sí pero sigue como propuesta, o con otro precio, pasa a fallida.
+ * Corre en el cron de relámpagos y con el botón; bitácora `buen-fin-auto`.
+ */
+export async function confirmarBuenFinPendientes(
+  admin: DB,
+  cliente: MeliClient,
+  accountId: string,
+  origen: "cron" | "manual" = "cron",
+  previa?: RevisionDeNumeros,
+  opciones: { bitacora?: Bitacora; clases?: ClasePromo[] } = {},
+): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
+  const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
+  const bitacora = opciones.bitacora ?? bitacoraCalzado(admin, accountId);
+  // Fundas confirma también la oferta de todos los días (dueño, 23-oct-2026).
+  const clases = opciones.clases ?? ["buen_fin"];
+  const inscritas: ResultadoPrecio[] = [];
+  const fallidas: ResultadoPrecio[] = [];
+  const omitidas: string[] = [];
+  const hechas: { r: RenglonPromo; res: ResultadoPrecio }[] = [];
+  const buenFin = revision.meli.filter((r) => r.clase != null && clases.includes(r.clase));
+  // Lo que el dueño ya aceptó al máximo de MELI no se vuelve a subir al PV
+  // de Números: MELI lo rechazaría otra vez y saldría como fallida.
+  const aceptadas = new Map<string, number>();
+  for (const a of await leerAceptadasBuenFin(admin, accountId, undefined, bitacora).catch(() => [])) {
+    const precio = precioAceptado(a);
+    if (precio != null) aceptadas.set(a.donde, precio);
+  }
+  const porMandar: RenglonPromo[] = [];
+  for (const r of buenFin) {
+    const donde = `${r.itemId} · ${r.nombre}`;
+    if (r.accion === "igual") continue;
+    const aceptado = aceptadas.get(donde);
+    if (r.accion === "cambiar" && aceptado != null && r.actual != null && Math.abs(r.actual - aceptado) < 0.01) {
+      omitidas.push(`${donde}: ya aceptada a $${aceptado.toFixed(2)}, el máximo que deja MELI`);
+      continue;
+    }
+    if (r.accion === "pagarias_envio") omitidas.push(`${donde}: con el aporte de MELI se cobra como ≥ $299 y pagarías el envío`);
+    else if (r.accion === "sin_precio" || r.nuevo == null) omitidas.push(`${donde}: el modelo no tiene PV normal en Números`);
+    else if (r.accion === "inscribir" || r.accion === "cambiar") porMandar.push(r);
+  }
+  // De cinco en cinco, como la lectura: en serie no cabe con las relámpago en el cron.
+  await enLotes(porMandar, 5, async (r) => {
+    const donde = `${r.itemId} · ${r.nombre}`;
+    const nuevo = r.nuevo as number;
+    const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
+    const cuerpo: Record<string, unknown> = { promotion_type: r.tipo, deal_price: nuevo };
+    if (r.promoId) cuerpo.promotion_id = r.promoId;
+    try {
+      if (r.accion === "cambiar") await cliente.put(ruta, cuerpo, { reintentos: 1 });
+      else {
+        try {
+          await cliente.post(ruta, r.offerId ? { ...cuerpo, offer_id: r.offerId } : cuerpo);
+        } catch (err) {
+          // Si MELI no acepta el folio, como «Llevar precios»: sin él.
+          if (!r.offerId || !/offer/i.test(mensajeMeli(err))) throw err;
+          await cliente.post(ruta, cuerpo);
+        }
+      }
+      const res = { donde, ok: true, detalle: `${r.accion === "cambiar" ? "cambiado" : "inscrito"} a $${nuevo.toFixed(2)}` };
+      inscritas.push(res);
+      hechas.push({ r, res });
+    } catch (err) {
+      const detalle = mensajeMeli(err);
+      const base = {
+        itemId: r.itemId,
+        promoId: r.promoId,
+        tipo: r.tipo,
+        offerId: r.offerId,
+        accion: r.accion as "inscribir" | "cambiar",
+        queriamos: nuevo,
+        actual: r.actual,
+      };
+      let aceptar: AceptarBuenFin | undefined;
+      if (/CREDIBILITY/i.test(detalle)) {
+        aceptar = {
+          ...base,
+          razon: "credibilidad",
+          precio: minimoCreible(
+            { min_discounted_price: r.minimo, max_discounted_price: r.maximo },
+            nuevo,
+          ),
+        };
+      } else if (/PRICE_GT_CURRENT/i.test(detalle)) {
+        aceptar = { ...base, razon: "mayor_que_actual", precio: r.actual };
+      }
+      fallidas.push({ donde, ok: false, detalle, ...(aceptar ? { aceptar } : {}) });
+    }
+  });
+
+  // Sin mínimo en la lectura, se le vuelve a preguntar a MELI por esa promoción.
+  const sinMinimo = fallidas.filter((f) => f.aceptar?.razon === "credibilidad" && f.aceptar.precio == null);
+  await enLotes(sinMinimo, 5, async (f) => {
+    const a = f.aceptar as AceptarBuenFin;
+    try {
+      const p = (await promosDe(cliente, a.itemId)).find((x) => (x.id ?? null) === a.promoId && (x.type ?? "") === a.tipo);
+      if (p) a.precio = minimoCreible(p, a.queriamos);
+    } catch {
+      // sin dato: se queda sin precio y la pantalla lo dice
+    }
+  });
+
+  // MELI a veces contesta «sí» sin hacerlo: se relee y lo que no quedó, falla.
+  const porItem = new Map<string, { r: RenglonPromo; res: ResultadoPrecio }[]>();
+  for (const h of hechas) porItem.set(h.r.itemId, [...(porItem.get(h.r.itemId) ?? []), h]);
+  await enLotes([...porItem], 5, async ([itemId, lista]) => {
+    let promos: PromoMeli[];
+    try {
+      promos = await promosDe(cliente, itemId);
+    } catch {
+      return;
+    }
+    for (const { r, res } of lista) {
+      const p = promos.find((x) => (x.id ?? null) === r.promoId && (x.type ?? "") === r.tipo);
+      if (!p) continue;
+      const quedo = estaInscrita(p) && p.price != null && Math.round(p.price * 100) === Math.round((r.nuevo as number) * 100);
+      if (quedo) continue;
+      inscritas.splice(inscritas.indexOf(res), 1);
+      fallidas.push({
+        ...res,
+        ok: false,
+        detalle: `MELI contestó que sí pero quedó ${estaInscrita(p) ? `a $${p.price ?? "?"}` : "como propuesta"} (${res.detalle})`,
+      });
+    }
+  });
+
+  await bitacora.anotar(TAREA_BUEN_FIN, fallidas.length ? "error" : "ok", {
+    origen,
+    modelos: modelos.length,
+    buenFin: buenFin.length,
+    inscritas,
+    fallidas,
+    omitidas,
+    avisos: revision.avisos.slice(0, 50),
+  });
+  return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
+}
+
+/**
+ * Acepta a mano, al precio que el dueño eligió (el mínimo de MELI), las
+ * promociones de Buen Fin que MELI rechazó por «no creíble» (dueño,
+ * 22-oct-2026). De cinco en cinco; cada una contesta lo que dijo MELI.
+ */
+export async function aceptarBuenFinAMinimo(
+  admin: DB,
+  cliente: MeliClient,
+  accountId: string,
+  renglones: { itemId: string; promoId: string | null; tipo: string; offerId: string | null; accion: string; precio: number; donde?: string }[],
+  bitacora: Bitacora = bitacoraCalzado(admin, accountId),
+): Promise<ResultadoPrecio[]> {
+  const resultados: ResultadoPrecio[] = [];
+  await enLotes(renglones, 5, async (r) => {
+    const donde = r.donde ?? r.itemId;
+    const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
+    const cuerpo: Record<string, unknown> = { promotion_type: r.tipo, deal_price: r.precio };
+    if (r.promoId) cuerpo.promotion_id = r.promoId;
+    try {
+      if (r.accion === "cambiar") await cliente.put(ruta, cuerpo, { reintentos: 1 });
+      else {
+        try {
+          await cliente.post(ruta, r.offerId ? { ...cuerpo, offer_id: r.offerId } : cuerpo);
+        } catch (err) {
+          if (!r.offerId || !/offer/i.test(mensajeMeli(err))) throw err;
+          await cliente.post(ruta, cuerpo);
+        }
+      }
+      resultados.push({ donde, ok: true, detalle: `aceptada a $${r.precio.toFixed(2)}` });
+    } catch (err) {
+      resultados.push({ donde, ok: false, detalle: mensajeMeli(err) });
+    }
+  });
+  await bitacora.anotar(TAREA_BUEN_FIN_ACEPTAR, resultados.some((x) => !x.ok) ? "error" : "ok", { resultados });
+  return resultados;
 }

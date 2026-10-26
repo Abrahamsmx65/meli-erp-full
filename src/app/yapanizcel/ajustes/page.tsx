@@ -1,5 +1,5 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { credencialesApp, cuentaActiva, leerParametros } from "@/lib/yapanizcel/cuenta";
+import { credencialesApp, cuentaActiva, leerParametros, textoDeMultiplos } from "@/lib/yapanizcel/cuenta";
 import { todo } from "@/lib/yapanizcel/db";
 import { BotonSincronizar, FormularioParametros, SubirCostos } from "@/components/yapanizcel/acciones";
 import { Aviso, Encabezado, Pagina, Seccion } from "@/components/ui/pagina";
@@ -98,7 +98,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
           </Seccion>
 
           <Seccion titulo="Parámetros del planeador">
-            <FormularioParametros valores={parametros!} />
+            <FormularioParametros valores={{ ...parametros!, pedidoMultiplos: textoDeMultiplos(parametros!.pedidoMultiplos) }} />
           </Seccion>
         </>
       ) : null}

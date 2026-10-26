@@ -4,9 +4,13 @@
  * confirmo y se manda a mi correo, al de mi papá y al de Joanne; después de
  * que se confirma me lo sumas a pedidos pendientes»).
  *
- *   1. Se pega la lista → un BORRADOR por modelo («cada modelo se pide en
- *      diferente Excel siempre») con su IN consecutivo (el último fuera del
- *      ERP fue IN10183: `pedidos_ajustes.ultimo_in`).
+ *   1. Se pega la lista → UN BORRADOR con todo lo pegado y su IN consecutivo
+ *      (el último fuera del ERP fue IN10183: `pedidos_ajustes.ultimo_in`).
+ *      Hasta el 20-oct-2026 salía uno por modelo («cada modelo se pide en
+ *      diferente Excel siempre»); ese día el dueño pegó GT180 y GT181 juntos
+ *      («es un solo pedido y el sistema me lo generó en dos»): lo que se pega
+ *      junto es un pedido. Para dos pedidos, se pegan dos veces. El IN se
+ *      puede corregir a mano en el borrador.
  *   2. Fábrica, moneda, precios por talla, pares por caja y medidas salen
  *      del último pedido del modelo (`pedidos-china/armar.ts`); lo que falte
  *      se captura en el borrador. Mientras es borrador NO cuenta para nada.
@@ -19,11 +23,23 @@
 import { canonizar } from "../importar/sku";
 import type { LineaProforma, Moneda, Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
-import { armarBorrador, faltantesDeBorrador, totalesDeBorrador, type BorradorArmado, type LineaBorrador, type LineaHistoria } from "../pedidos-china/armar";
+import {
+  armarBorrador,
+  armarBorradorFamilia,
+  faltantesDeBorrador,
+  hermanosDeModelo,
+  totalesDeBorrador,
+  type BorradorArmado,
+  type LineaBorrador,
+  type LineaHistoria,
+} from "../pedidos-china/armar";
+import { familiaDe, listarFamilias, nombreDeFamilia, type MapaFamilias } from "../pedidos-china/familias";
+import { cargarFamilias } from "./familias-modelos";
 import { excelDePedido, nombreArchivoPedido, type PedidoPI } from "../pedidos-china/excel";
-import { FABRICAS, perfilDeClave, perfilDeProveedor } from "../pedidos-china/fabricas";
-import { leerLista } from "../pedidos-china/lista";
+import { FABRICAS, perfilDeClave, perfilDeProveedor, SIN_FABRICA } from "../pedidos-china/fabricas";
+import { leerLista, type ModeloLista } from "../pedidos-china/lista";
 import { guardarProforma } from "./pedidos";
+import { zipEtiquetasDePedido } from "./etiquetas-pedido";
 import { enviarCorreo } from "./correo";
 import { escaparHtml, plantillaCorreo, TONO, URL_ERP } from "./correo-marca";
 
@@ -42,7 +58,14 @@ export interface Borrador {
   avisos: string[];
   estado: "borrador" | "confirmado" | "descartado";
   pedidoId: string | null;
-  correo: { enviado: boolean; para: string[]; motivo?: string; en: string } | null;
+  correo: {
+    enviado: boolean;
+    para: string[];
+    motivo?: string;
+    en: string;
+    /** si el ZIP de etiquetas no se pudo armar, por qué (el correo sale igual) */
+    etiquetas?: string;
+  } | null;
   creadoEn: string;
   confirmadoEn: string | null;
   /** lo que falta para poder confirmar */
@@ -136,6 +159,27 @@ export async function siguienteIn(db: DB, accountId: string): Promise<number> {
 }
 
 // --- Historia ----------------------------------------------------------------
+
+/**
+ * Los modelos de la familia de cada uno (GT120 → GT117…GT122), para que un
+ * modelo que nunca se ha pedido tome la historia de sus hermanos.
+ */
+export function modelosConFamilia(modelos: string[], familias: MapaFamilias | null): string[] {
+  const out = new Set(modelos.map((m) => m.toUpperCase()));
+  if (familias?.size) {
+    const grupos = listarFamilias(familias);
+    for (const m of modelos) {
+      const f = familiaDe(familias, m);
+      if (f) for (const x of grupos.find((g) => g.familia === f)?.modelos ?? []) out.add(x);
+    }
+  }
+  return [...out];
+}
+
+/** Qué modelos respaldan a cada uno de la lista si nunca se ha pedido: solo su familia. */
+export function hermanosDeLista(familias: MapaFamilias | null): (modelo: string) => string[] {
+  return (modelo) => hermanosDeModelo(modelo, modelosConFamilia([modelo], familias));
+}
 
 /** Los renglones de pedidos anteriores de esos modelos, con las medidas de su caja. */
 export async function historiaDeModelos(db: DB, accountId: string, modelos: string[]): Promise<LineaHistoria[]> {
@@ -258,7 +302,41 @@ async function monedaConocida(db: DB, accountId: string, armado: BorradorArmado)
   return (delMismo[0]?.moneda as Moneda) ?? null;
 }
 
-/** Pega la lista y arma un borrador por modelo, cada uno con su IN. */
+/**
+ * Arma el borrador de un grupo de la lista: un modelo, o una FAMILIA (varios
+ * modelos que se piden juntos: un solo IN y un solo Excel).
+ */
+function armarGrupo(
+  nombre: string,
+  familia: string | null,
+  listas: ModeloLista[],
+  historia: LineaHistoria[],
+  fabrica: string | null | undefined,
+  hermanosDe: (modelo: string) => string[],
+): BorradorArmado {
+  if (!familia && listas.length === 1) return armarBorrador(listas[0], historia, fabrica, hermanosDe(listas[0].modelo));
+  return armarBorradorFamilia(nombre, listas, historia, fabrica, hermanosDe);
+}
+
+/**
+ * Con qué nombre se enseña un borrador de varios modelos: el de la familia
+ * si todos son de la misma; si no, los modelos separados por coma.
+ */
+export function nombreDeBorrador(modelos: string[], familias: MapaFamilias | null): string {
+  const unicos = [...new Set(modelos.map((m) => m.toUpperCase()))];
+  if (unicos.length === 1) return unicos[0];
+  const fams = new Set(unicos.map((m) => familiaDe(familias, m)));
+  if (fams.size === 1 && !fams.has(null)) return [...fams][0] as string;
+  return unicos.length <= 6 ? unicos.join(", ") : nombreDeFamilia(unicos);
+}
+
+/**
+ * Pega la lista y arma UN borrador con todo lo pegado, con su IN (dueño,
+ * 20-oct-2026: «cuando pego un texto junto es porque es un solo pedido y el
+ * sistema me lo generó en dos»; hasta ese día salía un borrador por
+ * modelo). Un pedido de varios modelos lleva el modelo en cada renglón y
+ * sale en UN Excel.
+ */
 export async function crearBorradores(
   db: DB,
   accountId: string,
@@ -268,12 +346,16 @@ export async function crearBorradores(
   if (!lista.modelos.length) {
     throw new Error("No encontré ningún modelo en la lista. Cada bloque empieza con el modelo (GT179, MY2307…).");
   }
-  const historia = await historiaDeModelos(db, accountId, lista.modelos.map((m) => m.modelo));
+  const familias: MapaFamilias = await cargarFamilias(db, accountId).catch(() => new Map());
+  const historia = await historiaDeModelos(db, accountId, modelosConFamilia(lista.modelos.map((m) => m.modelo), familias));
+  const hermanosDe = hermanosDeLista(familias);
   let numero = await siguienteIn(db, accountId);
 
   const creados: Borrador[] = [];
-  for (const m of lista.modelos) {
-    const armado = armarBorrador(m, historia);
+  const nombre = nombreDeBorrador(lista.modelos.map((m) => m.modelo), familias);
+  const grupos = [{ nombre, familia: lista.modelos.length > 1 ? nombre : null, elementos: lista.modelos }];
+  for (const g of grupos) {
+    const armado = armarGrupo(g.nombre, g.familia, g.elementos, historia, null, hermanosDe);
     armado.moneda = await monedaConocida(db, accountId, armado);
     const fila = {
       account_id: accountId,
@@ -283,7 +365,7 @@ export async function crearBorradores(
       moneda: armado.moneda,
       descripcion: armado.descripcion,
       lineas: armado.lineas,
-      texto: m.texto,
+      texto: texto.trim(),
       avisos: armado.avisos,
     };
     // El IN es único entre los vivos: si otro clic lo tomó, el siguiente.
@@ -299,7 +381,7 @@ export async function crearBorradores(
         creados.push(aBorrador(data));
         break;
       }
-      if (error?.code !== "23505" || ++intento > 5) throw new Error(`No se pudo guardar el borrador de ${m.modelo}: ${error?.message}`);
+      if (error?.code !== "23505" || ++intento > 5) throw new Error(`No se pudo guardar el borrador de ${g.nombre}: ${error?.message}`);
     }
   }
   return { creados, sinEntender: lista.sinEntender };
@@ -321,6 +403,8 @@ function validarLineas(lineas: unknown): LineaBorrador[] {
     const preciosTalla: Record<string, number> = {};
     for (const [t, n] of Object.entries(l.preciosTalla ?? {})) if (Number(n) > 0) preciosTalla[String(t)] = Number(n);
     return {
+      ...(l.modelo ? { modelo: String(l.modelo).trim().toUpperCase() } : {}),
+      ...(l.colorNuevo ? { colorNuevo: true } : {}),
       color: String(l.color ?? "").trim().toUpperCase(),
       unitalla: l.unitalla ? String(l.unitalla) : null,
       corrida,
@@ -343,17 +427,41 @@ export async function actualizarBorrador(
   db: DB,
   accountId: string,
   id: string,
-  cambios: { fabrica?: string | null; moneda?: Moneda | null; descripcion?: string; lineas?: unknown; proveedor?: string },
+  cambios: { fabrica?: string | null; moneda?: Moneda | null; descripcion?: string; lineas?: unknown; proveedor?: string; pedido?: string },
 ): Promise<Borrador> {
   const b = await leerBorrador(db, accountId, id);
   if (b.estado !== "borrador") throw new Error("Ese pedido ya no es borrador.");
   const fila: Record<string, unknown> = { actualizado_en: new Date().toISOString() };
 
+  // El número de pedido se puede corregir a mano (dueño, 20-oct-2026):
+  // forma IN + número y que no lo tenga ya un pedido cargado ni otro
+  // borrador vivo (el índice único lo cuida; aquí se contesta con palabras).
+  if (cambios.pedido !== undefined) {
+    const nuevo = String(cambios.pedido).trim().toUpperCase().replace(/\s+/g, "");
+    if (!/^IN\d{4,6}$/.test(nuevo)) throw new Error("El número de pedido va como IN10186.");
+    if (nuevo !== b.pedido) {
+      const { data: existente } = await db.from("pedidos").select("id").eq("account_id", accountId).ilike("pedido", nuevo).limit(1);
+      if (existente?.length) throw new Error(`El ${nuevo} ya está cargado en Órdenes de compra.`);
+      const { data: vivo } = await db
+        .from("pedidos_borradores")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("pedido", nuevo)
+        .neq("estado", "descartado")
+        .neq("id", id)
+        .limit(1);
+      if (vivo?.length) throw new Error(`Ya hay otro borrador con el ${nuevo}.`);
+      fila.pedido = nuevo;
+    }
+  }
+
   if (cambios.fabrica !== undefined && cambios.fabrica !== b.fabrica) {
-    const lista = leerLista(b.texto).modelos[0];
-    if (!lista) throw new Error("No se pudo volver a leer la lista de este borrador.");
-    const historia = await historiaDeModelos(db, accountId, [b.modelo]);
-    const armado = armarBorrador(lista, historia, cambios.fabrica);
+    const listas = leerLista(b.texto).modelos;
+    if (!listas.length) throw new Error("No se pudo volver a leer la lista de este borrador.");
+    const familias: MapaFamilias = await cargarFamilias(db, accountId).catch(() => new Map());
+    const historia = await historiaDeModelos(db, accountId, modelosConFamilia(listas.map((m) => m.modelo), familias));
+    const familia = listas.length > 1 || b.lineas.some((l) => l.modelo) ? b.modelo : null;
+    const armado = armarGrupo(b.modelo, familia, listas, historia, cambios.fabrica, hermanosDeLista(familias));
     armado.moneda = await monedaConocida(db, accountId, armado);
     Object.assign(fila, {
       fabrica: armado.fabrica,
@@ -373,6 +481,7 @@ export async function actualizarBorrador(
   if (cambios.descripcion !== undefined) fila.descripcion = String(cambios.descripcion).trim().slice(0, 200);
 
   const { data, error } = await db.from("pedidos_borradores").update(fila).eq("account_id", accountId).eq("id", id).select(COLUMNAS).single();
+  if (error?.code === "23505") throw new Error(`Ya hay otro borrador con el ${fila.pedido}.`);
   if (error || !data) throw new Error(`No se pudo guardar: ${error?.message ?? "sin detalle"}`);
   return aBorrador(data);
 }
@@ -392,14 +501,14 @@ function hoyMx(): string {
 }
 
 export function pedidoPIDe(b: Borrador): PedidoPI {
-  const perfil = perfilDeClave(b.fabrica);
-  if (!perfil) throw new Error("Falta la fábrica del pedido.");
+  // Sin fábrica: Excel sencillo.
+  const perfil = perfilDeClave(b.fabrica) ?? SIN_FABRICA;
   return {
     pedido: b.pedido,
     fecha: b.confirmadoEn ? b.confirmadoEn.slice(0, 10) : hoyMx(),
     perfil,
     moneda: b.moneda,
-    renglones: b.lineas.map((l) => ({ ...l, modelo: b.modelo, descripcion: b.descripcion })),
+    renglones: b.lineas.map((l) => ({ ...l, modelo: l.modelo || b.modelo, descripcion: b.descripcion, nuevo: Boolean(l.colorNuevo) })),
   };
 }
 
@@ -412,10 +521,10 @@ export async function excelDeBorrador(db: DB, accountId: string, id: string): Pr
 /** El pedido como proforma ya leída, para darlo de alta igual que una de la fábrica. */
 export function proformaDeBorrador(b: Borrador): Proforma {
   const lineas: LineaProforma[] = b.lineas.map((l) => ({
-    modelo: b.modelo,
+    modelo: l.modelo || b.modelo,
     color: l.color,
     colorCrudo: l.color,
-    descripcion: b.descripcion,
+    descripcion: l.colorNuevo ? `${b.descripcion} (NEW COLOR)`.trim() : b.descripcion,
     tallas: l.unitalla ? { [l.unitalla]: l.paresPorCaja } : { ...l.corrida },
     paresPorCaja: l.paresPorCaja,
     cajas: l.cajas,
@@ -439,17 +548,26 @@ export function proformaDeBorrador(b: Borrador): Proforma {
 
 function dinero(n: number | null, m: Moneda | null): string {
   if (n == null) return "—";
-  return `${m === "RMB" ? "¥" : "$"}${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${m ? ` ${m}` : ""}`;
+  return `${m === "RMB" ? "¥" : "$"}${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${m ? ` ${m}` : ""}`;
 }
 
-export function correoDeBorrador(b: Borrador): { asunto: string; html: string; texto: string } {
+/**
+ * El correo del pedido confirmado va EN INGLÉS (dueño, 20-oct-2026: «que
+ * los correos se hagan en inglés, no en español»): lo reciben la fábrica y
+ * el agente en China junto con el Excel y las etiquetas.
+ */
+export function correoDeBorrador(
+  b: Borrador,
+  etiquetas?: { adjuntas: boolean; sinCodigo: number },
+): { asunto: string; html: string; texto: string } {
   const e = escaparHtml;
   const t = b.totales;
-  const fab = b.proveedor ?? perfilDeClave(b.fabrica)?.nombre ?? "";
+  const fab = b.proveedor || perfilDeClave(b.fabrica)?.nombre || "No factory";
+  const familia = b.lineas.some((l) => l.modelo);
   const filas = b.lineas
     .map((l) => {
       const que = l.unitalla
-        ? `Talla ${l.unitalla}`
+        ? `Size ${l.unitalla}`
         : Object.entries(l.corrida)
             .map(([talla, n]) => `${talla}×${n}`)
             .join(" ");
@@ -457,11 +575,12 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
         ? [...new Set(Object.values(l.preciosTalla))].map((p) => dinero(p, null)).join(" / ")
         : dinero(l.precio, null);
       return (
-        `<tr><td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}</td>` +
+        `<tr>${familia ? `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.modelo ?? "")}</td>` : ""}` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(l.color)}${l.colorNuevo ? ` <span style="font-size:10px;font-weight:700;color:${TONO.tinta2}">NEW COLOR</span>` : ""}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde}">${e(que)}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.cajas}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${l.paresPorCaja}</td>` +
-        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${(l.cajas * l.paresPorCaja).toLocaleString("es-MX")}</td>` +
+        `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${(l.cajas * l.paresPorCaja).toLocaleString("en-US")}</td>` +
         `<td style="padding:7px 8px;border-bottom:1px solid ${TONO.borde};text-align:right">${e(precio)}</td></tr>`
       );
     })
@@ -472,31 +591,41 @@ export function correoDeBorrador(b: Borrador): { asunto: string; html: string; t
     `<td class="g-cifra" style="padding:12px 14px;background:${TONO.suave};border:1px solid ${TONO.borde};border-radius:8px;width:33%">` +
     `<div style="font-size:11px;text-transform:uppercase;color:${TONO.tenue}">${titulo}</div>` +
     `<div style="font-size:20px;font-weight:700;margin-top:4px">${valor}</div></td>`;
+  const formatoFabrica = perfilDeClave(b.fabrica)?.formato && perfilDeClave(b.fabrica)?.formato !== "sencillo";
   const cuerpo =
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="6" border="0"><tr>` +
-    cifra("Cajas", t.cajas.toLocaleString("es-MX")) +
-    cifra("Pares", t.pares.toLocaleString("es-MX")) +
-    cifra("Importe", e(dinero(t.importe, b.moneda))) +
+    cifra("Cartons", t.cajas.toLocaleString("en-US")) +
+    cifra("Pairs", t.pares.toLocaleString("en-US")) +
+    cifra("Amount", e(dinero(t.importe, b.moneda))) +
     `</tr></table>` +
     `<p style="font-size:13px;color:${TONO.tinta2};margin:14px 0">${e(fab)}${t.cbm != null ? ` · ≈ ${t.cbm.toFixed(2)} CBM` : ""}${b.descripcion ? ` · ${e(b.descripcion)}` : ""}</p>` +
     `<table class="g-t" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;border-collapse:collapse">` +
-    `<tr>${th("Color")}${th("Talla / corrida")}${th("Cajas", true)}${th("Pares x caja", true)}${th("Pares", true)}${th("Precio", true)}</tr>` +
+    `<tr>${familia ? th("Model") : ""}${th("Color")}${th("Size / assortment")}${th("Cartons", true)}${th("Pairs per ctn", true)}${th("Pairs", true)}${th("Price", true)}</tr>` +
     filas +
     `</table>` +
-    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Va adjunto el Excel en el formato de la fábrica.</p>`;
-  const asunto = `Pedido ${b.pedido} · ${b.modelo} · ${fab}`;
+    `<p style="font-size:12px;color:${TONO.tenue};margin-top:14px">Attached: the order Excel${formatoFabrica ? " in the factory's format" : ""}${
+      etiquetas?.adjuntas
+        ? ` and the ZIP with the labels (PDF per size and the box label)${
+            etiquetas.sinCodigo ? `; ${etiquetas.sinCodigo} variants have no code yet and are listed in FALTANTES.txt` : ""
+          }`
+        : ""
+    }.</p>`;
+  const asunto = `Purchase order ${b.pedido} · ${b.modelo} · ${fab}`;
   const html = plantillaCorreo({
-    preencabezado: `${b.pedido} ${b.modelo}: ${t.cajas} cajas, ${t.pares} pares`,
-    ceja: "Pedido a China confirmado",
+    preencabezado: `${b.pedido} ${b.modelo}: ${t.cajas} cartons, ${t.pares} pairs`,
+    ceja: "Purchase order confirmed",
     titulo: `${b.pedido} · ${b.modelo}`,
     subtitulo: fab,
     cuerpo,
-    boton: { texto: "Ver pedidos pendientes por enviar", url: `${URL_ERP}/pedidos/pendientes` },
+    boton: { texto: "View orders pending shipment", url: `${URL_ERP}/pedidos/pendientes` },
   });
   const texto =
-    `${asunto}\n${t.cajas} cajas · ${t.pares} pares · ${dinero(t.importe, b.moneda)}\n\n` +
+    `${asunto}\n${t.cajas} cartons · ${t.pares} pairs · ${dinero(t.importe, b.moneda)}\n\n` +
     b.lineas
-      .map((l) => `${l.color} ${l.unitalla ? `talla ${l.unitalla}` : "corrida"}: ${l.cajas} cajas de ${l.paresPorCaja}`)
+      .map(
+        (l) =>
+          `${l.modelo ? `${l.modelo} ` : ""}${l.color}${l.colorNuevo ? " (NEW COLOR)" : ""} ${l.unitalla ? `size ${l.unitalla}` : "assortment"}: ${l.cajas} cartons of ${l.paresPorCaja} pairs`,
+      )
       .join("\n");
   return { asunto, html, texto };
 }
@@ -534,11 +663,35 @@ export async function mandarCorreo(db: DB, accountId: string, id: string): Promi
   const { destinatarios } = await leerAjustes(db, accountId);
   const pi = pedidoPIDe(b);
   const contenido = await excelDePedido(pi);
-  const c = correoDeBorrador(b);
+  const adjuntos = [{ nombre: nombreArchivoPedido(b.pedido, pi.renglones), contenido }];
+
+  // El ZIP de etiquetas (el mismo de Órdenes de compra). Si no se puede
+  // armar, el correo sale con el Excel y se anota por qué.
+  let etiquetas: { adjuntas: boolean; sinCodigo: number } = { adjuntas: false, sinCodigo: 0 };
+  let motivoEtiquetas: string | undefined;
+  if (b.pedidoId) {
+    try {
+      const zip = await zipEtiquetasDePedido(db, accountId, b.pedidoId);
+      adjuntos.push({ nombre: `${b.pedido} etiquetas.zip`, contenido: zip.contenido });
+      etiquetas = { adjuntas: true, sinCodigo: zip.sinCodigo.length };
+    } catch (err) {
+      motivoEtiquetas = (err as Error).message;
+    }
+  } else {
+    motivoEtiquetas = "El borrador no tiene pedido dado de alta.";
+  }
+
+  const c = correoDeBorrador(b, etiquetas);
   const res = destinatarios.length
-    ? await enviarCorreo({ para: destinatarios, asunto: c.asunto, html: c.html, texto: c.texto, adjuntos: [{ nombre: nombreArchivoPedido(b.pedido, pi.renglones), contenido }] })
+    ? await enviarCorreo({ para: destinatarios, asunto: c.asunto, html: c.html, texto: c.texto, adjuntos })
     : { enviado: false, motivo: "No hay correos en «Mandar a»." };
-  const correo = { enviado: res.enviado, para: destinatarios, motivo: res.motivo, en: new Date().toISOString() };
+  const correo = {
+    enviado: res.enviado,
+    para: destinatarios,
+    motivo: res.motivo,
+    en: new Date().toISOString(),
+    ...(motivoEtiquetas ? { etiquetas: motivoEtiquetas } : {}),
+  };
   await db.from("pedidos_borradores").update({ correo }).eq("id", id);
   return { ...b, correo };
 }

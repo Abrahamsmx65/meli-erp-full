@@ -9,6 +9,7 @@ import { Pestanas } from "./ui/pestanas";
 import { Aviso, Seccion, Tabla } from "./ui/pagina";
 import { coincidePublicacion, type PublicacionParaLigar } from "@/lib/tiktok/externos";
 import type { RenglonStockExterno } from "@/lib/servicios/tiktok-externos";
+import { filtrarInventario, ordenarPorSku } from "@/lib/tiktok/inventario-vista";
 import { confirmar } from "@/components/ui/confirmar";
 
 const ESTADOS: Record<string, string> = {
@@ -42,6 +43,7 @@ export function ExternosTikTok({
 }) {
   const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
+  const [busquedaStock, setBusquedaStock] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ tono: "bien" | "critico" | "alerta"; texto: string } | null>(null);
   // Lo que se está capturando: sku → pares tecleados (texto, para dejar vacío lo que no se toca).
@@ -50,6 +52,8 @@ export function ExternosTikTok({
   const suyas = publicaciones.filter((p) => p.vendedor === vendedor);
   const visibles = useMemo(() => publicaciones.filter((p) => coincidePublicacion(p, busqueda)), [publicaciones, busqueda]);
   const sinContar = stock.filter((r) => !r.contado).length;
+  // Igual que la tabla del Almacén TikTok: alfabético natural por SKU y búsqueda por pedazos (SKU y título).
+  const stockVisible = useMemo(() => ordenarPorSku(filtrarInventario(stock, busquedaStock)), [stock, busquedaStock]);
   const capturados = Object.entries(captura).filter(([, v]) => v.trim() !== "");
 
   async function llamar(cuerpo: Record<string, unknown>, clave: string): Promise<any> {
@@ -118,14 +122,33 @@ export function ExternosTikTok({
         titulo="Stock por SKU"
         descripcion="Teclea lo que hay en la bodega (físico, con lo apartado adentro). Lo que se deja vacío no se toca."
         acciones={
-          <button onClick={guardarStock} disabled={ocupado !== null || !capturados.length} className="boton boton-primario boton-chico">
-            <Save size={14} />
-            {ocupado === "stock" ? "Guardando…" : `Guardar stock${capturados.length ? ` (${capturados.length})` : ""}`}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2">
+              <Search size={14} className="texto-tenue" />
+              <input
+                value={busquedaStock}
+                onChange={(e) => setBusquedaStock(e.target.value)}
+                placeholder="Buscar SKU… (gt074 blk 24)"
+                className="w-56 rounded-lg border px-3 py-1.5 text-sm"
+              />
+            </label>
+            {busquedaStock.trim() ? (
+              <span className="texto-tenue text-xs">
+                {stockVisible.length} de {stock.length} SKU
+              </span>
+            ) : null}
+            <button onClick={guardarStock} disabled={ocupado !== null || !capturados.length} className="boton boton-primario boton-chico">
+              <Save size={14} />
+              {ocupado === "stock" ? "Guardando…" : `Guardar stock${capturados.length ? ` (${capturados.length})` : ""}`}
+            </button>
+          </div>
         }
         sinRelleno
       >
-        <Tabla vacia={!stock.length} textoVacio={`Todavía no hay publicaciones ligadas a ${nombre}: liga una en la pestaña Publicaciones.`}>
+        <Tabla
+          vacia={!stockVisible.length}
+          textoVacio={stock.length ? "Ningún SKU coincide con la búsqueda." : `Todavía no hay publicaciones ligadas a ${nombre}: liga una en la pestaña Publicaciones.`}
+        >
           <table className="datos">
             <thead>
               <tr>
@@ -139,7 +162,7 @@ export function ExternosTikTok({
               </tr>
             </thead>
             <tbody>
-              {stock.map((r) => (
+              {stockVisible.map((r) => (
                 <tr key={r.sku}>
                   <td className="cifra text-xs">{r.sku}</td>
                   <td className="text-xs">

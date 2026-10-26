@@ -37,6 +37,15 @@ describe("qué packing lists de Drive se importan", () => {
     expect(esEmbarqueViejo(100, null)).toBe(false);
   });
 
+  it("un embarque del medio que nunca se cargó sí se lee (S272/S273 subidos después de S274)", () => {
+    const cargados = { embarques: new Set([259, 260, 271, 274]), minimo: 259 };
+    expect(esEmbarqueViejo(272, 274, cargados)).toBe(false);
+    expect(esEmbarqueViejo(273, 274, cargados)).toBe(false);
+    expect(esEmbarqueViejo(271, 274, cargados)).toBe(true);
+    expect(esEmbarqueViejo(250, 274, cargados)).toBe(true);
+    expect(esEmbarqueViejo(275, 274, cargados)).toBe(false);
+  });
+
   it("un archivo cambió si su md5 o, sin md5, su fecha de listado cambió", () => {
     const a = { id: "1", nombre: "x.xlsx", mime: "", md5: null, modificadoEn: "2026-09-09T00:00:00.000Z", tamano: null };
     expect(cambio(a, undefined)).toBe(true);

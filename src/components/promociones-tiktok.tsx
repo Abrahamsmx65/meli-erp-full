@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Power, RefreshCw, Repeat, Search, Trash2, Zap } from "lucide-react";
+import { Clock, Loader2, Power, RefreshCw, Repeat, Search, Trash2, Zap } from "lucide-react";
 import { Ficha } from "./tiles";
 import { Pestanas } from "./ui/pestanas";
 import { Aviso, Seccion, Tabla } from "./ui/pagina";
@@ -202,6 +202,14 @@ export function PromocionesTikTok({
     router.refresh();
   }
 
+  async function alargar(activityId: string, nombre: string) {
+    if (!(await confirmar({ titulo: `¿Pedirle a TikTok que «${nombre}» termine 72 horas más tarde?`, mensaje: "Si TikTok no lo acepta, aquí sale lo que contestó y la oferta se queda como está.", confirmar: "Alargar 72 h" }))) return;
+    const j = await llamar({ accion: "alargar", activityId, horas: 72 }, `alargar:${activityId}`);
+    if (!j) return;
+    setAviso({ tono: "bien", texto: `«${nombre}» ahora termina el ${cuando(j.finNuevo)} (antes ${cuando(j.finAnterior)}).` });
+    router.refresh();
+  }
+
   async function refrescar() {
     const j = await llamar({ accion: "refrescar" }, "refrescar");
     if (j) router.refresh();
@@ -367,12 +375,9 @@ export function PromocionesTikTok({
     if (!c.activo) return { tono: "tenue", texto: "Quitado" };
     if (!c.enTikTok) return { tono: "critico", texto: "Sin producto activo en TikTok" };
     const viva = relampagoViva(c);
-    if (c.ultimoError) {
-      if (viva?.aMano) return { tono: "alerta", texto: `Esperando a que termine la relámpago a mano (${cuandoCorto(viva.hasta)})`, detalle: c.ultimoError };
-      return { tono: "critico", texto: c.ultimoError };
-    }
+    if (c.bloqueadaHasta) return { tono: "alerta", texto: `TikTok la rechazó por otra relámpago pública; se reintenta ${cuandoCorto(c.bloqueadaHasta)}`, detalle: c.ultimoError ?? undefined };
+    if (c.ultimoError) return { tono: "critico", texto: c.ultimoError };
     if (viva && !viva.aMano) return { tono: "bien", texto: "Al día" };
-    if (viva?.aMano) return { tono: "alerta", texto: `Entra cuando termine la relámpago a mano (${cuandoCorto(viva.hasta)})` };
     return { tono: "tenue", texto: "Por programar: el fondo la crea en el siguiente minuto" };
   };
   const tonoPastilla = (tono: "bien" | "alerta" | "critico" | "tenue"): { background: string; color: string } => {
@@ -386,7 +391,7 @@ export function PromocionesTikTok({
     <>
       <Seccion
         titulo="Volver cíclico un modelo"
-        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después (TikTok no deja dos a la vez). El precio viene precargado con el de su última relámpago.`}
+        descripcion={`El sistema le mantiene siempre una relámpago viva de hasta ${HORAS_MAX_CICLICA} horas; cuando termina, crea la siguiente ${MINUTOS_ARRANQUE_CICLICA} minutos después. Una relámpago de creadores armada a mano no la detiene; si TikTok la rechaza por otra pública, espera a que termine. El precio viene precargado con el de su última relámpago.`}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -808,6 +813,11 @@ export function PromocionesTikTok({
                         {g ? (
                           <button onClick={() => repetir(g)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="La misma oferta otra vez, desde ahora">
                             <Repeat size={14} /> Repetir
+                          </button>
+                        ) : null}
+                        {(o.estado === "ONGOING" || o.estado === "NOT_START") && !o.inmutable ? (
+                          <button onClick={() => alargar(o.activityId, o.titulo)} disabled={ocupado !== null} className="boton boton-borde boton-chico" title="Le pide a TikTok que termine 72 horas más tarde, sin crear otra">
+                            <Clock size={14} /> Alargar 72 h
                           </button>
                         ) : null}
                         {(o.estado === "ONGOING" || o.estado === "NOT_START" || o.estado === "DRAFT") && !o.inmutable ? (

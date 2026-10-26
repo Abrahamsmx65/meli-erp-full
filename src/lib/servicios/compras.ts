@@ -36,6 +36,8 @@ import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { desglosarSku } from "./sync";
 import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
+import { familiaDe, type MapaFamilias } from "../pedidos-china/familias";
+import { cargarFamilias } from "./familias-modelos";
 import type { LineaGuardada } from "./cache";
 import type { TikTokCompraSku } from "./tiktok-compras";
 
@@ -149,6 +151,12 @@ export const UNITALLA_MIN_CAJAS = 5;
 export interface RenglonCompra {
   modelo: string;
   color: string;
+  /**
+   * Familia a la que pertenece el modelo (`modelos_familias`): varios
+   * números que la fábrica hace como un solo zapato y se piden juntos
+   * (GT117…GT122). La pantalla y el Excel agrupan por ella; null = va solo.
+   */
+  familia: string | null;
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
@@ -353,7 +361,15 @@ export function buscarCorrida(
   return undefined;
 }
 
-export type OrigenCajaSupuesta = "modelo" | "estandar";
+export type OrigenCajaSupuesta = "modelo" | "unitalla" | "estandar";
+
+/** Una caja de UNA sola talla de un pedido cargado: pares por caja del modelo + color. */
+export interface CajaUnitalla {
+  pedido: string;
+  modelo: string;
+  color: string;
+  paresPorCaja: number;
+}
 
 /**
  * Pares por caja cuando NO hay receta de ese modelo + color (dueño,
@@ -367,6 +383,7 @@ export type OrigenCajaSupuesta = "modelo" | "estandar";
 export function cajaDeRespaldo(
   corridas: { pedido?: unknown; modelo?: unknown; color?: unknown; tallas?: unknown; total?: unknown }[],
   modelo: string,
+  unitallas: CajaUnitalla[] = [],
 ): { paresPorCaja: number; origen: OrigenCajaSupuesta } | null {
   const m = claveAplastada(modelo || "");
   let delModelo: { total: number; pedido: string } | null = null;
@@ -383,11 +400,42 @@ export function cajaDeRespaldo(
     }
   }
   if (delModelo) return { paresPorCaja: paresPorCajaNormalizado(delModelo.total), origen: "modelo" };
+  // Un modelo que solo se ha pedido en cajas de UNA talla («SOLID SIZE 16
+  // PRS», GT180 y GT181) no tiene corrida, pero sí caja: la del pedido más
+  // reciente (dueño, 20-oct-2026: «ahora que está la orden confirmada, ¿se
+  // aumenta en el sistema cuál es la corrida?»).
+  let unitalla: CajaUnitalla | null = null;
+  for (const u of unitallas) {
+    if (!(u.paresPorCaja > 0) || !m || claveAplastada(u.modelo) !== m) continue;
+    if (!unitalla || numeroDePedido(u.pedido) > numeroDePedido(unitalla.pedido)) unitalla = u;
+  }
+  if (unitalla) return { paresPorCaja: unitalla.paresPorCaja, origen: "unitalla" };
   let mejor: { caja: number; veces: number } | null = null;
   for (const [caja, veces] of frecuencia) {
     if (!mejor || veces > mejor.veces || (veces === mejor.veces && caja > mejor.caja)) mejor = { caja, veces };
   }
   return mejor ? { paresPorCaja: mejor.caja, origen: "estandar" } : null;
+}
+
+/** Las cajas de una sola talla de los pedidos cargados de la cuenta (pares por caja por modelo + color). */
+export async function cajasUnitallaDePedidos(db: DB, accountId: string): Promise<CajaUnitalla[]> {
+  // Las pruebas pasan un `db` de mentira sin tablas: sin cajas unitalla.
+  if (typeof (db as { from?: unknown }).from !== "function") return [];
+  const filas = await traerTodo<{
+    modelo: string;
+    color: string;
+    talla: string | null;
+    pares_por_caja: number | null;
+    pedidos: { pedido: string } | { pedido: string }[] | null;
+  }>(db, "pedido_lineas", "id, modelo, color, talla, pares_por_caja, pedidos!inner(pedido, account_id)", (q) =>
+    q.eq("pedidos.account_id", accountId).not("talla", "is", null),
+  );
+  return filas
+    .map((f) => {
+      const p = Array.isArray(f.pedidos) ? f.pedidos[0] : f.pedidos;
+      return { pedido: String(p?.pedido ?? ""), modelo: String(f.modelo ?? ""), color: String(f.color ?? ""), paresPorCaja: Number(f.pares_por_caja) || 0 };
+    })
+    .filter((u) => u.modelo && u.paresPorCaja > 0);
 }
 
 /**
@@ -538,8 +586,14 @@ function compararCorrida(
 
 
 /** "IN10160" → 10160, para comparar pedidos por número y no por texto. */
+/**
+ * El número del pedido para saber cuál es más nuevo: el PRIMER grupo de
+ * dígitos («IN10160» → 10160). Una corrida de caja de una talla se guarda
+ * como «IN10057-24» (pedido-talla, como en el sheet): con todos los dígitos
+ * pegados salía 1005724 y le ganaba a cualquier pedido posterior.
+ */
 export function numeroDePedido(pedido: string): number {
-  const n = Number(pedido.replace(/\D+/g, ""));
+  const n = Number(pedido.match(/\d+/)?.[0] ?? "");
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -572,7 +626,7 @@ export async function sugerirCompra(
 
   // La página de pedidos ya leyó estas dos tablas para el inventario:
   // volver a pedirlas duplicaba los viajes a la base en cada clic.
-  const [[corridasRaw, skusRaw], aliasColores] = await Promise.all([
+  const [[corridasRaw, skusRaw], aliasColores, familias] = await Promise.all([
     precargado
       ? Promise.resolve([precargado.corridas, precargado.skus] as [any[], any[]])
       : Promise.all([
@@ -586,7 +640,12 @@ export async function sugerirCompra(
     // Colores del pedido ligados a mano con MELI: la receta se encuentra
     // también bajo el color de MELI.
     cargarAliasColores(db, accountId).catch(() => new Map() as MapaAlias),
+    // Modelos que se piden JUNTOS (GT117…GT122 = un zapato en seis colores).
+    cargarFamilias(db, accountId).catch(() => new Map() as MapaFamilias),
   ]);
+  // Las cajas de UNA talla de los pedidos cargados: receta de respaldo para
+  // el modelo que nunca se ha pedido en corrida.
+  const unitallas = await cajasUnitallaDePedidos(db, accountId).catch(() => [] as CajaUnitalla[]);
 
   // La corrida más reciente de cada modelo+color es la que la fábrica usa
   // hoy, reconocible por todas sus escrituras (`clavesDeCorrida`).
@@ -843,7 +902,7 @@ export async function sugerirCompra(
     // Sin receta de este color, la caja del modelo en otro color o la
     // estándar de la fábrica (`cajaDeRespaldo`): la proforma no hace falta
     // para decir cuántas cajas son.
-    const respaldo = c ? null : cajaDeRespaldo(corridasRaw, g.modelo);
+    const respaldo = c ? null : cajaDeRespaldo(corridasRaw, g.modelo, unitallas);
     const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : (respaldo?.paresPorCaja ?? null);
 
     // El faltante por talla, exacto: demanda del horizonte menos el stock
@@ -914,7 +973,11 @@ export async function sugerirCompra(
     }
     if (respaldo && paresPorCaja) {
       motivo += ` No hay receta de este color: se supone la caja de ${paresPorCaja} pares ${
-        respaldo.origen === "modelo" ? "del mismo modelo en otro color" : "estándar de tus pedidos"
+        respaldo.origen === "modelo"
+          ? "del mismo modelo en otro color"
+          : respaldo.origen === "unitalla"
+            ? "de una sola talla con que se ha pedido este modelo"
+            : "estándar de tus pedidos"
       } y la corrida va propuesta por venta.`;
     }
     if (g.tallasConRespaldo > 0 && g.skus.size > 0) {
@@ -930,6 +993,7 @@ export async function sugerirCompra(
     renglones.push({
       modelo: g.modelo,
       color: g.color,
+      familia: familiaDe(familias, g.modelo),
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
       tallasConRespaldo: g.tallasConRespaldo,

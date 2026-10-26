@@ -33,7 +33,40 @@ export interface PedidoDelSheet {
   pares: number | null;
   /** texto tal cual del sheet ("Sep 25", "Goods Ready") */
   embarque: string | null;
+  /**
+   * Lo que el agente anotó en la columna "Confirm" ("Oct 21"): la fecha en
+   * que la fábrica confirmó el pedido. Puede venir vacía aunque el pedido ya
+   * esté en el sheet.
+   */
+  confirmado: string | null;
   fila: number;
+}
+
+/**
+ * Un pedido del ERP contra el sheet: China lo CONFIRMA subiéndolo al sheet
+ * (dueño, 21-oct-2026: «para saber que en China me confirmaron el pedido hay
+ * que revisar que lo subieron al sheets»). Solo se juzgan los pedidos SIN
+ * BARCO: uno ya embarcado se confirmó hace mucho.
+ */
+/**
+ * Un pedido sin barco con más de estos días que ya NO está en el sheet no
+ * «falta confirmar»: China lo quitó de pendientes (se embarcó sin que el ERP
+ * lo amarre a un contenedor, o se canceló). Se enseña aparte, sin gritar.
+ */
+export const DIAS_PEDIDO_NUEVO = 30;
+
+export interface ConfirmacionPedido {
+  pedido: string;
+  /** `fuera` = pedido viejo que ya no aparece en el sheet */
+  estado: "confirmado" | "falta" | "fuera";
+  /** columna "Confirm" del sheet, si la llenaron */
+  fechaConfirm: string | null;
+  embarque: string | null;
+  fabrica: string | null;
+  paresSheet: number | null;
+  paresErp: number;
+  modelos: string[];
+  creadoEn: string;
 }
 
 export interface FaltantesSheet {
@@ -155,6 +188,7 @@ export function pedidosDeFilas(filas: Filas): { pedidos: PedidoDelSheet[]; ignor
         modelos: (f[1] ?? "").trim() || null,
         pares: Number.isFinite(pares) && pares > 0 ? pares : null,
         embarque: (f[6] ?? "").trim() || null,
+        confirmado: String(f[3] ?? "").trim() || null,
         fila: i + 1,
       });
       return;
@@ -201,6 +235,42 @@ export async function descargarSheetPedidos(): Promise<string> {
     );
   }
   return texto;
+}
+
+/**
+ * Qué pedidos del ERP ya están en el sheet (confirmados por China) y cuáles
+ * faltan. Van primero los que faltan y luego los confirmados, los más nuevos
+ * arriba. Puro: la pantalla y el cron de las 8:00 lo usan igual.
+ */
+export function confirmacionDePedidos(
+  pedidosErp: { pedido: string; estado: string; pares: number; modelosLista: string[]; creadoEn: string }[],
+  sheet: PedidoDelSheet[],
+  ahora: number = Date.now(),
+): ConfirmacionPedido[] {
+  const porClave = new Map(sheet.map((p) => [canonizar(p.pedido), p]));
+  const limiteNuevo = ahora - DIAS_PEDIDO_NUEVO * 86_400_000;
+  const out: ConfirmacionPedido[] = [];
+  for (const p of pedidosErp) {
+    if (p.estado !== "creado") continue;
+    const s = porClave.get(canonizar(p.pedido));
+    const esNuevo = !(Date.parse(p.creadoEn) < limiteNuevo);
+    out.push({
+      pedido: p.pedido,
+      estado: s ? "confirmado" : esNuevo ? "falta" : "fuera",
+      fechaConfirm: s?.confirmado ?? null,
+      embarque: s?.embarque ?? null,
+      fabrica: s?.fabrica ?? null,
+      paresSheet: s?.pares ?? null,
+      paresErp: p.pares,
+      modelos: p.modelosLista,
+      creadoEn: p.creadoEn,
+    });
+  }
+  const orden = { falta: 0, confirmado: 1, fuera: 2 } as const;
+  return out.sort((a, b) => {
+    if (a.estado !== b.estado) return orden[a.estado] - orden[b.estado];
+    return b.creadoEn.localeCompare(a.creadoEn);
+  });
 }
 
 /** Los pedidos que hay que cargar según el sheet, contra los del ERP. */

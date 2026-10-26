@@ -99,8 +99,9 @@ export function NuevoPedido() {
         <h2 className="seccion-titulo">Pega la lista del pedido</h2>
         <p className="texto-2 mt-1 text-[13px]">
           Un bloque por modelo: el modelo (con el color y «CTNS OF 12» si quieres), el color y luego «talla cajas».
-          Para corridas: las tallas en una línea y los pares con «x 20» cajas, o «misma corrida x 20». Cada modelo sale en
-          su propio pedido{siguiente ? `, empezando en IN${siguiente}` : ""}.
+          Para corridas: las tallas en una línea y los pares con «x 20» cajas, o «misma corrida x 20». Todo lo que pegues
+          junto sale en UN solo pedido{siguiente ? ` (el siguiente es IN${siguiente})` : ""}; para otro pedido, pega otra
+          lista.
         </p>
         <textarea
           className="mt-3 w-full font-mono text-[13px]"
@@ -198,6 +199,9 @@ function FilaConfirmado({ b, alCambiar }: { b: Borrador; alCambiar: (b: Borrador
         ) : (
           <span style={{ color: "var(--critico-texto)" }}>No salió: {b.correo?.motivo ?? "sin intento"}</span>
         )}
+        {b.correo?.etiquetas ? (
+          <div className="texto-tenue">Sin etiquetas adjuntas: {b.correo.etiquetas}</div>
+        ) : null}
         {error ? <div style={{ color: "var(--critico-texto)" }}>{error}</div> : null}
       </td>
       <td className="whitespace-nowrap">
@@ -229,6 +233,11 @@ function TarjetaBorrador({
 }) {
   const [lineas, setLineas] = useState<LineaBorrador[]>(b.lineas);
   const [descripcion, setDescripcion] = useState(b.descripcion);
+  const [pedido, setPedido] = useState(b.pedido);
+  // Lo que se está TECLEANDO en un precio, tal cual («8.» o «8,5»): si se
+  // guardara el número en cada tecla, el punto desaparecía al escribirlo
+  // (dueño, 20-oct-2026: «no me deja poner puntos en el precio»).
+  const [tecleado, setTecleado] = useState<Record<string, string>>({});
   const [sucio, setSucio] = useState(false);
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -236,6 +245,8 @@ function TarjetaBorrador({
   useEffect(() => {
     setLineas(b.lineas);
     setDescripcion(b.descripcion);
+    setPedido(b.pedido);
+    setTecleado({});
     setSucio(false);
   }, [b]);
 
@@ -268,7 +279,26 @@ function TarjetaBorrador({
     return Number.isFinite(x) ? x : null;
   }
 
+  /** Lo que enseña un campo de precio: lo tecleado si se está escribiendo, si no el número guardado. */
+  function textoPrecio(clave: string, valor: number | null | undefined): string {
+    return tecleado[clave] ?? (valor == null ? "" : String(valor));
+  }
+  function teclear(clave: string, v: string, aplicar: (n: number | null) => void) {
+    setTecleado((t) => ({ ...t, [clave]: v }));
+    aplicar(numero(v));
+  }
+  function soltar(clave: string) {
+    setTecleado((t) => {
+      if (!(clave in t)) return t;
+      const { [clave]: _quitar, ...resto } = t;
+      void _quitar;
+      return resto;
+    });
+  }
+
   const faltan = sucio ? [] : b.faltantes;
+  // Borrador de FAMILIA (GT117…GT122): cada renglón dice de qué modelo es.
+  const familia = lineas.some((l) => l.modelo);
 
   return (
     <section className="tarjeta p-4">
@@ -277,9 +307,27 @@ function TarjetaBorrador({
           <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--acento)" }}>
             Borrador
           </div>
-          <h2 className="text-lg font-semibold">
-            {b.pedido} · {b.modelo}
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <input
+              className="w-28 font-semibold"
+              value={pedido}
+              disabled={Boolean(trabajando)}
+              title="Número de pedido (se puede corregir)"
+              onChange={(e) => setPedido(e.target.value.toUpperCase())}
+              onBlur={() => {
+                const v = pedido.trim().toUpperCase();
+                if (v && v !== b.pedido) hacer("pedido", { accion: "actualizar", pedido: v }, (r) => (r.borrador ? alCambiar(r.borrador) : setPedido(b.pedido)));
+                else setPedido(b.pedido);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+            <span>· {b.modelo}</span>
           </h2>
+          {familia ? (
+            <div className="texto-2 text-xs">Familia: {[...new Set(lineas.map((l) => l.modelo).filter(Boolean))].join(", ")}</div>
+          ) : null}
         </div>
         <div className="texto-2 text-sm">
           {n(totales.cajas)} cajas · {n(totales.pares)} pares · {dinero(totales.importe, b.moneda)}
@@ -296,7 +344,7 @@ function TarjetaBorrador({
             disabled={Boolean(trabajando)}
             onChange={(e) => hacer("fabrica", { accion: "actualizar", fabrica: e.target.value || null })}
           >
-            <option value="">— Elige la fábrica —</option>
+            <option value="">Sin fábrica (Excel sencillo)</option>
             {fabricas.map((f) => (
               <option key={f.clave} value={f.clave}>
                 {f.nombre}
@@ -342,6 +390,7 @@ function TarjetaBorrador({
         <table className="datos">
           <thead>
             <tr>
+              {familia ? <th>Modelo</th> : null}
               <th>Color</th>
               <th>Talla / corrida</th>
               <th className="num">Cajas</th>
@@ -357,8 +406,14 @@ function TarjetaBorrador({
               const t = totalesDeBorrador([l]);
               return (
                 <tr key={i}>
+                  {familia ? <td className="font-medium">{l.modelo}</td> : null}
                   <td>
                     <input className="w-36" value={l.color} onChange={(e) => cambiarLinea(i, { color: e.target.value.toUpperCase() })} />
+                    {l.colorNuevo ? (
+                      <div className="text-[10px] font-semibold uppercase" style={{ color: "var(--acento)" }} title="Color nuevo: no existe en MELI todavía; va marcado en el Excel">
+                        Nuevo
+                      </div>
+                    ) : null}
                   </td>
                   <td className="text-xs">
                     {l.unitalla
@@ -397,14 +452,16 @@ function TarjetaBorrador({
                             <input
                               className="w-16 text-right"
                               inputMode="decimal"
-                              value={l.preciosTalla?.[talla] ?? ""}
-                              onChange={(e) => {
-                                const p = numero(e.target.value);
-                                const pt = { ...(l.preciosTalla ?? {}) };
-                                if (p == null) delete pt[talla];
-                                else pt[talla] = p;
-                                cambiarLinea(i, { preciosTalla: pt });
-                              }}
+                              value={textoPrecio(`${i}:${talla}`, l.preciosTalla?.[talla])}
+                              onBlur={() => soltar(`${i}:${talla}`)}
+                              onChange={(e) =>
+                                teclear(`${i}:${talla}`, e.target.value, (p) => {
+                                  const pt = { ...(l.preciosTalla ?? {}) };
+                                  if (p == null) delete pt[talla];
+                                  else pt[talla] = p;
+                                  cambiarLinea(i, { preciosTalla: pt });
+                                })
+                              }
                             />
                           </label>
                         ))}
@@ -413,9 +470,10 @@ function TarjetaBorrador({
                       <input
                         className="w-24 text-right"
                         inputMode="decimal"
-                        value={l.precio ?? ""}
+                        value={textoPrecio(`${i}:precio`, l.precio)}
                         style={l.precio == null ? { borderColor: "var(--estado-critico)" } : undefined}
-                        onChange={(e) => cambiarLinea(i, { precio: numero(e.target.value), precioDe: null })}
+                        onBlur={() => soltar(`${i}:precio`)}
+                        onChange={(e) => teclear(`${i}:precio`, e.target.value, (p) => cambiarLinea(i, { precio: p, precioDe: null }))}
                       />
                     )}
                     {l.precioDe ? <div className="texto-tenue text-[11px]">de {l.precioDe}</div> : null}

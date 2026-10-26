@@ -1,60 +1,15 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { leerConfigOfertas, leerOfertasGuardadas } from "@/lib/servicios/ofertas-meli";
-import type { DecisionOferta, RenglonOferta } from "@/lib/precios/ofertas-aporte";
-import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla, Vacio } from "@/components/ui/pagina";
+import type { DecisionOferta } from "@/lib/precios/ofertas-aporte";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
 import { Ficha } from "@/components/tiles";
 import { ControlesOfertas } from "@/components/ofertas-meli";
+import { ConfirmarBuenFin, ConfirmarRelampagos } from "@/components/confirmar-relampagos";
+import { TablaOfertas, TablaPromocionesOfertas } from "@/components/tabla-ofertas";
 
 export const dynamic = "force-dynamic";
-
-const din = (x: number | null | undefined) =>
-  x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const fecha = (iso: string | null) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "short" });
-};
-
-function TablaOfertas({ renglones }: { renglones: RenglonOferta[] }) {
-  if (!renglones.length) return <Vacio>Nada por aquí.</Vacio>;
-  return (
-    <Tabla alta>
-      <table className="datos">
-        <thead>
-          <tr>
-            <th>Modelo</th>
-            <th>Publicación</th>
-            <th>Oferta</th>
-            <th className="num">Precio al cliente</th>
-            <th className="num">Aporte MELI</th>
-            <th className="num">Te queda</th>
-            <th className="num">PV normal</th>
-            <th>Vence</th>
-            <th>Por qué</th>
-          </tr>
-        </thead>
-        <tbody>
-          {renglones.map((r) => (
-            <tr key={`${r.itemId}|${r.promoId}`}>
-              <td className="cifra">{r.modelo ?? "—"}</td>
-              <td className="cifra">{r.itemId}</td>
-              <td>{r.nombre}</td>
-              <td className="num cifra">{din(r.precio)}</td>
-              <td className="num cifra">{din(r.aporte)}</td>
-              <td className="num cifra">{din(r.efectivo)}</td>
-              <td className="num cifra">{din(r.pvNormal)}</td>
-              <td>{fecha(r.fin)}</td>
-              <td className="texto-2 text-xs">{r.motivo}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Tabla>
-  );
-}
 
 /**
  * Ofertas MELI (dueño, 19-oct-2026): las ofertas CON APORTE de Mercado Libre
@@ -104,6 +59,12 @@ export default async function OfertasMeli() {
           ) : null}
         </Aviso>
       ) : null}
+      <Seccion titulo="Relámpagos" descripcion="Inscribe todas las relámpago que te propuso MELI (o cargó tu asesor) al precio relámpago de Números. Corre sola a las 10:00 y a las 00:30.">
+        <ConfirmarRelampagos />
+      </Seccion>
+      <Seccion titulo="Buen Fin" descripcion="Activa o corrige todas las promociones de Buen Fin al PV normal de Números (a .99). Corre sola con las relámpago a las 10:00 y a las 00:30.">
+        <ConfirmarBuenFin />
+      </Seccion>
       <Cifras columnas={4}>
         <Ficha titulo="Cumplen, por aceptar" valor={String(cumplen.length)} />
         <Ficha titulo="No cumplen" valor={String(noCumplen.length)} />
@@ -122,28 +83,7 @@ export default async function OfertasMeli() {
               id: "promos",
               titulo: "Promociones",
               cuenta: revision?.promociones.length ?? 0,
-              contenido: (
-                <Tabla vacia={!revision?.promociones.length} textoVacio="MELI no tiene promociones con aporte para la cuenta.">
-                  <table className="datos">
-                    <thead>
-                      <tr><th>Promoción</th><th>Tipo</th><th>Estado</th><th>Vence</th><th className="num">Publicaciones de calzado</th><th className="num">Con aporte</th><th>Error</th></tr>
-                    </thead>
-                    <tbody>
-                      {(revision?.promociones ?? []).map((p) => (
-                        <tr key={p.id}>
-                          <td>{p.nombre}</td>
-                          <td className="cifra">{p.tipo}</td>
-                          <td>{p.estado}</td>
-                          <td>{fecha(p.fin)}</td>
-                          <td className="num cifra">{p.invitadas}</td>
-                          <td className="num cifra">{(revision?.renglones ?? []).filter((r) => r.promoId === p.id && r.decision !== "sin_aporte").length}</td>
-                          <td className="text-xs">{p.error ?? ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Tabla>
-              ),
+              contenido: <TablaPromocionesOfertas promociones={revision?.promociones ?? []} renglones={revision?.renglones ?? []} />,
             },
           ]}
         />

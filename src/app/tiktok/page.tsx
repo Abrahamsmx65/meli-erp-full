@@ -1,10 +1,13 @@
 import { clienteServidor } from "@/lib/supabase/server";
+import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { cargarPanelTikTok, DIAS_VENTA, type RenglonTikTok } from "@/lib/servicios/tiktok-panel";
 import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
 import { InventarioTikTok } from "@/components/inventario-tiktok";
+import { FamiliasTikTok } from "@/components/familias-tiktok";
+import { armarFamiliasTikTok } from "@/lib/tiktok/familias";
 import { Ficha } from "@/components/tiles";
 import { Pestanas } from "@/components/ui/pestanas";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
@@ -49,7 +52,9 @@ export default async function TikTok({
   const sp = await searchParams;
 
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
+  const [cuenta, sesion] = await Promise.all([cuentaActiva(supabase), supabase.auth.getUser()]);
+  // Retirar inventario del almacén es del DUEÑO; el rol de TikTok solo ve.
+  const esDueno = rolDeSesion(sesion.data.user) === "dueño";
   // TikTok cuelga de la cuenta de MELI del ERP: sin ella no hay catálogo con
   // qué amarrar sus publicaciones.
   if (!cuenta) return <SinCuenta titulo="Inventario TikTok" />;
@@ -64,6 +69,11 @@ export default async function TikTok({
   // la lista (lo apagado o en borrador NO se avisa: dueño, 15-oct-2026).
   const conStock = p.renglones.filter((r) => r.saldo > 0);
   const sinPublicacion = conStock.filter((r) => !r.tienePublicacion);
+
+  // Por familia: el mismo inventario y las ventas de TikTok juntos por
+  // modelo (dueño, 20-oct-2026: «uno que esté en la sección de inventario
+  // TikTok aparte»).
+  const familias = armarFamiliasTikTok({ renglones: p.renglones, ventas: p.ventasPorSku, dias30: DIAS_VENTA });
 
   return (
     <Pagina>
@@ -140,7 +150,13 @@ export default async function TikTok({
             id: "inventario",
             titulo: "Inventario",
             cuenta: p.renglones.length,
-            contenido: <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />,
+            contenido: <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} esDueno={esDueno} />,
+          },
+          {
+            id: "familias",
+            titulo: "Por familia",
+            cuenta: familias.filter((f) => f.saldo > 0 || f.apartado > 0).length,
+            contenido: <FamiliasTikTok familias={familias} diasVenta={DIAS_VENTA} ventasDesde={p.ventasDesde} />,
           },
           {
             id: "movimientos",

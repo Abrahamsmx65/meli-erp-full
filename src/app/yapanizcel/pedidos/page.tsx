@@ -1,5 +1,5 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
+import { cuentaActiva, leerDisenosElegidos } from "@/lib/yapanizcel/cuenta";
 import { DIAS_OBJETIVO_PEDIDO, obtenerResumenCompras } from "@/lib/yapanizcel/compras";
 import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
@@ -7,7 +7,6 @@ import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
 import { PedidosChina } from "@/components/yapanizcel/pedidos-china";
 import { n } from "@/components/yapanizcel/comunes";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
-import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -21,7 +20,11 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   // El servidor solo pinta el resumen (unos KB, ya masticado en yz_cache) y
   // la lista de pedidos. Abrir un diseño, filtrar y elegir pasa en el
   // navegador: la página no se vuelve a construir en cada clic.
-  const [resumen, pedidos] = await Promise.all([obtenerResumenCompras(supabase, cuenta.id), listarPedidos(supabase, cuenta.id)]);
+  const [resumen, pedidos, disenosGuardados] = await Promise.all([
+    obtenerResumenCompras(supabase, cuenta.id),
+    listarPedidos(supabase, cuenta.id),
+    leerDisenosElegidos(supabase, cuenta.id),
+  ]);
   const totalPedir = resumen.disenos.reduce((a, d) => a + d.sugerido, 0);
   const disenosIniciales = (sp.disenos ?? "")
     .split(",")
@@ -66,33 +69,25 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
         <Ficha titulo={`Unidades a pedir (${DIAS_OBJETIVO_PEDIDO} d)`} valor={n(totalPedir)} />
       </Cifras>
 
-      <Pestanas
-        pestanas={[
-          {
-            id: "pedir",
-            titulo: "Qué pedir",
-            cuenta: resumen.disenos.length,
-            contenido: (
-              <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
-            ),
-          },
-          {
-            id: "cargados",
-            titulo: "Pedidos cargados",
-            cuenta: pedidos.length,
-            contenido: (
-              <Seccion titulo="Pedidos cargados" suelta>
-                <ListaPedidos pedidos={pedidos} />
-              </Seccion>
-            ),
-          },
-        ]}
+      <PedidosChina
+        disenos={resumen.disenos}
+        diasObjetivo={DIAS_OBJETIVO_PEDIDO}
+        abrirInicial={abrirInicial}
+        disenosIniciales={disenosIniciales}
+        disenosGuardados={disenosGuardados}
       />
 
-      {/* Fuera de las pestañas a propósito: un pedido a medio leer o a medio
-          amarrar no se pierde al cambiar de pestaña. */}
+      {/* Fuera de pestañas a propósito: un pedido a medio leer o a medio
+          amarrar no se pierde al cambiar de pestaña, y los pedidos cargados
+          van DEBAJO del formulario, donde el dueño los busca (20-oct-2026:
+          «¿por qué no me salen los pedidos cargados?»: estaban en una
+          pestaña arriba). */}
       <Seccion titulo="Cargar un pedido ya hecho o en camino" suelta>
         <CargarPedido />
+      </Seccion>
+
+      <Seccion titulo={`Pedidos cargados (${pedidos.length})`} suelta>
+        <ListaPedidos pedidos={pedidos} />
       </Seccion>
     </Pagina>
   );

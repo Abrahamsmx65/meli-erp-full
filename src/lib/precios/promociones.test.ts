@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
+import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -30,6 +30,9 @@ describe("planDePromo", () => {
     const b = planDePromo("MLM2771343295", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", offer_id: "LGH-B" }, o);
     expect([a.offerId, b.offerId]).toEqual(["LGH-A", "LGH-B"]);
     expect(planDePromo("MLM1", { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate" }, o).offerId).toBeNull();
+    // Así llega de verdad (20-oct-2026): el folio viene en `ref_id`.
+    const real = { id: "LGH-MLM1000", type: "LIGHTNING", status: "candidate", ref_id: "CANDIDATE-MLM2742802077-75446388607" };
+    expect(planDePromo("MLM2742802077", real, o).offerId).toBe("CANDIDATE-MLM2742802077-75446388607");
   });
   it("cambia una inscrita con otro precio y deja igual la que ya cuadra", () => {
     expect(planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "started", price: 600 }, obj).accion).toBe("cambiar");
@@ -137,5 +140,21 @@ describe("aporte de MELI y el envío arriba de $299", () => {
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 298.99 }, { ...obj, normal: 298.99 }).accion).toBe("inscribir");
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 220, meli_percentage: 3 }, { ...obj, normal: 199.99 }).accion).toBe("inscribir");
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 700, meli_percentage: 5 }, obj).accion).toBe("inscribir");
+  });
+});
+
+describe("minimoCreible", () => {
+  it("toma el .99 más alto que no pasa del máximo de MELI (GT130 Buen Fin 26)", () => {
+    expect(minimoCreible({ min_discounted_price: 99.8, max_discounted_price: 242.49 }, 249.99)).toBe(241.99);
+  });
+  it("un máximo que ya es .99 se toma tal cual", () => {
+    expect(minimoCreible({ max_discounted_price: 242.99 }, 249.99)).toBe(242.99);
+  });
+  it("sin bajar del piso", () => {
+    expect(minimoCreible({ min_discounted_price: 242.2, max_discounted_price: 242.49 }, 249.99)).toBe(242.49);
+  });
+  it("si el nuestro no pasa del máximo, o no hay máximo, no dice nada", () => {
+    expect(minimoCreible({ max_discounted_price: 300 }, 298.99)).toBeNull();
+    expect(minimoCreible({ min_discounted_price: 200 }, 298.99)).toBeNull();
   });
 });

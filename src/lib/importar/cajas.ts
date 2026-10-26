@@ -26,6 +26,64 @@ export function esAlmacenTikTok(nombre: string | null | undefined): boolean {
   return c === "TIKTOK" || c.startsWith("TIKTOK");
 }
 
+const RE_PEDIDO_CAJA = /^(?:IN|AR|RT)\d{2,6}$|^S\d{3}$/i;
+const RE_MODELO_CAJA = /^[A-Z]{1,4}\d{2,5}(?:-\d{1,2})?[A-Z]?$/i;
+const RE_TALLA_CAJA = /^\d{2}(?:\.5)?$/;
+
+function esTallaDeCaja(t: string): boolean {
+  if (!RE_TALLA_CAJA.test(t)) return false;
+  const n = Number(t);
+  return n >= 10 && n <= 35;
+}
+
+/**
+ * Rescata una caja que la bodega capturó con el SKU revuelto (dueño,
+ * 21-oct-2026: «en cualquier manera lo capte para tomar en cuenta como
+ * inventario»). Industher dio de alta 24 cajas de GT114 BLK del IN10057
+ * como «IN10057-24-GT114-BLK»: modelo «IN10057», color «24-GT114-BLK» y
+ * sin talla, así que el ERP no las reconocía como GT114 BLK talla 24.
+ * Reglas, solo cuando el renglón NO tiene forma de caja normal:
+ *   - el modelo es un PEDIDO (IN10057) → pasa a pedido (si no traía) y el
+ *     color se parte en «talla-modelo-color» o «modelo-color»;
+ *   - el color empieza con una talla («24-BLK») y la caja no trae talla →
+ *     la talla sale del color.
+ * Un renglón bien capturado se devuelve tal cual (misma referencia).
+ */
+export function rescatarFilaMalCapturada(f: FilaExistencia): FilaExistencia {
+  const modelo = (f.modelo ?? "").trim();
+  const color = (f.color ?? "").trim();
+  const sinTalla = !f.talla || /CORRIDA/i.test(String(f.talla));
+  const partes = color.split("-").map((p) => p.trim()).filter(Boolean);
+
+  // «IN10057» también cumple la forma de modelo (letras + dígitos): el
+  // prefijo de pedido manda.
+  if (RE_PEDIDO_CAJA.test(modelo)) {
+    let i = 0;
+    let talla: string | null = null;
+    if (partes[i] && esTallaDeCaja(partes[i])) talla = partes[i++];
+    const modeloReal = partes[i];
+    if (modeloReal && RE_MODELO_CAJA.test(modeloReal) && !RE_PEDIDO_CAJA.test(modeloReal)) {
+      i++;
+      const colorReal = partes.slice(i).join("-");
+      if (colorReal) {
+        return {
+          ...f,
+          pedido: f.pedido?.trim() ? f.pedido : modelo,
+          modelo: modeloReal,
+          color: colorReal,
+          talla: talla ?? f.talla,
+        };
+      }
+    }
+    return f;
+  }
+
+  if (sinTalla && partes.length >= 2 && esTallaDeCaja(partes[0]) && RE_MODELO_CAJA.test(modelo)) {
+    return { ...f, talla: partes[0], color: partes.slice(1).join("-") };
+  }
+  return f;
+}
+
 export interface ItemCaja {
   sku: string;
   piezas: number;
@@ -120,7 +178,8 @@ export function construirCajas(
   // Se agrupan los renglones del mismo almacén y caja: el reporte los separa
   // por contenedor, pero para planear da igual de qué pallet salgan.
   const agrupado = new Map<string, FilaExistencia[]>();
-  for (const f of existencias) {
+  for (const cruda of existencias) {
+    const f = rescatarFilaMalCapturada(cruda);
     if (!opts.incluirTikTok && esAlmacenTikTok(f.almacen)) continue;
     if (filtroAlmacen && !filtroAlmacen.has(f.almacen.toLowerCase())) continue;
     const k = `${f.almacen}||${f.skuCaja}||${f.talla}`;
@@ -171,8 +230,15 @@ export function construirCajas(
         });
       }
     } else {
-      // Caja de talla única: todos los pares son de esa talla.
-      const pares = base.paresPorCaja > 0 ? base.paresPorCaja : 0;
+      // Caja de talla única: todos los pares son de esa talla. Si la
+      // bodega no dijo cuántos (o dijo 1, que no existe en calzado), los
+      // da la corrida de esa caja con la talla pegada al color
+      // («IN10057 · GT114 · BLK-24 · {24: 24}», como en el sheet).
+      let pares = base.paresPorCaja > 0 ? base.paresPorCaja : 0;
+      if (pares <= 1) {
+        const propia = porClave.get(claveCorrida(base.pedido, base.modelo, `${base.color}-${base.talla}`));
+        if (propia && propia.total > 0) pares = propia.total;
+      }
       if (pares <= 0) {
         avisos.push({
           fila: 0,

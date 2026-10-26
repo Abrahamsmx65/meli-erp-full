@@ -145,6 +145,33 @@ export interface Parametros {
    * dueño (sep-2026). 0 = siempre se fuerza.
    */
   coberturaSinForzarDias: number;
+  /**
+   * Regla de la corrida de Full por HERMANAS (21-oct-2026): si las cajas del
+   * objetivo completo dejan a una hermana arriba de estos días, la talla
+   * corta solo se surte a `coberturaSinForzarDias` (15). 0 = regla vieja
+   * (mitad / 7 días / faltante grande), que es la que sigue usando FBA.
+   */
+  corridaHermanasMaxDias: number;
+  /**
+   * Talla que trae a lo más esta fracción de la caja (0.10: 1 par de 12,
+   * 2 de 24) no fuerza más de UNA caja por envío (goteo), igual que cuando
+   * todas sus hermanas ya pasan de `corridaHermanasMaxDias`.
+   */
+  corridaFraccionTallaChica: number;
+  /**
+   * COLCHÓN DE SUBIDA (21-oct-2026): si el modelo + color vende en las
+   * últimas `colchonVentanaDias` (con stock) al menos este múltiplo (1.2) de lo
+   * que usa el plan, se usa ese ritmo (sin el tope de tendencia), el
+   * objetivo pasa a `colchonObjetivoDias` y la corrida se fuerza mientras el
+   * color no pase de `colchonTopeColorDias` (la caja que cruza el tope sí
+   * va). 0 = apagado.
+   */
+  colchonSubidaFactor: number;
+  colchonVentanaDias: number;
+  colchonObjetivoDias: number;
+  colchonTopeColorDias: number;
+  /** con colchón, máximo de cajas del color por envío (5). 0 = sin máximo */
+  colchonMaxCajasEnvio: number;
 }
 
 export type OrigenDia =
@@ -244,7 +271,15 @@ export interface LineaPlan {
    * sobre-surtiría a sus hermanas, así que se manda menos. `sugerido` ya
    * viene recortado; el pedido completo queda en `sugeridoCompleto`.
    */
-  ajusteCorrida?: "mitad_corrida" | "solo_7_dias" | "cobertura_suficiente";
+  ajusteCorrida?:
+    | "mitad_corrida"
+    | "solo_7_dias"
+    | "cobertura_suficiente"
+    | "quince_dias"
+    | "goteo"
+    | "tope_color";
+  /** el modelo + color va en subida: múltiplo aplicado a su venta diaria */
+  colchonSubida?: number;
   /** sugerido ANTES del recorte de la corrida (solo cuando hubo ajuste) */
   sugeridoCompleto?: number;
   /** lo que puedo mandar con el inventario propio suelto que tengo */

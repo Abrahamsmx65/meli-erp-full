@@ -45,6 +45,11 @@ export interface PromoMeli {
   seller_percentage?: number | null;
   /** folio de la propuesta (una relámpago trae uno por fecha; todas comparten `id`) */
   offer_id?: string | null;
+  /**
+   * Así llega ese folio en `/seller-promotions/items/{id}` («CANDIDATE-MLM…-…»,
+   * visto el 20-oct-2026): el POST lo pide como `offer_id`.
+   */
+  ref_id?: string | null;
 }
 
 /** Desde este precio el vendedor paga el envío en MELI México. */
@@ -128,6 +133,8 @@ export interface RenglonPromo {
   nuevo: number | null;
   minimo: number | null;
   maximo: number | null;
+  /** el precio que MELI sugiere para la promoción */
+  sugerido: number | null;
   /**
    * El precio nuevo queda fuera del min–max que MELI mandó. Solo AVISA: el
    * 14-oct-2026 el dueño vio «fuera del rango» en Buen Fin 26 con un precio
@@ -188,6 +195,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     nuevo,
     minimo,
     maximo,
+    sugerido: p.suggested_discounted_price ?? null,
     aporte: aporteMeli(p) || null,
     fueraDeRango:
       nuevo != null && ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)),
@@ -195,7 +203,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     fin: p.finish_date ?? null,
     stockMin: p.stock?.min ?? null,
     stockMax: p.stock?.max ?? null,
-    offerId: p.offer_id ?? null,
+    offerId: p.offer_id ?? p.ref_id ?? null,
     accion,
   };
 }
@@ -301,4 +309,28 @@ export function ofertaAmazon(actual: Oferta[] | undefined, marketplaceId: string
   const maximo = valorDe(nueva.maximum_seller_allowed_price);
   if (maximo != null && maximo < precio) delete nueva.maximum_seller_allowed_price;
   return [...otras, nueva];
+}
+
+/**
+ * El precio que MELI SÍ acepta en una promoción que rechazó el nuestro por
+ * «no creíble» (ERROR_CREDIBILITY_DISCOUNTED_PRICE; dueño, 22-oct-2026:
+ * «ponme el precio que pide MELI y poder aceptarlas»). En una DEAL (Buen Fin)
+ * MELI da un RANGO: `min_discounted_price` es el piso y `max_discounted_price`
+ * el precio MÁS ALTO que acepta (GT130: de $99.80 a $242.49 contra los $249.99
+ * de Números); arriba de eso el descuento «no es creíble». Se toma el .99 más
+ * alto que no pase del máximo (241.99), sin bajar del piso. Null = el nuestro
+ * no pasa del máximo o MELI no lo mandó: el rechazo es por otra cosa.
+ */
+export function minimoCreible(
+  p: { min_discounted_price?: number | null; max_discounted_price?: number | null },
+  queriamos: number,
+): number | null {
+  const max = p.max_discounted_price;
+  if (typeof max !== "number" || !Number.isFinite(max) || max <= 0 || queriamos <= max) return null;
+  let r = Math.floor(max) + 0.99;
+  if (r > max + 1e-9) r -= 1;
+  r = Math.round(r * 100) / 100;
+  const min = p.min_discounted_price;
+  if (typeof min === "number" && Number.isFinite(min) && r < min) return Math.round(max * 100) / 100;
+  return r;
 }

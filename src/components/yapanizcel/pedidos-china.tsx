@@ -46,12 +46,31 @@ const CLAVE_LOCAL = "yz-pedidos-disenos";
  *     entera: eso era lo que hacía lento cada clic. Lo ya abierto se
  *     queda en memoria: volver a abrirlo es inmediato.
  */
-export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosIniciales }: { disenos: FilaDiseno[]; diasObjetivo: number; abrirInicial?: string; disenosIniciales?: string[] }) {
+export function PedidosChina({
+  disenos,
+  diasObjetivo,
+  abrirInicial,
+  disenosIniciales,
+  disenosGuardados,
+}: {
+  disenos: FilaDiseno[];
+  diasObjetivo: number;
+  abrirInicial?: string;
+  /** Lo que trae la URL (?disenos=499,514): manda sobre lo guardado. */
+  disenosIniciales?: string[];
+  /** Lo guardado en la base por cuenta: la elección se queda hasta que el dueño la quite. */
+  disenosGuardados?: string[];
+}) {
   const existentes = useMemo(() => new Set(disenos.map((d) => d.diseno)), [disenos]);
 
-  const [seleccion, setSeleccion] = useState<Set<string>>(() => new Set((disenosIniciales ?? []).filter((d) => existentes.has(d))));
-  const [soloSeleccion, setSoloSeleccion] = useState(Boolean(disenosIniciales?.length));
+  // La elección NO se recorta contra el catálogo del momento: si el resumen
+  // guardado viene sin un diseño (está recalculándose), el diseño sigue
+  // elegido y vuelve a verse en cuanto aparece. Antes se recortaba al cargar
+  // y se volvía a guardar recortada: «se desligan solos» (20-oct-2026).
+  const [seleccion, setSeleccion] = useState<Set<string>>(() => new Set(disenosIniciales?.length ? disenosIniciales : (disenosGuardados ?? [])));
+  const [soloSeleccion, setSoloSeleccion] = useState(Boolean(disenosIniciales?.length || disenosGuardados?.length));
   const [texto, setTexto] = useState("");
+  const [guardando, setGuardando] = useState<"ok" | "error" | null>(null);
 
   const [abierto, setAbierto] = useState<string | null>(abrirInicial ?? null);
   const [detalles, setDetalles] = useState<Record<string, DetalleJson>>({});
@@ -59,14 +78,14 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
   const [error, setError] = useState<string | null>(null);
   const detalleRef = useRef<HTMLDivElement | null>(null);
 
-  // Sin nada en la URL, se recupera lo último elegido en este navegador.
+  // Sin nada en la URL ni en la base, se recupera lo último elegido en este
+  // navegador (lo que había antes de guardarse por cuenta).
   useEffect(() => {
-    if (disenosIniciales?.length) return;
+    if (disenosIniciales?.length || disenosGuardados?.length) return;
     try {
       const guardado = JSON.parse(localStorage.getItem(CLAVE_LOCAL) ?? "[]") as string[];
-      const validos = Array.isArray(guardado) ? guardado.filter((d) => existentes.has(d)) : [];
-      if (validos.length) {
-        setSeleccion(new Set(validos));
+      if (Array.isArray(guardado) && guardado.length) {
+        setSeleccion(new Set(guardado.map((d) => String(d).toUpperCase())));
         setSoloSeleccion(true);
       }
     } catch {
@@ -75,13 +94,37 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // La URL refleja elección y diseño abierto sin recargar (replaceState).
+  // Cada cambio de la elección se guarda en la base (por cuenta) medio
+  // segundo después del último clic; mientras, en el navegador.
+  const primeraVez = useRef(true);
   useEffect(() => {
     try {
       localStorage.setItem(CLAVE_LOCAL, JSON.stringify([...seleccion]));
     } catch {
       // idem
     }
+    if (primeraVez.current) {
+      primeraVez.current = false;
+      return;
+    }
+    const lista = [...seleccion];
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/yapanizcel/pedidos/seleccion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ disenos: lista }),
+        });
+        setGuardando(r.ok ? "ok" : "error");
+      } catch {
+        setGuardando("error");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [seleccion]);
+
+  // La URL refleja elección y diseño abierto sin recargar (replaceState).
+  useEffect(() => {
     const url = new URL(window.location.href);
     if (seleccion.size) url.searchParams.set("disenos", [...seleccion].join(","));
     else url.searchParams.delete("disenos");
@@ -190,6 +233,15 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
           <button onClick={() => setSeleccion(new Set())} className="text-xs underline texto-tenue">
             Quitar selección
           </button>
+        ) : null}
+        {guardando === "ok" ? (
+          <span className="text-xs texto-tenue" title="La elección se queda guardada en tu cuenta, en cualquier equipo">
+            Elección guardada
+          </span>
+        ) : guardando === "error" ? (
+          <span className="text-xs" style={{ color: "var(--critico-texto)" }}>
+            No se pudo guardar la elección; se reintenta al siguiente cambio.
+          </span>
         ) : null}
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs texto-tenue">
@@ -361,7 +413,20 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                       <td className="num px-3 py-1.5 text-right" style={{ color: v.cobertura != null && v.cobertura < 45 ? "var(--estado-critico)" : undefined }}>
                         {dias(v.cobertura)}
                       </td>
-                      <td className="num px-3 py-1.5 text-right font-semibold">{v.sugerido ? n(v.sugerido) : "—"}</td>
+                      <td
+                        className="num px-3 py-1.5 text-right font-semibold"
+                        title={
+                          v.necesidad == null
+                            ? undefined
+                            : v.sugerido
+                              ? `Faltan ${n(v.necesidad)}; se pide en múltiplo cerrado`
+                              : v.necesidad > 0
+                                ? `Faltan ${n(v.necesidad)}: menos del mínimo por SKU, no se pide`
+                                : "No falta nada"
+                        }
+                      >
+                        {v.sugerido ? n(v.sugerido) : v.necesidad ? <span className="font-normal texto-tenue">({n(v.necesidad)})</span> : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -23,6 +23,25 @@ import { amarrar, construirIndice, desglosar, esCalzado, type IndiceSkus } from 
 /** Días que se quieren cubrir con un pedido: producción + tránsito + piso. */
 export const DIAS_OBJETIVO_PEDIDO = 30 + 30 + 60;
 
+/**
+ * Lo que se le pide a la fábrica a partir de lo que FALTA (objetivo −
+ * posición): nada si falta menos del mínimo (50: un pedido chico no vale el
+ * viaje) y, si no, el múltiplo cerrado hacia ARRIBA (10 en 10; el 662 de 20
+ * en 20, así una falta de 50 se pide como 60). Decisión del dueño,
+ * 21-oct-2026: «solamente modelos que necesitan mínimo 50 unidades y todo
+ * con números cerrados redondeando hacia arriba».
+ */
+export function redondearPedido(necesidad: number, regla: { minimo: number; multiplo: number }): number {
+  if (!(necesidad > 0) || necesidad < regla.minimo) return 0;
+  const m = regla.multiplo >= 1 ? Math.round(regla.multiplo) : 1;
+  return Math.ceil(necesidad / m) * m;
+}
+
+/** El múltiplo del diseño: el suyo si la fábrica lo hace distinto, si no el general. */
+export function multiploDeDiseno(diseno: string, p: { pedidoMultiplo: number; pedidoMultiplos: Record<string, number> }): number {
+  return p.pedidoMultiplos[diseno.trim().toUpperCase()] ?? p.pedidoMultiplo;
+}
+
 export interface VarianteCompra {
   skuMeli: string;
   titulo: string | null;
@@ -39,6 +58,9 @@ export interface VarianteCompra {
   posicionTotal: number;
   cobertura: number;
   objetivo: number;
+  /** Lo que FALTA para el objetivo (antes del mínimo y del múltiplo). */
+  necesidad?: number;
+  /** Lo que se pide: la falta llevada al múltiplo cerrado, o 0 si no llega al mínimo. */
   sugerido: number;
   costoUnitario: number | null;
   /** Publicaciones gemelas (la vieja sin N-) cuyos números van sumados en este renglón. */
@@ -378,7 +400,8 @@ function calcularVariante(
   const gemelas = b.gemelas.absorbidas.get(s.sku);
   const posicionTotal = enFull + enTransferencia + enCaminoFull + enBodega + enCaminoChina;
   const objetivo = ventaDiaria * DIAS_OBJETIVO_PEDIDO;
-  const sugerido = Math.max(0, Math.ceil(objetivo - posicionTotal));
+  const necesidad = Math.max(0, Math.ceil(objetivo - posicionTotal));
+  const sugerido = redondearPedido(necesidad, { minimo: b.p.pedidoMinimo, multiplo: multiploDeDiseno(diseno, b.p) });
 
   return {
     diseno,
@@ -396,6 +419,7 @@ function calcularVariante(
     posicionTotal,
     cobertura: ventaDiaria > 0 ? posicionTotal / ventaDiaria : Infinity,
     objetivo,
+    necesidad,
     sugerido,
     costoUnitario: costoDeSku(s.sku, b.costos),
     ...(gemelas?.length ? { gemelas } : {}),

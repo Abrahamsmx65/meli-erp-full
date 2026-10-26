@@ -114,6 +114,27 @@ export interface ResultadoCorridas {
   tallas: string[];
 }
 
+/**
+ * Una corrida de caja de UNA talla se escribe con el MISMO pedido y la talla
+ * pegada al COLOR («IN10121 · GT114 · TABACO BROWN-25 · {25: 24}»; dueño,
+ * 20-oct-2026: «así se suben las corridas de lo que es solid size»). El
+ * sheet viejo las traía de tres formas —también «IN10057-24 · GT114 · BLK»
+ * y «IN10121 · GT114-23 · BEIGE»— y la de modelo-talla se leía como OTRO
+ * modelo. Si la corrida tiene UNA sola talla y el pedido o el modelo
+ * terminan en esa misma talla, se pasa al color; un modelo con número
+ * (GT104-5 con talla 25) no se toca.
+ */
+export function normalizarCorridaUnitalla(c: Corrida): Corrida {
+  const tallas = Object.keys(c.tallas);
+  if (tallas.length !== 1) return c;
+  const talla = tallas[0];
+  const sufijo = new RegExp(`-${talla.replace(".", "\\.")}$`);
+  if (sufijo.test(c.color)) return c;
+  if (sufijo.test(c.pedido)) return { ...c, pedido: c.pedido.replace(sufijo, ""), color: `${c.color}-${talla}` };
+  if (sufijo.test(c.modelo)) return { ...c, modelo: c.modelo.replace(sufijo, ""), color: `${c.color}-${talla}` };
+  return c;
+}
+
 export async function importarCorridas(
   buffer: ArrayBuffer | Buffer,
   hoja?: string,
@@ -159,14 +180,14 @@ export async function importarCorridas(
     // En este proyecto nada se supone: una corrida sin su PEDIDO exacto no
     // se puede usar, así que se salta — pero se cuenta y se avisa.
     const pedidoCrudo = texto(f[cPedido]);
-    const pedido = pedidoCrudo === "-" || pedidoCrudo === "—" ? "" : pedidoCrudo;
-    const modelo = texto(f[cModelo]);
-    const color = texto(f[cColor]);
-    if (!modelo) {
-      if (pedido || color) filasSinModelo++;
+    const pedido0 = pedidoCrudo === "-" || pedidoCrudo === "—" ? "" : pedidoCrudo;
+    const modelo0 = texto(f[cModelo]);
+    const color0 = texto(f[cColor]);
+    if (!modelo0) {
+      if (pedido0 || color0) filasSinModelo++;
       continue;
     }
-    if (!pedido) {
+    if (!pedido0) {
       filasSinPedido++;
       continue;
     }
@@ -184,6 +205,7 @@ export async function importarCorridas(
       filasSinPares++;
       continue;
     }
+    const { pedido, modelo, color } = normalizarCorridaUnitalla({ pedido: pedido0, modelo: modelo0, color: color0, tallas, total: suma });
 
     const etiqueta = `${pedido || "(sin pedido)"}/${modelo}/${color}`;
     const totalDeclarado = cTotal != null ? numero(f[cTotal]) : 0;

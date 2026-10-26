@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { crearOferta, desactivarOferta, guardarCiclica, guardarCiclicas, listarOfertas, programarCiclicas, quitarCiclica, repetirOferta } from "@/lib/servicios/tiktok-promociones";
+import { alargarOferta, crearOferta, desactivarOferta, guardarCiclica, guardarCiclicas, listarOfertas, programarCiclicas, quitarCiclica, repetirOferta } from "@/lib/servicios/tiktok-promociones";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ async function sesion() {
  *   { accion: "crear", titulo?, inicio?, horas?, nivel?, topePorTalla?, topePorComprador?, modelos: [{ modelo, precio }] }
  *   { accion: "repetir", id, inicio?, horas? }   — la misma oferta otra vez
  *   { accion: "desactivar", activityId }
+ *   { accion: "alargar", activityId, horas? }     — le pide a TikTok que la oferta termine `horas` (72) más tarde
  *   { accion: "refrescar" }                       — vuelve a leer las ofertas de TikTok
  *   { accion: "ciclica-guardar", modelo, precio, horas?, topePorTalla?, topePorComprador? } — alta o corrección y programa lo que falte
  *   { accion: "ciclica-guardar-varios", lista: [{ modelo, precio, horas?, topePorTalla?, topePorComprador? }] } — alta masiva
@@ -43,6 +44,11 @@ export async function POST(req: NextRequest) {
     if (body?.accion === "desactivar") {
       await desactivarOferta(admin, s.cuenta.id, String(body.activityId ?? ""));
       return NextResponse.json({ ok: true });
+    }
+    if (body?.accion === "alargar") {
+      const r = await alargarOferta(admin, s.cuenta.id, String(body.activityId ?? ""), Number(body.horas) > 0 ? Number(body.horas) : 72, "manual");
+      if (!r.ok) return NextResponse.json({ ...r, error: r.error ?? "TikTok no aceptó alargar la oferta." }, { status: 400 });
+      return NextResponse.json(r);
     }
     if (body?.accion === "ciclica-guardar") {
       return NextResponse.json({ ok: true, ciclica: await guardarCiclica(admin, s.cuenta.id, body, s.user.id) });

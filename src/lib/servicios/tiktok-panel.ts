@@ -84,6 +84,10 @@ export interface PanelTikTok {
   movimientos: MovimientoPanel[];
   /** SKUs de TikTok que no se pudieron amarrar al catálogo del ERP */
   ultimaSync: string | null;
+  /** lo vendido en TikTok por SKU: 30 días y desde que el ERP registra (para el total por familia) */
+  ventasPorSku: { sku: string; ventas30: number; ventasHist: number }[];
+  /** primer día con venta registrada de TikTok; null sin ventas */
+  ventasDesde: string | null;
 }
 
 export async function cargarPanelTikTok(db: DB, accountId: string): Promise<PanelTikTok> {
@@ -103,9 +107,10 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok, estado", (q) =>
       eq(q).eq("activo", true),
     ),
-    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
-      eq(q).gte("fecha", desde),
-    ),
+    // TODA la historia (la tabla es chica: un renglón por SKU y día desde
+    // septiembre 2026); los 30 días se recortan aquí. Así el total por
+    // familia dice también lo vendido desde que el ERP registra.
+    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades, fecha", eq),
     db
       .from("tiktok_movimientos")
       .select("id, sku, tipo, cantidad, motivo, referencia, nota, fecha")
@@ -157,9 +162,17 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const sellerSkus = (skusTikTok ?? []).map((x: any) => String(x.seller_sku ?? "")).filter(Boolean);
 
   const ventas30 = new Map<string, number>();
+  const ventasHist = new Map<string, number>();
+  let ventasDesde: string | null = null;
   for (const v of ventas ?? []) {
-    ventas30.set(v.sku, (ventas30.get(v.sku) ?? 0) + (v.unidades ?? 0));
+    if (externos.has(String(v.sku))) continue;
+    const u = Number(v.unidades ?? 0);
+    const fecha = String(v.fecha ?? "").slice(0, 10);
+    if (u && fecha && (!ventasDesde || fecha < ventasDesde)) ventasDesde = fecha;
+    ventasHist.set(v.sku, (ventasHist.get(v.sku) ?? 0) + u);
+    if (fecha >= desde) ventas30.set(v.sku, (ventas30.get(v.sku) ?? 0) + u);
   }
+  const ventasPorSku = [...ventasHist.keys()].map((sku) => ({ sku, ventas30: ventas30.get(sku) ?? 0, ventasHist: ventasHist.get(sku) ?? 0 }));
 
   const renglones: RenglonTikTok[] = (inv ?? [])
     .map((r: any): RenglonTikTok => {
@@ -215,6 +228,8 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     },
     movimientos: (movsRes.data ?? []) as MovimientoPanel[],
     ultimaSync: syncRes.data?.fin ?? null,
+    ventasPorSku,
+    ventasDesde,
   };
 }
 
