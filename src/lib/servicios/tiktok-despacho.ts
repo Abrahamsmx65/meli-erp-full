@@ -60,7 +60,7 @@ import {
   necesitaFranja,
   numerosPreparados,
   renglonesDeEtiqueta,
-  numerarPaquetes,
+  numerarConGuardada,
   esFalloDeArmado,
   paquetesQueViajan,
   conRenglonesGuardados,
@@ -870,6 +870,9 @@ export async function hacerCorte(
         pedidos: (unirA.pedidos ?? 0) + confirmados.length,
         pares: (unirA.pares ?? 0) + pares,
         errores: erroresAlUnir(unirA.errores ?? [], errores, pendientes.map((p) => p.orderId)),
+        // Se renumera con los paquetes nuevos (nadie ha preparado nada):
+        // la numeración congelada vuelve a nacer en el siguiente armado.
+        numeracion: null,
       })
       .eq("id", unirA.id);
     if (error) throw new Error(`No se pudo unir al corte #${numero}: ${error.message}`);
@@ -1231,7 +1234,7 @@ export interface CorteCargado {
 export async function cargarCorte(admin: any, accountId: string, corteId: number): Promise<CorteCargado> {
   const { data: corte } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, orden_paquetes, pedidos")
+    .select("id, numero, creado_en, orden_paquetes, pedidos, numeracion")
     .eq("account_id", accountId)
     .eq("id", corteId)
     .maybeSingle();
@@ -1271,14 +1274,20 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   );
   const ordenIds = new Set((ordenes ?? []).map((o: any) => o.order_id));
   const itemsPorOrden = new Map<string, any[]>();
+  /** lo que TikTok canceló DESPUÉS del corte: se enseña tachado en su lugar, no se manda */
+  const canceladosPorOrden = new Map<string, any[]>();
   for (const i of items ?? []) {
     if (!ordenIds.has(i.order_id)) continue;
-    // Un renglón cancelado —en TikTok, o por el bloqueo del corte— no va
-    // en la etiqueta ni en la lista: ese par no se manda.
-    if (efectoDeEstado(i.estado) === "reversa" || i.bloqueo_resultado === "cancelado") continue;
-    const l = itemsPorOrden.get(i.order_id) ?? [];
+    // Un renglón cancelado por el bloqueo del corte nunca entró: fuera.
+    if (i.bloqueo_resultado === "cancelado") continue;
+    // Un renglón cancelado en TikTok no va en la etiqueta ni se escanea:
+    // ese par no se manda. Se guarda aparte para que un pedido cancelado
+    // completo después del corte siga diciendo en la hoja QUÉ llevaba
+    // (antes salía en blanco, «(sin renglones)»).
+    const destino = efectoDeEstado(i.estado) === "reversa" ? canceladosPorOrden : itemsPorOrden;
+    const l = destino.get(i.order_id) ?? [];
     l.push(i);
-    itemsPorOrden.set(i.order_id, l);
+    destino.set(i.order_id, l);
   }
 
   const [amazon, alias, meli] = await codigosP;
@@ -1302,7 +1311,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       }
     }
 
-    const renglones = itemsPorOrden.get(o.order_id) ?? [];
+    const vivos = itemsPorOrden.get(o.order_id) ?? [];
+    // Sin nada vivo, el paquete se enseña con lo que llevaba (cancelado).
+    const renglones = vivos.length ? vivos : (canceladosPorOrden.get(o.order_id) ?? []);
     const aPar = (lista: any[]) => {
       const porSku = new Map<string, number>();
       for (const r of lista) {
@@ -1319,7 +1330,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
     // Cancelado después del corte (el pedido entero, o todos sus renglones):
     // conserva su número, pero ya no falta por preparar.
-    const cancelado = efectoDeEstado(o.estado) === "reversa" || renglones.length === 0;
+    const cancelado = efectoDeEstado(o.estado) === "reversa" || vivos.length === 0;
     // Ya se fue con el repartidor (TikTok lo tiene en camino o entregado):
     // salió aunque no se haya escaneado.
     const enviado = yaSeEnvio(o.estado);
@@ -1399,13 +1410,23 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     }
   }
 
+  // La numeración se CONGELA la primera vez que el corte se arma (es la que
+  // va en las guías y en las hojas) y desde ahí manda sobre lo que diga el
+  // orden de hoy: un pedido cancelado, un renglón de menos o un paquete
+  // con otro id ya no corren a los demás. Al unirse una ronda se reinicia
+  // (`hacerCorte`), porque ahí sí se renumera y los PDF se tiran.
+  const numerados = numerarConGuardada(paquetes, orden, corte.numeracion ?? null);
+  if (numerados.nueva) {
+    await admin.from("tiktok_cortes").update({ numeracion: numerados.nueva }).eq("account_id", accountId).eq("id", corteId);
+  }
+
   return {
     id: corte.id,
     numero: corte.numero,
     creadoEn: corte.creado_en,
     pedidos: Number(corte.pedidos ?? 0),
     orden,
-    paquetes: numerarPaquetes(paquetes, orden),
+    paquetes: numerados.paquetes,
   };
 }
 

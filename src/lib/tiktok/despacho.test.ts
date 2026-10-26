@@ -11,6 +11,7 @@ import {
   esDeUnModelo,
   necesitaFranja,
   numerarPaquetes,
+  numerarConGuardada,
   numerosPreparados,
   parsearCodigoDeOrden,
   partirSku,
@@ -451,5 +452,49 @@ describe("renglones guardados de los paquetes", () => {
         ],
       ),
     ).toEqual([{ id: "p1", estado: "TO_FULFILL", lineIds: ["a"] }, { id: "p2", estado: null }]);
+  });
+});
+
+describe("numerarConGuardada: la numeración impresa manda", () => {
+  const corte = () => [paq("a", "GT114-BEIGE-23"), paq("b", "GT114-BLK-25"), paq("c", "GT135-BLK-28"), paq("d", "GT150-CAMEL-27")];
+
+  it("sin numeración guardada numera como siempre y la devuelve para guardarla", () => {
+    const r = numerarConGuardada(corte(), "un-color", null);
+    expect(r.paquetes.map((p) => `${p.numero}:${p.orderId}`)).toEqual(["1:a", "2:b", "3:c", "4:d"]);
+    expect(r.nueva).toEqual({ "a|pk-a": 1, "b|pk-b": 2, "c|pk-c": 3, "d|pk-d": 4 });
+  });
+
+  it("un pedido cancelado después (sin renglones) conserva su número y no corre a los demás", () => {
+    const guardada = numerarConGuardada(corte(), "un-color", null).nueva!;
+    // El c (GT135) se canceló en TikTok: cargarCorte lo deja sin pares y, sin
+    // modelo, el orden de hoy lo pondría al frente (corte #93, 26-oct-2026).
+    const hoy = corte().map((p) => (p.orderId === "c" ? { ...p, pares: [], cancelado: true } : p));
+    expect(numerarPaquetes(hoy, "un-color").map((p) => p.orderId)).toEqual(["c", "a", "b", "d"]);
+    const r = numerarConGuardada(hoy, "un-color", guardada);
+    expect(r.paquetes.map((p) => `${p.numero}:${p.orderId}`)).toEqual(["1:a", "2:b", "3:c", "4:d"]);
+    expect(r.nueva).toBeNull();
+  });
+
+  it("un paquete que cambió de id se reconoce por el pedido si es el único", () => {
+    const guardada = numerarConGuardada(corte(), "un-color", null).nueva!;
+    const hoy = corte().map((p) => (p.orderId === "b" ? { ...p, packageId: "pk-b-nuevo" } : p));
+    const r = numerarConGuardada(hoy, "un-color", guardada);
+    expect(r.paquetes.find((p) => p.orderId === "b")?.numero).toBe(2);
+    expect(r.nueva).toBeNull();
+  });
+
+  it("un paquete nuevo que no está en lo guardado toma el siguiente número libre y se guarda", () => {
+    const guardada = numerarConGuardada(corte(), "un-color", null).nueva!;
+    const hoy = [...corte(), paq("e", "GT114-BEIGE-9")];
+    const r = numerarConGuardada(hoy, "un-color", guardada);
+    expect(r.paquetes.map((p) => `${p.numero}:${p.orderId}`)).toEqual(["1:a", "2:b", "3:c", "4:d", "5:e"]);
+    expect(r.nueva).toEqual({ ...guardada, "e|pk-e": 5 });
+  });
+
+  it("un paquete que desapareció del corte deja su número vacío (no se renumera)", () => {
+    const guardada = numerarConGuardada(corte(), "un-color", null).nueva!;
+    const hoy = corte().filter((p) => p.orderId !== "b");
+    const r = numerarConGuardada(hoy, "un-color", guardada);
+    expect(r.paquetes.map((p) => `${p.numero}:${p.orderId}`)).toEqual(["1:a", "3:c", "4:d"]);
   });
 });

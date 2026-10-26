@@ -303,3 +303,26 @@ describe("modo LOTE (muchos paquetes iguales de un par)", () => {
     expect(e.error).toContain("ya están preparados");
   });
 });
+
+describe("un paquete cancelado después del corte no se elige", () => {
+  const conCancelado = paquetes.map((p) => (p.orderId === "d" ? { ...p, cancelado: true } : p));
+
+  it("la etiqueta del producto brinca el cancelado y toma el siguiente vivo", () => {
+    // a (#1) ya preparado; d (#2, cancelado) lleva el mismo FNSKU: no se elige.
+    const e = avanzar(estadoInicial(), "X001AAA", CORTE, conCancelado, new Set([1]));
+    expect(e.error).toMatch(/ya están preparados/);
+  });
+
+  it("el código del pedido cancelado lo dice en vez de abrirlo", () => {
+    const lista = paquetesConOrden.map((p) => (p.orderId === "585899174098143165" ? { ...p, cancelado: true } : p));
+    const e = avanzar(estadoInicial(), "585899174098143165", CORTE, lista, nadie);
+    expect(e.error).toMatch(/se canceló después del corte/);
+    expect(e.paso).toBe("inicio");
+  });
+
+  it("el código de hoja del cancelado también", () => {
+    const d = conCancelado.find((p) => p.orderId === "d")!;
+    const e = avanzar(estadoInicial(), codigoDeHoja(CORTE, d.numero), CORTE, conCancelado, nadie);
+    expect(e.error).toMatch(/se canceló después del corte/);
+  });
+});
