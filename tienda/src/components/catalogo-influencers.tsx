@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { mensajeDeSeleccion, type Eleccion, type ProductoInfluencer } from "@/lib/influencers";
 import { pesos } from "@/lib/tienda";
+import { GuiaContenido } from "@/components/guia-contenido";
 import { categoriaVisible, fotoAmazon, rangoTallas, srcSetAmazon, tituloCorto } from "@/lib/catalogo-vista";
 
 const LLAVE = "getac:creadores:seleccion";
@@ -36,6 +37,7 @@ function Tarjeta({
 }) {
   const [color, setColor] = useState(0);
   const [foto, setFoto] = useState(0);
+  const [guia, setGuia] = useState(false);
   const c = p.colores[color];
   const k = clave({ productId: p.productId, color: c.color });
   const elegido = elegidos.get(k);
@@ -80,9 +82,12 @@ function Tarjeta({
           {p.modelo && <span className="modelo creador-modelo">{p.modelo}</span>}
           {precio && <span className="creador-precio">{precio}</span>}
         </div>
-        <p className="creador-titulo" title={titulo}>
+        <button type="button" className="creador-titulo" title={titulo} onClick={() => setGuia(true)}>
           {titulo}
-        </p>
+        </button>
+        <button type="button" className="creador-ideas" onClick={() => setGuia(true)}>
+          <span aria-hidden="true">💡</span> Ideas para tu video
+        </button>
         {mostrarCategoria && p.categoria && <span className="creador-dato">{categoriaVisible(p.categoria)}</span>}
 
         <div className="creador-color">
@@ -138,6 +143,7 @@ function Tarjeta({
           </button>
         </div>
       </div>
+      {guia && <GuiaContenido p={p} foto={c.fotos[0]} abierta={guia} cerrar={() => setGuia(false)} />}
     </article>
   );
 }

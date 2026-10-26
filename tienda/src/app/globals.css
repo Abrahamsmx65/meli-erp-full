@@ -1320,3 +1320,158 @@ h3 {
     padding-bottom: 36px;
   }
 }
+
+/* ---------- ideas para el video del creador (26-oct-2026) ---------- */
+.creador-titulo {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.creador-titulo:hover {
+  color: var(--tinta);
+}
+.creador-ideas {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--carton);
+  border-radius: 999px;
+  background: var(--carton-suave);
+  color: var(--tinta);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.creador-ideas:hover {
+  background: color-mix(in srgb, var(--carton) 28%, var(--carton-suave));
+}
+.guia {
+  width: min(640px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: 1px solid var(--linea);
+  border-radius: 12px;
+  background: var(--hoja);
+  color: var(--tinta);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.45);
+}
+.guia::backdrop {
+  background: rgb(21 23 28 / 0.55);
+  backdrop-filter: blur(2px);
+}
+.guia-in {
+  display: grid;
+  gap: 4px;
+  padding: 18px 20px 20px;
+}
+.guia-cabeza {
+  position: sticky;
+  top: -18px;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: -18px -20px 6px;
+  padding: 16px 20px 14px;
+  background: var(--hoja);
+  border-bottom: 1px solid var(--linea);
+}
+.guia-foto {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background: #f6f6f3;
+  border-radius: 8px;
+  padding: 4px;
+}
+.guia-modelo {
+  font-size: 30px;
+  margin: 2px 0 2px;
+}
+.guia-sub {
+  margin: 0;
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.guia-cerrar {
+  align-self: start;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--linea);
+  border-radius: 50%;
+  background: var(--hoja);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.guia-seccion {
+  padding: 10px 0 6px;
+}
+.guia-seccion h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.guia-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tinta);
+  color: var(--papel);
+  font-family: var(--f-mono), monospace;
+  font-size: 11.5px;
+}
+.guia-seccion ul {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+  color: var(--tinta-2);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.guia-pie {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--linea);
+}
+.guia-pie .boton {
+  height: 42px;
+  padding: 0 18px;
+}
+@media (max-width: 560px) {
+  .guia {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 92dvh;
+    margin: auto 0 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .guia-in {
+    padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  .guia-cabeza {
+    margin: -16px -16px 6px;
+    padding: 14px 16px 12px;
+    top: -16px;
+  }
+  .creador-ideas {
+    font-size: 11.5px;
+    padding: 4px 9px;
+  }
+}

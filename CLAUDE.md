@@ -2333,6 +2333,21 @@ guárdala numerada.
   `srcset` 400/700/1000 (~72 KB a 700) y las miniaturas a 100 px (~2 KB). La
   página completa pasó de ~420 MB a ~10 MB; las 4 primeras tarjetas piden su
   foto sin esperar y hay `preconnect` a m.media-amazon.com.
+  **IDEAS PARA EL VIDEO del creador** (`tienda/src/lib/guia-contenido.ts`
+  puro con pruebas, `components/guia-contenido.tsx`; dueño, 26-oct-2026:
+  «que el creador le pueda picar al producto y le salga una ayuda en la
+  generación de contenido: ideas en qué enfocarse, cómo mostrar el producto
+  y cuáles son sus puntos fuertes»): en `/catalogo` e `/influencers`, el
+  botón «Ideas para tu video» de cada tarjeta (y su título) abre una ventana
+  con puntos fuertes, cómo mostrarlo, ideas de video, ganchos para los
+  primeros 3 segundos y datos, y «Copiar guía». Nada se inventa ni se le
+  pregunta a una IA: los puntos fuertes salen de lo que dice el TÍTULO
+  (`RASGOS`: memory foam, afelpado, impermeable, antiderrapante, plataforma,
+  corcho…; hasta `MAX_PUNTOS` 5, con su toma para enseñarlo), las ideas y
+  ganchos de la familia de la categoría (frío, sandalia, bota, lluvia, agua,
+  tacón) y la temporada por mes (Buen Fin, Navidad, 14 de febrero, frío,
+  calor, lluvias), y los datos de colores, tallas (= cm del pie), precio y
+  stock del catálogo. «viscoelástica» no cuenta como elástico lateral.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean
