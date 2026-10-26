@@ -289,6 +289,73 @@ export function numerarPaquetes(
   });
 }
 
+/** La numeración con que se imprimió un corte: pedido|paquete → "#n". */
+export type NumeracionGuardada = Record<string, number>;
+
+export function numeracionDe(paquetes: PaqueteNumerado[]): NumeracionGuardada {
+  const n: NumeracionGuardada = {};
+  for (const p of paquetes) n[clavePaquete(p)] = p.numero;
+  return n;
+}
+
+/**
+ * Numera los paquetes RESPETANDO la numeración con que el corte ya se
+ * imprimió (`tiktok_cortes.numeracion`). Sin numeración guardada, numera
+ * como siempre y la devuelve en `nueva` para que se guarde: desde ahí los
+ * "#n" ya no se mueven aunque un pedido se cancele, pierda un renglón o le
+ * cambien el paquete.
+ *
+ * El 26-oct-2026 (corte #93, 620 paquetes) el pedido 586797048459724373
+ * (GT135-BLK-28) se canceló en TikTok a las 14:41, cuando las guías y las
+ * hojas ya estaban impresas: `cargarCorte` lo dejaba sin renglones, el
+ * paquete sin SKU se iba al FRENTE del orden (sin modelo ordena antes que
+ * todo) y los 180 paquetes anteriores a su lugar corrieron un número: la
+ * estación decía «#186» a dos paquetes distintos y lo escaneado no cuadraba
+ * con el papel (dueño: «ya imprimí las etiquetas y todo, solo corrígelo en
+ * sistema»). Un paquete que no esté en lo guardado (se unió una ronda sin
+ * reiniciar, o cambió de id y el pedido tiene varios) toma el siguiente
+ * número libre después del último, en el orden de hoy, y se guarda.
+ */
+export function numerarConGuardada(
+  paquetes: PaqueteDespacho[],
+  orden: OrdenPaquetes,
+  guardada: NumeracionGuardada | null | undefined,
+): { paquetes: PaqueteNumerado[]; nueva: NumeracionGuardada | null } {
+  const frescos = numerarPaquetes(paquetes, orden);
+  const claves = Object.keys(guardada ?? {});
+  if (!guardada || !claves.length) return { paquetes: frescos, nueva: numeracionDe(frescos) };
+
+  // Un pedido de un solo paquete se reconoce también por el pedido a secas:
+  // TikTok a veces cambia el id del paquete (o no lo había dado al imprimir).
+  const porOrden = new Map<string, number[]>();
+  for (const clave of claves) {
+    const orderId = clave.split("|")[0];
+    const l = porOrden.get(orderId) ?? [];
+    l.push(guardada[clave]);
+    porOrden.set(orderId, l);
+  }
+  const usados = new Set<number>();
+  const sinNumero: PaqueteNumerado[] = [];
+  const conNumero: PaqueteNumerado[] = [];
+  for (const p of frescos) {
+    let n: number | undefined = guardada[clavePaquete(p)];
+    if (n === undefined) {
+      const delPedido = porOrden.get(p.orderId);
+      if (delPedido && delPedido.length === 1) n = delPedido[0];
+    }
+    if (n === undefined || usados.has(n)) {
+      sinNumero.push(p);
+      continue;
+    }
+    usados.add(n);
+    conNumero.push({ ...p, numero: n });
+  }
+  let siguiente = Math.max(0, ...claves.map((c) => guardada[c]), ...usados);
+  const nuevos = sinNumero.map((p) => ({ ...p, numero: ++siguiente }));
+  const todos = [...conNumero, ...nuevos].sort((a, b) => a.numero - b.numero);
+  return { paquetes: todos, nueva: nuevos.length ? { ...guardada, ...numeracionDe(nuevos) } : null };
+}
+
 /**
  * Los números que les tocan HOY a los paquetes que ya se prepararon. La
  * constancia se guarda por pedido + paquete, así que cambiar el orden no la

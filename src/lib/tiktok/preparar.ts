@@ -237,6 +237,7 @@ export function avanzar(
     if (!candidatos.length) return conError(estado, `El pedido ${orden} no está en este corte.`);
     const p = candidatos.find((x) => !yaPreparados.has(x.numero));
     if (!p) return conError(estado, `El pedido ${orden} ya está preparado.`);
+    if (p.cancelado) return conError(estado, `El #${p.numero} (pedido ${orden}) se canceló después del corte: no se manda.`);
     return aProducto(p, [codigo]);
   }
 
@@ -247,6 +248,7 @@ export function avanzar(
     const p = paquetes.find((x) => x.numero === hoja.numero);
     if (!p) return conError(estado, `No hay renglón #${hoja.numero} en este corte.`);
     if (yaPreparados.has(p.numero)) return conError(estado, `El #${p.numero} ya está preparado.`);
+    if (p.cancelado) return conError(estado, `El #${p.numero} se canceló después del corte: no se manda.`);
     return aProducto(p, [codigo]);
   }
 
@@ -256,9 +258,11 @@ export function avanzar(
     // Si ese producto tiene un LOTE con paquetes por preparar, se abre el lote.
     const lote = loteDeCodigo(todosLotes, codigo, yaPreparados);
     if (lote) return abrirLote(lote, codigo, yaPreparados);
-    const p = paquetes.find((x) => !yaPreparados.has(x.numero) && llevaCodigo(x, codigo));
+    // Un paquete cancelado después del corte conserva su número y sus SKU
+    // en la hoja, pero no se manda: la etiqueta no lo elige.
+    const p = paquetes.find((x) => !x.cancelado && !yaPreparados.has(x.numero) && llevaCodigo(x, codigo));
     if (!p) {
-      const alguno = paquetes.some((x) => llevaCodigo(x, codigo));
+      const alguno = paquetes.some((x) => !x.cancelado && llevaCodigo(x, codigo));
       return conError(
         estado,
         alguno
