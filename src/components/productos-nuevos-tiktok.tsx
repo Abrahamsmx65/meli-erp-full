@@ -58,6 +58,10 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   // nuevos a listados ya hechos, por ejemplo el GT125»); aquí se anota el
   // que el dueño prefiera publicar aparte como producto nuevo.
   const [comoNuevo, setComoNuevo] = useState<Record<string, boolean>>({});
+  // Colores que el dueño DESMARCÓ en el renglón: de los que van a publicarse,
+  // solo salen los que se queden marcados (dueño, 27-oct-2026: «me gustaría
+  // poder seleccionar cuáles colores puedo aumentar»).
+  const [quitados, setQuitados] = useState<Record<string, string[]>>({});
   const [enviando, setEnviando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -163,8 +167,22 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     });
   }
 
-  const coloresDe = (p: ProductoAmazonParaTikTok) =>
+  /** Los colores que PODRÍAN publicarse de este modelo con los filtros de hoy. */
+  const coloresElegibles = (p: ProductoAmazonParaTikTok) =>
     volverAPublicar ? p.colores.map((c) => c.color) : incluirApagados ? p.coloresPorPublicar : p.coloresActivosPorPublicar;
+  /** Los que se publican: los elegibles menos los que el dueño desmarcó. */
+  const coloresDe = (p: ProductoAmazonParaTikTok) => {
+    const fuera = new Set(quitados[p.modelo] ?? []);
+    return coloresElegibles(p).filter((c) => !fuera.has(c));
+  };
+  function elegirColor(modelo: string, color: string, si: boolean) {
+    setQuitados((q) => {
+      const lista = new Set(q[modelo] ?? []);
+      if (si) lista.delete(color);
+      else lista.add(color);
+      return { ...q, [modelo]: [...lista] };
+    });
+  }
   const porModelo = useMemo(() => new Map(datos.productos.map((p) => [p.modelo, p])), [datos.productos]);
   /** A qué producto de TikTok se le AGREGAN los colores (null = se crea uno nuevo). */
   const agregarA = (p: ProductoAmazonParaTikTok): string | null =>
@@ -352,7 +370,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             ) : null}
             {sinColores > 0 ? (
               <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
-                {sinColores} marcado{sinColores === 1 ? "" : "s"} solo con colores apagados en Amazon: marca «Incluir colores sin tallas activas» para publicarlos.
+                {sinColores} marcado{sinColores === 1 ? "" : "s"} sin ningún color elegido: marca algún color en su renglón o «Incluir colores sin tallas activas».
               </span>
             ) : null}
           </div>
@@ -391,6 +409,9 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 enCola={enCola.get(p.modelo) ?? null}
                 forzar={volverAPublicar}
                 agregarA={agregarA(p)}
+                elegibles={coloresElegibles(p)}
+                elegidos={coloresDe(p)}
+                onColor={(color, si) => elegirColor(p.modelo, color, si)}
                 abierto={abierto === p.modelo}
                 onAbrir={() => setAbierto(abierto === p.modelo ? null : p.modelo)}
                 onMarcar={(si) => marcar(p.modelo, si)}
@@ -513,6 +534,9 @@ function FilaProducto({
   enCola,
   forzar,
   agregarA,
+  elegibles,
+  elegidos,
+  onColor,
   abierto,
   onAbrir,
   onMarcar,
@@ -531,6 +555,11 @@ function FilaProducto({
   forzar: boolean;
   /** el producto de TikTok al que se le agregan los colores que faltan; null = producto nuevo */
   agregarA: string | null;
+  /** los colores que podrían publicarse con los filtros de hoy */
+  elegibles: string[];
+  /** los que el dueño dejó marcados (los que se publican) */
+  elegidos: string[];
+  onColor: (color: string, si: boolean) => void;
   abierto: boolean;
   onAbrir: () => void;
   onMarcar: (si: boolean) => void;
@@ -541,6 +570,8 @@ function FilaProducto({
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
   const puedeAgregar = Boolean(p.productoTikTok) && p.coloresPorPublicar.length > 0 && !forzar;
+  const elegibleSet = new Set(elegibles);
+  const elegidoSet = new Set(elegidos);
   const estado = !p.coloresPorPublicar.length
     ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "var(--alerta-texto)" : "var(--exito-texto)" }
     : bloqueado
@@ -549,7 +580,10 @@ function FilaProducto({
         ? { texto: "Falló; ver cola", color: "var(--critico-texto)" }
         : p.coloresEnTikTok.length
           ? {
-              texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores${agregarA ? " · se agregan al listado" : puedeAgregar ? " · producto nuevo" : ""}`,
+              texto:
+                `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores` +
+                (elegidos.length !== elegibles.length ? ` · ${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}` : "") +
+                (agregarA ? " · se agregan al listado" : puedeAgregar ? " · producto nuevo" : ""),
               color: "var(--alerta-texto)",
             }
           : { texto: "Sin publicar", color: "var(--ink-2)" };
@@ -608,26 +642,43 @@ function FilaProducto({
         </td>
         <td className="px-3 py-2">
           <div className="flex flex-wrap gap-1">
-            {p.colores.map((c) => (
-              <span
-                key={c.color}
-                title={
-                  (c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}. ` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon. `) +
-                  `Código en Amazon: ${c.color}` +
-                  (c.traducido ? "" : " (sin traducción al español: se publica tal cual)")
-                }
-                className="rounded-full border px-2 py-0.5 text-xs"
-                style={
-                  c.enTikTok.length
-                    ? { borderColor: "var(--grid)", color: "var(--ink-2)", textDecoration: "line-through" }
-                    : { borderColor: "var(--acento)", color: "var(--ink-1)" }
-                }
-              >
-                {c.nombre || c.color}
-                {!c.traducido ? " ⚠" : ""}
-                {!c.activas ? " (sin activas)" : ""}
-              </span>
-            ))}
+            {p.colores.map((c) => {
+              const titulo =
+                (c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}. ` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon. `) +
+                `Código en Amazon: ${c.color}` +
+                (c.traducido ? "" : " (sin traducción al español: se publica tal cual)");
+              const texto = `${c.nombre || c.color}${!c.traducido ? " ⚠" : ""}${!c.activas ? " (sin activas)" : ""}`;
+              // Un color que puede publicarse lleva su casilla: el dueño elige
+              // cuáles se mandan; desmarcado se queda para otra vez.
+              if (esDueno && publicable && elegibleSet.has(c.color)) {
+                const si = elegidoSet.has(c.color);
+                return (
+                  <label
+                    key={c.color}
+                    title={`${titulo}. ${si ? "Se publica" : "No se publica esta vez"}.`}
+                    className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                    style={si ? { borderColor: "var(--acento)", color: "var(--ink-1)" } : { borderColor: "var(--grid)", color: "var(--ink-2)", opacity: 0.7 }}
+                  >
+                    <input type="checkbox" checked={si} onChange={(e) => onColor(c.color, e.target.checked)} />
+                    {texto}
+                  </label>
+                );
+              }
+              return (
+                <span
+                  key={c.color}
+                  title={titulo}
+                  className="rounded-full border px-2 py-0.5 text-xs"
+                  style={
+                    c.enTikTok.length
+                      ? { borderColor: "var(--grid)", color: "var(--ink-2)", textDecoration: "line-through" }
+                      : { borderColor: "var(--acento)", color: "var(--ink-1)" }
+                  }
+                >
+                  {texto}
+                </span>
+              );
+            })}
           </div>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
