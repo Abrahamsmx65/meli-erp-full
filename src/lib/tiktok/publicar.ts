@@ -563,7 +563,7 @@ export function plantillaDesdeProducto(crudo: any): PlantillaTikTok {
       if (!id) continue;
       const e = conteo.get(id) ?? { name: String(a?.name ?? ""), total: 0, numericos: 0 };
       e.total++;
-      if (/^\d{1,2}(\.\d)?$/.test(String(a?.value_name ?? "").trim())) e.numericos++;
+      if (numeroDeTalla(a?.value_name) !== null) e.numericos++;
       if (!e.name && a?.name) e.name = String(a.name);
       conteo.set(id, e);
     }
@@ -770,6 +770,95 @@ function armarSkus(
 }
 
 /**
+ * La parte numérica de una talla como la escribe TikTok: «23», «23 MX»,
+ * «MX24» y «23.5 MX» → «23», «24», «23.5». Lo que no es talla, null.
+ */
+export function numeroDeTalla(v: unknown): string | null {
+  const m = /^\s*(?:MX\s*)?(\d{1,2}(?:[.,]\d)?)\s*(?:MX)?\s*$/i.exec(String(v ?? ""));
+  return m ? m[1].replace(",", ".") : null;
+}
+
+/** La forma con que está escrita una talla, con el número en «#»: «23 MX» → «# MX». */
+function formatoDeTalla(valor: string, numero: string): string {
+  const i = valor.indexOf(numero);
+  return i < 0 ? "#" : `${valor.slice(0, i)}#${valor.slice(i + numero.length)}`;
+}
+
+function atributoTallaDe(sku: Record<string, unknown>, idTalla: string): Record<string, unknown> | null {
+  for (const a of (sku.sales_attributes as Record<string, unknown>[] | undefined) ?? []) {
+    if (String(a?.id ?? "") === idTalla) return a;
+  }
+  return null;
+}
+
+/**
+ * Deja las tallas de `lista` ESCRITAS COMO las de `referencia`: el formato
+ * que más variantes de la referencia usan («23 MX», «23»…) y, si esa talla
+ * ya existe ahí, su mismo `value_id`. Un empate lo gana el formato de la
+ * variante más vieja (el id menor: la del listado original).
+ *
+ * El 27-oct-2026 el GT150 (1737357540793222361) tenía sus 15 variantes
+ * con la talla «23 MX» y el ERP le agregó GREY, NAVY y TOFFEE con la
+ * talla «23»: TikTok lo enseñó con DOS grupos de talla (dueño: «se creó
+ * todo mal porque hay tallas MX y tallas sin MX»).
+ */
+export function unificarTallas(
+  referencia: Record<string, unknown>[],
+  lista: Record<string, unknown>[],
+  idTalla: string,
+): { skus: Record<string, unknown>[]; cambiados: number; formato: string | null } {
+  const porFormato = new Map<string, { n: number; menorId: string }>();
+  const menor = (a: string, b: string) => (a.length !== b.length ? a.length < b.length : a < b);
+  for (const sku of referencia) {
+    const a = atributoTallaDe(sku, idTalla);
+    const valor = String(a?.value_name ?? "").trim();
+    const num = numeroDeTalla(valor);
+    if (!a || !num) continue;
+    const f = formatoDeTalla(valor, num);
+    const id = String(sku.id ?? "");
+    const e = porFormato.get(f) ?? { n: 0, menorId: id };
+    e.n++;
+    if (id && (!e.menorId || menor(id, e.menorId))) e.menorId = id;
+    porFormato.set(f, e);
+  }
+  if (!porFormato.size) return { skus: lista, cambiados: 0, formato: null };
+  let formato = "";
+  let mejor: { n: number; menorId: string } | null = null;
+  for (const [f, e] of porFormato) {
+    if (!mejor || e.n > mejor.n || (e.n === mejor.n && e.menorId && (!mejor.menorId || menor(e.menorId, mejor.menorId)))) {
+      mejor = e;
+      formato = f;
+    }
+  }
+  // Las tallas que ya existen con ese formato, con su value_id.
+  const existentes = new Map<string, { value_id?: string; value_name: string }>();
+  for (const sku of referencia) {
+    const a = atributoTallaDe(sku, idTalla);
+    const valor = String(a?.value_name ?? "").trim();
+    const num = numeroDeTalla(valor);
+    if (!a || !num || formatoDeTalla(valor, num) !== formato || existentes.has(num)) continue;
+    existentes.set(num, { value_id: a.value_id ? String(a.value_id) : undefined, value_name: valor });
+  }
+  let cambiados = 0;
+  const skus = lista.map((sku) => {
+    const a = atributoTallaDe(sku, idTalla);
+    const valor = String(a?.value_name ?? "").trim();
+    const num = numeroDeTalla(valor);
+    if (!a || !num || formatoDeTalla(valor, num) === formato) return sku;
+    const ya = existentes.get(num);
+    const nuevoAtr: Record<string, unknown> = { ...a, value_name: ya?.value_name ?? formato.replace("#", num) };
+    if (ya?.value_id) nuevoAtr.value_id = ya.value_id;
+    else delete nuevoAtr.value_id; // un valor nuevo del atributo: TikTok lo crea
+    cambiados++;
+    return {
+      ...sku,
+      sales_attributes: ((sku.sales_attributes as Record<string, unknown>[]) ?? []).map((x) => (x === a ? nuevoAtr : x)),
+    };
+  });
+  return { skus, cambiados, formato };
+}
+
+/**
  * Las variantes NUEVAS que se le agregan a un producto que YA existe en
  * TikTok (`POST /products/{id}/partial_edit`, campo `skus`; una variante
  * sin `id` es nueva). La plantilla es ESE producto: así el color y la talla
@@ -796,8 +885,11 @@ export function armarSkusParaAgregar(
     }
     return true;
   });
-  const nuevas = armarSkus({ ...datos, colores }, plantilla).filter((s) => !yaSku.has(String(s.seller_sku).trim().toUpperCase()));
+  let nuevas = armarSkus({ ...datos, colores }, plantilla).filter((s) => !yaSku.has(String(s.seller_sku).trim().toUpperCase()));
   if (!nuevas.length) throw new Error("No hay variantes nuevas que agregar: TikTok ya tiene esos colores y tallas.");
+  // La talla se escribe COMO ya la tiene el producto («23 MX» si así están
+  // sus hermanas): si no, TikTok enseña dos grupos de talla (GT150, 27-oct-2026).
+  if (plantilla.atributoTalla) nuevas = unificarTallas(existentes.skusActuales, nuevas, plantilla.atributoTalla.id).skus;
   if (nuevas.length + existentes.sellerSkus.length > MAX_SKUS_POR_PRODUCTO) {
     throw new Error(
       `TikTok acepta hasta ${MAX_SKUS_POR_PRODUCTO} variantes por producto y quedaría con ${nuevas.length + existentes.sellerSkus.length}: publica esos colores como producto nuevo.`,
@@ -830,7 +922,7 @@ export function variantesDelProducto(crudo: any): {
   const sellerSkus: string[] = [];
   const colores = new Set<string>();
   const skusActuales: Record<string, unknown>[] = [];
-  const esNumero = (v: unknown) => /^\d{1,2}(\.\d)?$/.test(String(v ?? "").trim());
+  const esNumero = (v: unknown) => numeroDeTalla(v) !== null;
   for (const s of crudo?.skus ?? []) {
     if (s?.seller_sku) sellerSkus.push(String(s.seller_sku));
     for (const a of s?.sales_attributes ?? []) {

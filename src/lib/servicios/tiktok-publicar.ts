@@ -52,6 +52,8 @@ import {
   armarCuerpoProducto,
   armarSkusParaAgregar,
   variantesDelProducto,
+  numeroDeTalla,
+  unificarTallas,
   MAX_IMAGENES_PRINCIPALES,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
@@ -1608,19 +1610,23 @@ async function corregirPublicado(
     const crudo = await productoTikTok(tiktok, productId);
     if (!crudo) throw new ErrorSinTiempo();
 
-    // 1. Qué atributo es la talla y cuál el color, y qué tallas tiene.
+    // 1. Qué atributo es la talla y cuál el color, y qué tallas tiene
+    // («23», «23 MX» y «MX24» son la misma talla 23).
     const skus: any[] = crudo.skus ?? [];
-    const esNumero = (v: unknown) =>
-      /^\d{1,2}(\.\d)?$/.test(String(v ?? "").trim());
+    const esNumero = (v: unknown) => numeroDeTalla(v) !== null;
     const idsTalla = new Set<string>();
     for (const s of skus)
       for (const a of s.sales_attributes ?? [])
         if (esNumero(a?.value_name)) idsTalla.add(String(a.id));
-    const tallas = skus.flatMap((s) =>
-      (s.sales_attributes ?? [])
-        .filter((a: any) => idsTalla.has(String(a.id)))
-        .map((a: any) => String(a.value_name).trim()),
-    );
+    const tallas = [
+      ...new Set(
+        skus.flatMap((s) =>
+          (s.sales_attributes ?? [])
+            .filter((a: any) => idsTalla.has(String(a.id)))
+            .map((a: any) => numeroDeTalla(a.value_name) ?? String(a.value_name).trim()),
+        ),
+      ),
+    ];
 
     const cambios: Record<string, unknown> = {};
     const hecho: string[] = [];
@@ -1649,38 +1655,42 @@ async function corregirPublicado(
       hecho.push("guía de tallas");
     }
 
-    // 3. Colores que quedaron en código de Amazon → español.
-    const skusCorregidos: Record<string, unknown>[] = [];
-    for (const s of skus) {
+    // 3. Colores que quedaron en código de Amazon → español, y tallas
+    // escritas de DOS formas («23» y «23 MX») → como la mayoría. La lista
+    // `skus` de la edición parcial es la COMPLETA del producto (lo que no
+    // viene se borra: GT125, 15-oct-2026), así que se mandan todas las
+    // variantes tal como están, con lo corregido encima.
+    const actuales = variantesDelProducto(crudo).skusActuales;
+    let corregidos = 0;
+    let todos: Record<string, unknown>[] = actuales.map((sku) => {
       let cambio = false;
-      const attrs = (s.sales_attributes ?? []).map((a: any) => {
-        const base: Record<string, unknown> = {
-          id: String(a.id),
-          name: String(a.name ?? ""),
-          value_name: String(a.value_name ?? ""),
-        };
-        if (a.value_id) base.value_id = String(a.value_id);
-        if (a.sku_img?.uri) base.sku_img = { uri: String(a.sku_img.uri) };
-        if (idsTalla.has(String(a.id))) return base;
+      const attrs = ((sku.sales_attributes as Record<string, unknown>[]) ?? []).map((a) => {
+        if (idsTalla.has(String(a.id))) return a;
         const esp = nombreColorEspanol(String(a.value_name ?? ""));
-        if (
-          esp.traducido &&
-          esp.nombre &&
-          esp.nombre !== String(a.value_name)
-        ) {
+        if (esp.traducido && esp.nombre && esp.nombre !== String(a.value_name)) {
           cambio = true;
           // Un valor nuevo del atributo: sin value_id, TikTok lo crea.
-          delete base.value_id;
-          base.value_name = esp.nombre;
+          const { value_id: _omitido, ...resto } = a;
+          void _omitido;
+          return { ...resto, value_name: esp.nombre };
         }
-        return base;
+        return a;
       });
-      if (cambio)
-        skusCorregidos.push({ id: String(s.id), sales_attributes: attrs });
+      if (!cambio) return sku;
+      corregidos++;
+      return { ...sku, sales_attributes: attrs };
+    });
+    let tallasUnificadas = 0;
+    for (const idTalla of idsTalla) {
+      const u = unificarTallas(todos, todos, idTalla);
+      todos = u.skus;
+      tallasUnificadas += u.cambiados;
     }
-    if (skusCorregidos.length) {
-      cambios.skus = skusCorregidos;
-      hecho.push(`${skusCorregidos.length} variantes con el color en español`);
+    const skusCorregidos = corregidos + tallasUnificadas;
+    if (skusCorregidos && actuales.length === skus.length) {
+      cambios.skus = todos;
+      if (corregidos) hecho.push(`${corregidos} variantes con el color en español`);
+      if (tallasUnificadas) hecho.push(`${tallasUnificadas} variantes con la talla escrita como las demás`);
     }
 
     if (!Object.keys(cambios).length) {
@@ -1712,7 +1722,7 @@ async function corregirPublicado(
       modelo: fila.modelo,
       productId,
       hecho,
-      cambios: { ...cambios, skus: skusCorregidos.length },
+      cambios: { ...cambios, skus: skusCorregidos },
     });
   } catch (err) {
     const mensaje = (err as Error).message;
