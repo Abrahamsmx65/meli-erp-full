@@ -2240,6 +2240,19 @@ guárdala numerada.
   recibió GREY, NAVY y TOFFEE (15 variantes, ids de TikTok en
   `tiktok_publicaciones` 38) por edición parcial: TikTok aceptó y la
   siguiente lectura del catálogo lo confirma.
+  **Las variantes nuevas escriben la TALLA como sus hermanas**
+  (`numeroDeTalla`, `unificarTallas` en `tiktok/publicar.ts` puros con
+  pruebas, en `armarSkusParaAgregar` y en `corregirPublicado`; 27-oct-2026,
+  dueño: «se creó todo mal porque hay tallas MX y tallas sin MX»): TikTok
+  escribe la talla de un mismo producto de varias formas («23», «23 MX»,
+  «MX24») y el ERP mandaba siempre «23»: el GT150, que tenía «23 MX»,
+  quedó con DOS grupos de talla (el dueño lo arregló a mano en el Seller
+  Center). Ahora se toma el formato que más variantes del producto usan
+  (empate: el de la variante más vieja) y el `value_id` de la talla que ya
+  existe; «23 MX» cuenta como talla (no como color) en la plantilla, la
+  guía de tallas y la detección de colores. Y `corregirPublicado` manda la
+  lista COMPLETA de variantes al corregir (antes mandaba solo las
+  cambiadas: la edición parcial borra lo que no viene).
   **Y el sync del catálogo DA DE BAJA lo que TikTok ya no trae**
   (`catalogoConEstado` → `completo`; `skusDadosDeBaja` en `ResultadoSync`):
   hasta ese día una variante borrada seguía `activo` para siempre (el
