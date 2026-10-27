@@ -2229,6 +2229,17 @@ guárdala numerada.
   dar de alta sus sku_id); si las actuales no se leyeron completas, no se
   manda nada. Las 20 se volvieron a agregar desde Publicar productos
   (fotos de Amazon, sku_id nuevos, mismos seller_sku: el kardex no cambia).
+  **Y el dueño ELIGE qué colores se mandan** (casilla por color en el
+  renglón de Productos nuevos, `quitados` / `coloresElegibles` /
+  `coloresDe` en `components/productos-nuevos-tiktok.tsx`; dueño,
+  27-oct-2026: «me gustaría poder seleccionar cuáles colores puedo
+  aumentar»): cada color que podría publicarse (los activos, o todos con
+  «Incluir colores sin tallas activas») lleva su casilla marcada; lo que se
+  desmarca se queda para otra vez y el estado dice «N elegidos». Un modelo
+  marcado sin ningún color elegido no entra y se avisa. Ese día el GT150
+  recibió GREY, NAVY y TOFFEE (15 variantes, ids de TikTok en
+  `tiktok_publicaciones` 38) por edición parcial: TikTok aceptó y la
+  siguiente lectura del catálogo lo confirma.
   **Y el sync del catálogo DA DE BAJA lo que TikTok ya no trae**
   (`catalogoConEstado` → `completo`; `skusDadosDeBaja` en `ResultadoSync`):
   hasta ese día una variante borrada seguía `activo` para siempre (el
