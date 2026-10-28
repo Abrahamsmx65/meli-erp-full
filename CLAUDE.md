@@ -2399,6 +2399,32 @@ guárdala numerada.
   colores, tallas (= cm del pie), precio y stock del catálogo. Un rasgo que
   el título no dice no sale; «viscoelástica» no cuenta como elástico
   lateral y el bordado de una vaquera no se repite como «detalles».
+  **Y ENCIMA, la guía que escribe CLAUDE mirando las FOTOS** (dueño,
+  28-oct-2026: «todo se repite y es muy genérico; que analice las imágenes,
+  el título y la descripción», y «que se limite el uso solo a esto»;
+  `tienda/guia-ia.ts` motor puro con pruebas, `servicios/guias-ia.ts`, cron
+  `/api/cron/guias-video` a los :41 de cada hora, `app_cache` clave
+  `guias-video`, pestaña «Ideas para video» del back `/tiktok/catalogo` →
+  `/api/tiktok/catalogo/guias`; en la tienda `guiaConIA`, `guiasVideo` y
+  `/api/guia-video?modelo=`): por modelo, hasta 4 fotos de Amazon a 800 px
+  (la principal de cada color y la segunda del primero), título, categoría,
+  colores, tallas, precio y los puntos y la descripción del producto en
+  TikTok (`tienda_productos`) van a `claude-opus-5-5` (effort medium, salida
+  estructurada `ESQUEMA_GUIA`, fallbacks «default») y contesta resumen,
+  puntos fuertes con su toma, ideas, ganchos, para quién y lo que NO se debe
+  prometer (lo que las fotos no prueban). Se hace UNA vez por modelo (primero
+  lo que tiene stock) y solo se rehace si cambia su HUELLA (fotos, título,
+  categoría, textos) o con «Rehacer»; lo corregido a mano en el back
+  (`editada`) no se pisa. La tienda la pide al abrir la ventana; la
+  temporada, el gancho del precio y los datos siguen saliendo del catálogo de
+  hoy, y sin guía de Claude queda la de reglas. **La llave es SOLO de esto**:
+  `ANTHROPIC_API_KEY_GUIAS` en Vercel (no `ANTHROPIC_API_KEY`, para que
+  ningún otro código la tome; se le pasa al cliente a mano), creada en un
+  WORKSPACE propio de Anthropic con límite de gasto mensual; y el código se
+  pone su propio tope de `TOPE_MENSUAL_USD` (15) contado con los tokens de
+  cada respuesta (`gasto` por mes en el mismo renglón), `GUIAS_POR_CORRIDA`
+  (12) y candado `guias-video`. Sin llave o con el tope alcanzado no llama a
+  nada y la última corrida lo dice. ~$0.10 USD por guía.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean

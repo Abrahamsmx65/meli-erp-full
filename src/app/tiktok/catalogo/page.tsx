@@ -5,6 +5,10 @@ import type { ProductoCatalogo } from "@/lib/tienda/catalogo-amazon";
 import { BackCatalogo } from "@/components/back-catalogo";
 import { CATEGORIA_FUNDAS, normalizarCategoria } from "@/lib/categoria";
 import { Encabezado, Pagina, SinCuenta, Vacio } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
+import { GuiasVideoBack } from "@/components/guias-video-back";
+import { hayLlaveGuias, leerGuias } from "@/lib/servicios/guias-ia";
+import { TOPE_MENSUAL_USD } from "@/lib/tienda/guia-ia";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +23,10 @@ export default async function CatalogoCreadores() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Catálogo para creadores" />;
   const admin = clienteAdmin();
-  const [{ data }, config] = await Promise.all([
+  const [{ data }, config, guias] = await Promise.all([
     admin.from("app_cache").select("datos, generado_en").eq("account_id", cuenta.id).eq("clave", CLAVE_CATALOGO_AMAZON).maybeSingle(),
     traerTodo<any>(admin, "productos_config", "categoria", (q) => q.eq("account_id", cuenta.id).not("categoria", "is", null)),
+    leerGuias(admin, cuenta.id),
   ]);
   const datos = (data as any)?.datos ?? {};
   const productos: ProductoCatalogo[] = Array.isArray(datos.productos) ? datos.productos : [];
@@ -59,6 +64,11 @@ export default async function CatalogoCreadores() {
               (relámpago normal en la página; «Mi precio» manda).
             </p>
             <p>
+              «Ideas para video» las escribe Claude mirando las fotos, el título y los textos de cada modelo, una sola vez
+              por modelo (se rehace sola si cambian sus fotos o su título). Usa la llave ANTHROPIC_API_KEY_GUIAS, que solo
+              sirve para esto, con un tope de ${TOPE_MENSUAL_USD} USD al mes. Lo que corrijas a mano ya no se pisa.
+            </p>
+            <p>
               El total suma la bodega y lo que viene de China (en el mar y los pedidos, de la vista de inventario) más la
               bodega de TikTok; la página solo enseña ese total. Los datos se actualizan cada hora y al guardar un cambio.
             </p>
@@ -66,7 +76,18 @@ export default async function CatalogoCreadores() {
         }
       />
       {productos.length ? (
-        <BackCatalogo productos={productos} categorias={categorias} />
+        <Pestanas
+          pestanas={[
+            { id: "modelos", titulo: "Modelos", cuenta: productos.length, contenido: <BackCatalogo productos={productos} categorias={categorias} /> },
+            {
+              id: "ideas",
+              titulo: "Ideas para video",
+              cuenta: Object.keys(guias.guias).length,
+              alerta: !hayLlaveGuias(),
+              contenido: <GuiasVideoBack productos={productos} inicial={guias} hayLlave={hayLlaveGuias()} tope={TOPE_MENSUAL_USD} />,
+            },
+          ]}
+        />
       ) : (
         <Vacio>El catálogo todavía no se arma.</Vacio>
       )}

@@ -26,6 +26,28 @@ export interface GuiaContenido {
   ganchos: string[];
   /** datos para decir en el video o ponerlos en la descripción */
   datos: string[];
+  /** solo en la de Claude: qué lo hace distinto, en una línea */
+  resumen?: string;
+  /** solo en la de Claude: para quién es */
+  paraQuien?: string[];
+  /** solo en la de Claude: lo que el creador no debe prometer */
+  evitar?: string[];
+  /** la escribió Claude mirando las fotos (si no, salió de las reglas) */
+  deIA?: boolean;
+}
+
+/**
+ * La guía que escribió Claude mirando las fotos (ERP: `tienda/guia-ia.ts`,
+ * `servicios/guias-ia.ts`, `app_cache` clave `guias-video`; dueño,
+ * 28-oct-2026: «todo se repite y es muy genérico»). Solo lo que la tienda lee.
+ */
+export interface GuiaIA {
+  resumen: string;
+  puntosFuertes: { punto: string; toma: string }[];
+  ideas: string[];
+  ganchos: string[];
+  paraQuien: string[];
+  evitar: string[];
 }
 
 interface Punto {
@@ -506,16 +528,47 @@ export function guiaDeContenido(p: ProductoInfluencer, hoy: Date = new Date()): 
   return { puntosFuertes, comoMostrarlo, ideas, ganchos, datos };
 }
 
+/**
+ * Con guía de Claude manda la suya (puntos, tomas, ideas, ganchos, para quién
+ * y lo que no se debe decir); la temporada, el gancho del precio y los DATOS
+ * siguen saliendo del catálogo de hoy, que Claude no conoce al día.
+ */
+export function guiaConIA(p: ProductoInfluencer, ia: GuiaIA | null | undefined, hoy: Date = new Date()): GuiaContenido {
+  const reglas = guiaDeContenido(p, hoy);
+  if (!ia || !ia.puntosFuertes?.length) return reglas;
+  const perfil = PERFILES[familiaDe(categoriaVisible(p.categoria) ?? "", sinAcentos(`${p.titulo} ${p.bullets.join(" ")}`))];
+  const deTemporada = temporada(hoy.getMonth(), perfil.clima);
+  const ganchos = [...ia.ganchos];
+  if (p.precioDesde != null) ganchos.push(`Esto cuesta menos de ${pesos(Math.ceil(p.precioDesde / 10) * 10)}.`);
+  return {
+    resumen: ia.resumen || undefined,
+    puntosFuertes: ia.puntosFuertes.map((x) => x.punto),
+    comoMostrarlo: [
+      "Abre con el producto en tu mano o en tus pies, nada de logos ni intro: lo primero que se ve es el zapato.",
+      ...ia.puntosFuertes.map((x) => x.toma).filter(Boolean),
+    ],
+    ideas: [...(deTemporada ? [deTemporada] : []), ...ia.ideas],
+    ganchos,
+    paraQuien: ia.paraQuien,
+    evitar: ia.evitar,
+    datos: reglas.datos,
+    deIA: true,
+  };
+}
+
 /** La guía en texto para copiarla y pegarla en las notas del celular. */
 export function textoDeGuia(p: ProductoInfluencer, g: GuiaContenido): string {
   const bloque = (titulo: string, xs: string[]) => (xs.length ? [`${titulo}:`, ...xs.map((x) => `• ${x}`), ""] : []);
   return [
     `GETAC ${p.modelo ?? ""} · ideas para tu video`.trim(),
     "",
+    ...(g.resumen ? [g.resumen, ""] : []),
     ...bloque("Puntos fuertes", g.puntosFuertes),
     ...bloque("Cómo mostrarlo", g.comoMostrarlo),
     ...bloque("Ideas de video", g.ideas),
     ...bloque("Para los primeros 3 segundos", g.ganchos),
+    ...bloque("Para quién", g.paraQuien ?? []),
+    ...bloque("Lo que no debes decir", g.evitar ?? []),
     ...bloque("Datos", g.datos),
   ]
     .join("\n")
