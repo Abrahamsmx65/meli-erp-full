@@ -1279,6 +1279,17 @@ h3 {
 }
 
 /* ---------- ideas para el video del creador (26-oct-2026) ---------- */
+.guia-resumen {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--carton);
+  background: var(--carton-suave);
+  font-size: 15px;
+}
+.guia-cargando {
+  margin: 18px 0;
+  font-size: 14px;
+}
 .creador-titulo {
   border: 0;
   background: none;

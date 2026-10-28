@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guiaDeContenido, MAX_PUNTOS, textoDeGuia } from "./guia-contenido";
+import { guiaConIA, guiaDeContenido, MAX_PUNTOS, textoDeGuia } from "./guia-contenido";
 import type { ProductoInfluencer } from "./influencers";
 
 const producto = (o: Partial<ProductoInfluencer>): ProductoInfluencer => ({
@@ -125,5 +125,34 @@ describe("guía de contenido", () => {
     const t = textoDeGuia(p, guiaDeContenido(p, OCTUBRE));
     expect(t).toMatch(/^GETAC GT156 · ideas para tu video/);
     expect(t).toMatch(/Puntos fuertes:\n• Suela antiderrapante/);
+  });
+});
+
+describe("guía de Claude", () => {
+  const ia = {
+    resumen: "Cuña de yute con correa cruzada en mezclilla.",
+    puntosFuertes: [{ punto: "Correa cruzada de mezclilla deslavada.", toma: "Close-up de la mezclilla con luz de ventana." }],
+    ideas: ["Look de brunch con vestido blanco."],
+    ganchos: ["La cuña que combina con todo tu clóset."],
+    paraQuien: ["Quien quiere altura sin tacón delgado."],
+    evitar: ["No digas que es piel."],
+  };
+
+  it("manda sobre las reglas y los datos siguen saliendo del catálogo", () => {
+    const p = producto({ modelo: "GT145", categoria: "ALPARGATAS", titulo: "Alpargatas de cuña", precioDesde: 373, total: 336 });
+    const g = guiaConIA(p, ia, OCTUBRE);
+    expect(g.deIA).toBe(true);
+    expect(g.puntosFuertes).toEqual(["Correa cruzada de mezclilla deslavada."]);
+    expect(g.comoMostrarlo[1]).toMatch(/mezclilla/);
+    expect(g.ganchos.at(-1)).toMatch(/menos de \$380/);
+    expect(g.evitar).toEqual(["No digas que es piel."]);
+    expect(g.datos.join(" ")).toMatch(/336 pares/);
+    const t = textoDeGuia(p, g);
+    expect(t).toMatch(/Lo que no debes decir:\n• No digas que es piel/);
+  });
+
+  it("sin guía de Claude se queda la de reglas", () => {
+    const p = producto({ categoria: "ALPARGATAS", titulo: "Alpargatas de cuña yute" });
+    expect(guiaConIA(p, null, OCTUBRE)).toEqual(guiaDeContenido(p, OCTUBRE));
   });
 });

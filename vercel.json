@@ -57,6 +57,10 @@
       "schedule": "17 * * * *"
     },
     {
+      "path": "/api/cron/guias-video",
+      "schedule": "41 * * * *"
+    },
+    {
       "path": "/api/cron/packing-lists",
       "schedule": "0 13 * * *"
     },

@@ -2,18 +2,47 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProductoInfluencer } from "@/lib/influencers";
-import { guiaDeContenido, textoDeGuia } from "@/lib/guia-contenido";
+import { guiaConIA, textoDeGuia, type GuiaIA } from "@/lib/guia-contenido";
 import { fotoAmazon, tituloCorto } from "@/lib/catalogo-vista";
 
 /**
  * La ayuda para armar el video de un producto: puntos fuertes, cómo
  * mostrarlo, ideas, ganchos y datos (`lib/guia-contenido.ts`). Se abre en una
- * ventana sobre el catálogo y se puede copiar completa.
+ * ventana sobre el catálogo y se puede copiar completa. Al abrirse pide la
+ * guía que Claude escribió mirando las fotos (`/api/guia-video`); mientras
+ * llega, o si el modelo no tiene, se enseña la de reglas.
  */
-export function GuiaContenido({ p, foto, abierta, cerrar }: { p: ProductoInfluencer; foto?: string; abierta: boolean; cerrar: () => void }) {
+export function GuiaContenido({
+  p,
+  foto,
+  abierta,
+  cerrar,
+}: {
+  p: ProductoInfluencer;
+  foto?: string;
+  abierta: boolean;
+  cerrar: () => void;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const [copiado, setCopiado] = useState(false);
-  const guia = useMemo(() => guiaDeContenido(p), [p]);
+  const [ia, setIa] = useState<GuiaIA | null>(null);
+  const [cargando, setCargando] = useState(!!p.modelo);
+  const guia = useMemo(() => guiaConIA(p, ia), [p, ia]);
+
+  useEffect(() => {
+    if (!p.modelo) return;
+    let vivo = true;
+    fetch(`/api/guia-video?modelo=${encodeURIComponent(p.modelo)}`)
+      .then((r) => (r.ok ? r.json() : { guia: null }))
+      .then((d) => vivo && setIa(d?.guia ?? null))
+      .catch(() => {
+        /* sin red: se queda la de reglas */
+      })
+      .finally(() => vivo && setCargando(false));
+    return () => {
+      vivo = false;
+    };
+  }, [p.modelo]);
 
   useEffect(() => {
     const d = ref.current;
@@ -37,6 +66,8 @@ export function GuiaContenido({ p, foto, abierta, cerrar }: { p: ProductoInfluen
     ["Cómo mostrarlo", guia.comoMostrarlo],
     ["Ideas de video", guia.ideas],
     ["Para los primeros 3 segundos", guia.ganchos],
+    ["Para quién es", guia.paraQuien ?? []],
+    ["Lo que no debes decir", guia.evitar ?? []],
     ["Datos para tu video", guia.datos],
   ];
 
@@ -69,7 +100,10 @@ export function GuiaContenido({ p, foto, abierta, cerrar }: { p: ProductoInfluen
           </button>
         </header>
 
-        {secciones.map(([titulo, xs], i) =>
+        {guia.resumen ? <p className="guia-resumen">{guia.resumen}</p> : null}
+        {cargando ? <p className="suave guia-cargando">Buscando las ideas de este producto…</p> : null}
+
+        {(cargando ? [] : secciones.filter(([, xs]) => xs.length)).map(([titulo, xs], i) =>
           xs.length ? (
             <section key={titulo} className="guia-seccion">
               <h3>
@@ -86,7 +120,7 @@ export function GuiaContenido({ p, foto, abierta, cerrar }: { p: ProductoInfluen
         )}
 
         <div className="guia-pie">
-          <button type="button" className="boton boton-comprar" onClick={copiar}>
+          <button type="button" className="boton boton-comprar" onClick={copiar} disabled={cargando}>
             {copiado ? "¡Copiado!" : "Copiar guía"}
           </button>
           <button type="button" className="boton" onClick={cerrar}>
