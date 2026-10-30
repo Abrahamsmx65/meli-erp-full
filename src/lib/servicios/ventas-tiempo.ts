@@ -5,7 +5,7 @@
  * Las sumas las hace Postgres (`ventas_por_hora`, migración 0134) con las
  * mismas reglas que la pantalla de cada canal. TikTok y Amazon se guardan
  * masticados por canal y rango en `app_cache`
- * (`ventas-tiempo:v2:{canal}:{desde}:{hasta}`) y se sirven aunque estén
+ * (`ventas-tiempo:v3:{canal}:{desde}:{hasta}`) y se sirven aunque estén
  * viejos; MELI calzado y fundas se leen en vivo (`CANALES_EN_VIVO`).
  */
 import type { DB } from "../datos/repos";
@@ -68,7 +68,7 @@ export async function servirVentasTiempo(
   accountId: string,
   rango: { desde: string; hasta: string },
 ): Promise<{ datos: VentasTiempo; generadoEn: string | null }> {
-  const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
+  const clave = `ventas-tiempo:v3:${canal}:${rango.desde}:${rango.hasta}`;
   if (CANALES_EN_VIVO.includes(canal)) {
     try {
       const generadoEn = new Date().toISOString();
@@ -129,7 +129,7 @@ export async function precalcularVentasTiempo(
     for (const canal of canales) {
       if (Date.now() > limite) return;
       if (CANALES_EN_VIVO.includes(canal)) continue;
-      const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
+      const clave = `ventas-tiempo:v3:${canal}:${rango.desde}:${rango.hasta}`;
       const g = await leerCacheAppGuardado<VentasTiempo>(admin, accountId, clave);
       if (g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < EDAD_MAX_MS - 30_000) continue;
       const t0 = Date.now();
