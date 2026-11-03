@@ -2,12 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { MCP_BASE, MCP_RECURSO, MCP_SCOPE } from "@/lib/higgsfield/mcp";
-import {
-  RUTA_CALLBACK,
-  clientIdDelErp,
-  dominiosDelErp,
-} from "@/lib/higgsfield/cliente-oauth";
+import { MCP_BASE, MCP_RECURSO, MCP_SCOPE, registrarCliente } from "@/lib/higgsfield/mcp";
+import { REDIRECT_CONFIANZA } from "@/lib/higgsfield/cliente-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +13,14 @@ function base64url(buf: Buffer): string {
 
 /**
  * Arranca la conexión OAuth con la CUENTA de Higgsfield (mcp.higgsfield.ai):
- * arma el reto PKCE y manda al usuario al login de Higgsfield. El callback
- * (/api/higgsfield/callback) guarda los tokens. El client_id es la URL del
- * documento de metadatos del ERP (`cliente-oauth.ts`): el registro dinámico
- * de antes murió el 2-nov-2026 cuando Higgsfield lo cerró a su lista fija
- * («redirect_uris contains an entry that is not in the trusted list»).
+ * registra el cliente, arma el reto PKCE y manda al usuario al login de
+ * Higgsfield. Desde el 2-nov-2026 Higgsfield solo confía en redirects de
+ * LOCALHOST (nuestro dominio contesta «not in the trusted list», probado el
+ * 3-nov-2026 también con el documento de metadatos: su lista se aplica antes
+ * de leerlo), así que en producción el navegador termina en una página de
+ * localhost que no carga y el dueño PEGA esa dirección en la pantalla de
+ * Videos; `/api/higgsfield/canjear` cambia el código por los tokens. En
+ * desarrollo local el callback de siempre sí carga y guarda solo.
  */
 export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -36,26 +35,13 @@ export async function GET(req: NextRequest) {
   }
 
   // El dominio REAL con el que entró el usuario, desde los headers del
-  // proxy de Vercel. NEXT_PUBLIC_APP_URL no se usa aquí a propósito: si trae
-  // el valor de relleno del ejemplo, la redirección de OAuth se rompe.
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  if (!host) {
-    return NextResponse.json({ error: "No se pudo determinar el dominio." }, { status: 500 });
+  const redirectUri = REDIRECT_CONFIANZA;
+  let clientId: string;
+  try {
+    clientId = await registrarCliente(redirectUri);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 502 });
   }
-  // El redirect_uri tiene que estar en el documento de metadatos (Higgsfield
-  // lo valida contra él). Un host que no está ahí no puede conectar: el
-  // callback de otro dominio ni siquiera vería la cookie del PKCE.
-  if (!dominiosDelErp().includes(host) && !host.startsWith("localhost")) {
-    return NextResponse.json(
-      {
-        error: `Conéctate desde el dominio de producción (${dominiosDelErp()[0]}); este dominio (${host}) no está en el documento del cliente OAuth.`,
-      },
-      { status: 400 },
-    );
-  }
-  const redirectUri = `${proto}://${host}${RUTA_CALLBACK}`;
-  const clientId = clientIdDelErp();
 
   const verifier = base64url(randomBytes(48));
   const challenge = base64url(createHash("sha256").update(verifier).digest());
@@ -72,11 +58,12 @@ export async function GET(req: NextRequest) {
   autorizar.searchParams.set("resource", MCP_RECURSO);
 
   const res = NextResponse.redirect(autorizar);
-  // Lo que el callback necesita viaja en una cookie httpOnly de 10 minutos.
+  // Lo que el canje necesita viaja en una cookie httpOnly de 15 minutos:
+  // da tiempo de entrar a Higgsfield, aprobar y pegar la dirección.
   res.cookies.set(
     "hf_oauth",
     JSON.stringify({ v: verifier, s: state, c: clientId, r: redirectUri }),
-    { httpOnly: true, secure: true, sameSite: "lax", maxAge: 600, path: "/api/higgsfield" },
+    { httpOnly: true, secure: true, sameSite: "lax", maxAge: 900, path: "/api/higgsfield" },
   );
   return res;
 }

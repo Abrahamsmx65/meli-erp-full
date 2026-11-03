@@ -3,6 +3,7 @@ import {
   RUTA_CALLBACK,
   RUTA_CLIENTE,
   clientIdDelErp,
+  codigoPegado,
   documentoCliente,
   dominiosDelErp,
 } from "./cliente-oauth";
@@ -44,5 +45,26 @@ describe("cliente-oauth (Client ID Metadata Document)", () => {
     expect(uris).toContain(`http://localhost:3000${RUTA_CALLBACK}`);
     // Sin repetidos: un alias duplicado en la lista es ruido para Higgsfield.
     expect(new Set(uris).size).toBe(uris.length);
+  });
+});
+
+describe("codigoPegado", () => {
+  it("lee la dirección completa de la página que no cargó", () => {
+    expect(
+      codigoPegado(
+        "  http://localhost:3000/api/higgsfield/callback?code=abc123&state=xyz  ",
+      ),
+    ).toEqual({ code: "abc123", state: "xyz" });
+  });
+
+  it("acepta solo los parámetros, con o sin signo de interrogación", () => {
+    expect(codigoPegado("?code=a&state=b")).toEqual({ code: "a", state: "b" });
+    expect(codigoPegado("code=a&state=b")).toEqual({ code: "a", state: "b" });
+  });
+
+  it("sin code o sin state no hay canje", () => {
+    expect(codigoPegado("http://localhost:3000/x?code=a")).toBeNull();
+    expect(codigoPegado("hola")).toBeNull();
+    expect(codigoPegado("")).toBeNull();
   });
 });

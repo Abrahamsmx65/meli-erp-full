@@ -4,11 +4,11 @@
  * Es OTRA superficie distinta a la llave de API: se autentica con OAuth
  * sobre la CUENTA del usuario (la de la suscripción) y expone lo que la
  * llave no tiene — el Marketing Studio con productos anclados a fotos
- * reales, avatares y Seedance 2.0. El flujo OAuth es estándar: el client_id
- * es la URL del documento de metadatos del ERP (`cliente-oauth.ts`; el
- * registro dinámico RFC 7591 que se usaba antes quedó cerrado a una lista
- * fija el 2-nov-2026), authorization code + PKCE y refresh token con
- * offline_access (una vez conectado, no vuelve a pedir login).
+ * reales, avatares y Seedance 2.0. El flujo OAuth es authorization code +
+ * PKCE con registro dinámico y refresh token con offline_access (una vez
+ * conectado, no vuelve a pedir login). Desde el 2-nov-2026 Higgsfield solo
+ * confía en redirects de localhost: el detalle vive en `cliente-oauth.ts`
+ * (flujo de pegar la dirección).
  *
  * El protocolo es MCP por streamable HTTP: JSON-RPC en POST /mcp, con
  * respuestas que pueden venir como JSON directo o como SSE (una línea
@@ -26,6 +26,36 @@ type Admin = ReturnType<typeof clienteAdmin>;
 // ---------------------------------------------------------------------------
 // OAuth
 // ---------------------------------------------------------------------------
+
+/**
+ * Registra un cliente OAuth (registro dinámico, RFC 7591). Desde el
+ * 2-nov-2026 Higgsfield solo acepta redirect_uris de su lista fija
+ * (localhost, 127.0.0.1, claude.ai…): se registra SIEMPRE con el redirect
+ * de localhost (`REDIRECT_CONFIANZA`) y el código se recupera pegando la
+ * dirección en el ERP (`/api/higgsfield/canjear`).
+ */
+export async function registrarCliente(redirectUri: string): Promise<string> {
+  const res = await fetch(`${MCP_BASE}/oauth2/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_name: "GETAC ERP",
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: MCP_SCOPE,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const detalle = await res.text().catch(() => "");
+    throw new Error(`No se pudo registrar el cliente OAuth (${res.status}): ${detalle.slice(0, 200)}`);
+  }
+  const cuerpo = (await res.json()) as { client_id?: string };
+  if (!cuerpo.client_id) throw new Error("El registro OAuth no devolvió client_id.");
+  return cuerpo.client_id;
+}
 
 export interface TokensMCP {
   access_token: string;

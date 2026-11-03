@@ -10,6 +10,7 @@ import {
   EditarSubtitulos,
   ElegirImagen,
 } from "@/components/videos";
+import { ConectarHiggsfield } from "@/components/conectar-higgsfield";
 import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -60,17 +61,9 @@ export default async function Videos() {
         titulo="Videos de producto"
         descripcion="Clips verticales 9:16 para los Clips de Mercado Libre, del producto tal cual o en modo UGC."
         acciones={
-          cuentaConectada ? (
-            // La sesión de Higgsfield puede expirar aunque la conexión exista;
-            // sin este botón no habría forma de renovarla desde la pantalla.
-            <a href="/api/higgsfield/conectar" className="boton boton-borde boton-chico">
-              Reconectar Higgsfield
-            </a>
-          ) : (
-            <a href="/api/higgsfield/conectar" className="boton boton-primario">
-              Conectar Higgsfield
-            </a>
-          )
+          // La conexión va en dos pasos (login + pegar la dirección) porque
+          // Higgsfield solo confía en redirects de localhost desde nov-2026.
+          <ConectarHiggsfield conectada={cuentaConectada} />
         }
         ayuda={
           <>
