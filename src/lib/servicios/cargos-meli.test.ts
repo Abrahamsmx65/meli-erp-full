@@ -503,6 +503,24 @@ describe("un mes dado por completo con el mes todavía abierto se relee solo", (
     expect(guardados.at(-1).completo).toBe(true);
   });
 
+  it("un mes anterior leído después de cerrar pero CORTO contra el total de MELI se relee (fundas, septiembre 2026: 1,800 de 23,957)", async () => {
+    const { admin } = adminFalso();
+    const { cliente } = clienteFalso("ninguno", { total: 1_500 });
+    const { almacen, guardados } = almacenFalso(cliente, {
+      [anterior]: { completo: true, offset: 1_800, total: 23_957, modo: "id", actualizadoEn: new Date().toISOString() },
+      [actual]: actualAlDia,
+    });
+    const r = await continuarCargosCon(admin, "cta", almacen, Date.now() + 600_000);
+    expect(r?.periodo).toBe(anterior);
+    expect(guardados[0]).toMatchObject({ periodo: anterior, relecturas: 1 });
+  });
+
+  it("un mes leído con la paginación vieja sin total se relee una vez (fundas, julio 2026: 3,000 renglones, total 0)", () => {
+    expect(necesitaRelecturaPorTotal({ completo: true, offset: 3_000, total: 0, modo: null })).toBe(true);
+    expect(necesitaRelecturaPorTotal({ completo: true, offset: 3_000, total: 0, modo: null, relecturas: 2 })).toBe(false);
+    expect(necesitaRelecturaPorTotal({ completo: true, offset: 3_000, total: 0, modo: "id" })).toBe(false);
+  });
+
   it("un mes anterior leído después de cerrar ya no se toca", async () => {
     const { admin } = adminFalso();
     const { cliente, llamadas } = clienteFalso("date_from");

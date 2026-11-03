@@ -17,6 +17,20 @@ export interface FotosProducto {
   revisadoEn?: string | null;
 }
 
+/**
+ * Pasado este rato desde la última revisión, la pantalla vuelve a preguntar
+ * sola lo que falta al abrirse (el cron lo hace cada hora). Hasta el
+ * 21-oct-2026 solo se preguntaba con el botón y Lanzamientos enseñaba las
+ * fotos del 13-oct: lo que ya tenía fotos seguía «Sin fotos».
+ */
+export const MINUTOS_REVISION_FOTOS = 30;
+
+export function revisionVieja(revisadoEn: string | null | undefined, ahora = Date.now()): boolean {
+  if (!revisadoEn) return true;
+  const t = Date.parse(revisadoEn);
+  return !Number.isFinite(t) || ahora - t > MINUTOS_REVISION_FOTOS * 60_000;
+}
+
 export type FotosGuardada = FotosProducto & { huella: string };
 
 /** Huella de lo publicado: si cambia, se vuelve a revisar. */
@@ -41,4 +55,24 @@ export function tocaRevisar(
   const publicadoAmz = amazonConectado && p.amazon.asins.length > 0;
   if (publicadoAmz && (guardado.amazon.fotos == null || guardado.amazon.fotos < FOTOS_MINIMAS)) return true;
   return false;
+}
+
+/**
+ * Lo ya revisado y GUARDADO (`nuevos:fotos`) que la pantalla puede enseñar al
+ * abrir sin preguntarle a MELI ni a Amazon: solo de los productos de la lista
+ * y solo si lo publicado no cambió desde la revisión (misma huella). Lo
+ * demás sale «sin revisar» y se pregunta con el botón.
+ */
+export function fotosGuardadasVigentes(
+  lista: Pick<ProductoNuevo, "clave" | "meli" | "amazon">[],
+  guardadas: Record<string, FotosGuardada> | null | undefined,
+): FotosProducto[] {
+  if (!guardadas) return [];
+  const salida: FotosProducto[] = [];
+  for (const p of lista) {
+    const g = guardadas[p.clave];
+    if (!g || g.huella !== huellaPublicaciones(p)) continue;
+    salida.push({ clave: p.clave, meli: g.meli, amazon: g.amazon, revisadoEn: g.revisadoEn ?? null });
+  }
+  return salida;
 }

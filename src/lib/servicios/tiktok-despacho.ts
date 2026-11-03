@@ -22,8 +22,11 @@ import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "..
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { diaMx } from "../tiktok/ventas";
-import { mismoFiltro, normalizarModelos, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
+import { mismoFiltro, normalizarModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
+import { mismoVendedor, nombreDeVendedor, partirPorVendedor, pedidosDeVendedor } from "../tiktok/externos";
+import { skusExternos } from "./tiktok-externos";
 import { pdfListaDeEmpaque } from "../tiktok/empaque-pdf";
+import { detectarLotes, loteDePaquete, type Lote } from "../tiktok/lotes";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   cancelarRenglones,
@@ -45,7 +48,7 @@ import { autoBloqueos, decidirPedido, esBloqueoAutomatico, type RenglonBloqueabl
 import type { Cancelacion } from "../tiktok/api";
 import { avisarParcialesSinCancelar, destinatarioFaltantes, type PedidoParcialSinCancelar } from "./tiktok-faltantes-correo";
 import { estadoSalidas3pl } from "./tiktok-3pl";
-import { leerEstanteTikTok } from "./tiktok-bodega";
+import { apartadoBodegaDeSku, estanteDeSku, leerEstanteTikTok, type EstanteTikTok } from "./tiktok-bodega";
 import {
   agruparPorModelo,
   clavePaquete,
@@ -57,8 +60,13 @@ import {
   necesitaFranja,
   numerosPreparados,
   renglonesDeEtiqueta,
-  numerarPaquetes,
+  numerarConGuardada,
   esFalloDeArmado,
+  paquetesQueViajan,
+  conRenglonesGuardados,
+  renglonesGuardados,
+  contarAvanceDeCortes,
+  type AvanceCorte,
   ORDEN_ACTUAL,
   type OrdenPaquetes,
   type PaqueteDespacho,
@@ -81,7 +89,7 @@ import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 async function stockFisicoDeCuenta(admin: any, accountId: string): Promise<Map<string, StockFisico>> {
   const [inv, estante, salidas] = await Promise.all([
     traerTodo<any>(admin, "tiktok_inventario", "sku, saldo", (q) => q.eq("account_id", accountId)),
-    leerEstanteTikTok(admin, accountId).catch(() => ({ pares: null, contadosDespues: new Set<string>() })),
+    leerEstanteTikTok(admin, accountId).catch((): EstanteTikTok => ({ pares: null, contadosDespues: new Set<string>(), sinEstante: new Set<string>() })),
     estadoSalidas3pl(admin, accountId).catch(() => ({ pendientes: new Map<string, number>(), confirmadas: new Map<string, number>() })),
   ]);
   const stock = new Map<string, StockFisico>();
@@ -90,9 +98,11 @@ async function stockFisicoDeCuenta(admin: any, accountId: string): Promise<Map<s
     stock.set(sku, {
       sku,
       saldo: Number(r.saldo ?? 0),
-      estante: estante.pares ? (estante.pares.get(sku) ?? 0) : null,
+      // Un SKU de vendedor externo (David) no tiene estante: manda su kardex.
+      estante: estanteDeSku(estante, sku),
       salidasPendientes: salidas.pendientes.get(sku) ?? 0,
       contadoDespues: estante.contadosDespues.has(sku),
+      apartadoBodega: apartadoBodegaDeSku(estante, sku),
     });
   }
   return stock;
@@ -199,6 +209,10 @@ export interface ResultadoCorte {
   unido?: boolean;
   /** filtro de modelos con el que se hizo (corte por modelo); null = corte general */
   modelos?: string[] | null;
+  /** de quién es el corte: null = el dueño, 'david' = el vendedor externo */
+  vendedor?: string | null;
+  /** true = corte de MUESTRAS: solo las muestras gratis (dueño, 22-oct-2026) */
+  muestras?: boolean;
 }
 
 /**
@@ -289,18 +303,28 @@ export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccio
   return ordenados.find((h) => h.fin > ahora) ?? ordenados[ordenados.length - 1];
 }
 
-/** Los pedidos que entrarían en el siguiente corte, con la fecha en que se vendieron. */
-export async function pendientesDeCorte(db: DB, accountId: string): Promise<PendienteConFecha[]> {
-  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion", (q) =>
+/**
+ * Los pedidos que entrarían en el siguiente corte, con la fecha en que se
+ * vendieron. DE UN VENDEDOR: null = el dueño; 'david' = el vendedor externo.
+ * Un pedido con ALGÚN par de un vendedor externo es suyo (el mixto también,
+ * decisión del dueño, 11-oct-2026); lo demás es del dueño. Sin nada ligado,
+ * todo es del dueño y no se lee nada de más.
+ */
+export async function pendientesDeCorte(db: DB, accountId: string, vendedor: string | null = null): Promise<PendienteConFecha[]> {
+  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion, es_muestra", (q) =>
     q.eq("account_id", accountId).is("corte_id", null),
   );
   // Lo más viejo primero: si el corte se queda sin tiempo, lo que sobra es
   // lo más reciente, nunca lo que ya casi cumple las 48 horas.
-  return ordenarPorAntiguedad(
+  const todos = ordenarPorAntiguedad(
     (filas ?? [])
       .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
-      .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null })),
+      .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null, esMuestra: o.es_muestra === true })),
   );
+  const externos = await skusExternos(db, accountId);
+  if (!externos.size) return vendedor ? [] : todos;
+  const vendedorDe = partirPorVendedor(await renglonesLigerosDe(db, accountId, todos), externos);
+  return pedidosDeVendedor(todos, vendedorDe, vendedor ?? null);
 }
 
 /** Los renglones (SKU y pares) de cada pedido pendiente, sin defensa: para decidir qué modelos lleva cada uno. */
@@ -331,19 +355,104 @@ export async function pendientesDeCorteFiltrados(
   db: DB,
   accountId: string,
   soloModelos?: string[] | null,
-): Promise<{ pendientes: PendienteConFecha[]; todos: PendienteConFecha[]; modelos: string[] }> {
-  const todos = await pendientesDeCorte(db, accountId);
+  vendedor: string | null = null,
+  /** corte de MUESTRAS: solo las muestras gratis (dueño, 22-oct-2026) */
+  soloMuestras = false,
+): Promise<{ pendientes: PendienteConFecha[]; todos: PendienteConFecha[]; modelos: string[]; muestras: boolean }> {
+  const todos = await pendientesDeCorte(db, accountId, vendedor);
   const modelos = normalizarModelos(soloModelos);
-  if (!modelos.length) return { pendientes: todos, todos, modelos };
-  const renglones = await renglonesLigerosDe(db, accountId, todos);
+  const base = pedidosDeMuestras(todos, soloMuestras);
+  if (!modelos.length) return { pendientes: base, todos, modelos, muestras: soloMuestras };
+  const renglones = await renglonesLigerosDe(db, accountId, base);
   const entran = pedidosDeSoloModelos(renglones, modelos);
-  return { pendientes: todos.filter((p) => entran.has(p.orderId)), todos, modelos };
+  return { pendientes: base.filter((p) => entran.has(p.orderId)), todos, modelos, muestras: soloMuestras };
+}
+
+/** El aviso cuando el filtro no deja nada que cortar. */
+function sinPendientesCon(modelos: string[], soloMuestras: boolean, vendedor: string | null): string {
+  if (soloMuestras) return modelos.length ? `No hay muestras por despachar que sean solo de ${modelos.join(", ")}.` : "No hay muestras por despachar.";
+  if (modelos.length) return `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.`;
+  return vendedor ? `No hay pedidos de ${nombreDeVendedor(vendedor)} por despachar.` : "No hay pedidos por despachar.";
 }
 
 /** Cuántos pendientes son de un solo modelo, por modelo (el selector de «corte por modelo»). */
-export async function pendientesPorModeloDeCuenta(db: DB, accountId: string): Promise<PendientesPorModelo> {
-  const pendientes = await pendientesDeCorte(db, accountId);
+export async function pendientesPorModeloDeCuenta(
+  db: DB,
+  accountId: string,
+  /** los pendientes ya leídos (la pantalla los tiene): no se leen dos veces */
+  yaLeidos?: PendienteConFecha[],
+  vendedor: string | null = null,
+): Promise<PendientesPorModelo> {
+  const pendientes = yaLeidos ?? (await pendientesDeCorte(db, accountId, vendedor));
   return pendientesPorModelo(await renglonesLigerosDe(db, accountId, pendientes));
+}
+
+/** Los estados de un pedido cortado que ya no falta aunque nadie lo haya escaneado. */
+const ESTADOS_RESUELTOS = ["CANCELLED", "CANCEL", "IN_TRANSIT", "DELIVERED", "COMPLETED"];
+
+/**
+ * El avance (preparados, cancelados, enviados sin escanear) de los cortes
+ * que la pantalla enseña, y SOLO de esos: antes Despacho bajaba las ~16 mil
+ * preparaciones y los ~16 mil pedidos cortados de toda la historia para
+ * contar 30 cortes. Primero el RPC agrupado (`tiktok_avance_cortes`,
+ * migración 0120); si no contesta (aún no aplicado, permisos), las mismas
+ * lecturas de antes acotadas a esos cortes. Lanza si las dos fallan.
+ */
+export async function avanceDeCortes(db: DB, accountId: string, corteIds: number[]): Promise<Map<number, AvanceCorte>> {
+  const ids = [...new Set(corteIds.filter((id) => Number.isFinite(id)))];
+  if (!ids.length) return new Map();
+  try {
+    const { data, error } = await db.rpc("tiktok_avance_cortes", { p_account: accountId, p_cortes: ids });
+    if (error) throw new Error(error.message);
+    const avance = new Map<number, AvanceCorte>();
+    for (const r of (data ?? []) as any[]) {
+      avance.set(Number(r.corte_id), {
+        preparados: Number(r.preparados ?? 0),
+        cancelados: Number(r.cancelados ?? 0),
+        enviados: Number(r.enviados ?? 0),
+      });
+    }
+    return avance;
+  } catch (err) {
+    console.error("tiktok_avance_cortes (se cuenta renglón por renglón):", (err as Error).message);
+  }
+  const [prep, ordenes] = await Promise.all([
+    traerTodo<{ corte_id: number; order_id: string }>(db, "tiktok_preparaciones", "corte_id, order_id", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids),
+    ),
+    traerTodo<{ corte_id: number; order_id: string; estado: string }>(db, "tiktok_ordenes", "corte_id, order_id, estado", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids).in("estado", ESTADOS_RESUELTOS),
+    ),
+  ]);
+  return contarAvanceDeCortes(prep, ordenes);
+}
+
+/**
+ * La primera y la última constancia de preparado de cada corte (RPC
+ * `tiktok_tiempos_cortes`, migración 0126): Despacho enseña la diferencia
+ * como el tiempo que tomó preparar el corte (dueño, 9-oct-2026). Si la
+ * lectura falla, mapa vacío: el tiempo simplemente no se enseña.
+ */
+export async function tiemposDeCortes(
+  db: DB,
+  accountId: string,
+  corteIds: number[],
+): Promise<Map<number, { primera: string; ultima: string }>> {
+  const ids = [...new Set(corteIds.filter((id) => Number.isFinite(id)))];
+  const tiempos = new Map<number, { primera: string; ultima: string }>();
+  if (!ids.length) return tiempos;
+  try {
+    const { data, error } = await db.rpc("tiktok_tiempos_cortes", { p_account: accountId, p_cortes: ids });
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as any[]) {
+      if (!r.primera_prep || !r.ultima_prep) continue;
+      tiempos.set(Number(r.corte_id), { primera: String(r.primera_prep), ultima: String(r.ultima_prep) });
+    }
+  } catch (err) {
+    console.error("tiktok_tiempos_cortes:", (err as Error).message);
+    return new Map();
+  }
+  return tiempos;
 }
 
 /**
@@ -372,16 +481,22 @@ export async function hacerCorte(
      * mismo modelo si nadie le ha preparado nada.
      */
     unirAlDeHoy?: boolean;
+    /** de quién es el corte: null = el dueño; 'david' = solo los pedidos con algún par del vendedor externo */
+    vendedor?: string | null;
+    /** corte de MUESTRAS: solo las muestras gratis; sin esto van revueltas con lo demás (dueño, 22-oct-2026) */
+    soloMuestras?: boolean;
   },
 ): Promise<ResultadoCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? MS_CORTE);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
-  const todos = await pendientesDeCorte(admin, accountId);
+  const vendedor = opciones.vendedor ?? null;
+  const todos = await pendientesDeCorte(admin, accountId, vendedor);
   const filtro = opciones.soloPedidos ? new Set(opciones.soloPedidos) : null;
   let pendientes = filtro ? todos.filter((p) => filtro.has(p.orderId)) : todos;
   const soloModelos = normalizarModelos(opciones.soloModelos);
-  if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
+  const soloMuestras = opciones.soloMuestras === true;
+  if (!pendientes.length) throw new Error(sinPendientesCon([], false, vendedor));
 
   const errores: { orderId: string; error: string }[] = [];
 
@@ -398,12 +513,16 @@ export async function hacerCorte(
   let automaticos = defensa.automaticos;
   let liberados = defensa.liberados;
   const enDuda = defensa.enDuda;
-  if (soloModelos.length) {
+  if (soloModelos.length || soloMuestras) {
     // Corte por MODELO (dueño, 5-oct-2026): solo los paquetes de UN solo
     // modelo de la lista; un paquete revuelto se va con el corte general.
-    const entran = pedidosDeSoloModelos(renglonesPorPedido, soloModelos);
+    // Corte de MUESTRAS (22-oct-2026): solo las muestras gratis. La defensa
+    // ya se decidió sobre TODOS; aquí solo se recorta lo que entra.
+    const porModelo = soloModelos.length ? pedidosDeSoloModelos(renglonesPorPedido, soloModelos) : null;
+    const entran = new Set(pedidosDeMuestras(pendientes, soloMuestras).map((p) => p.orderId));
+    if (porModelo) for (const id of [...entran]) if (!porModelo.has(id)) entran.delete(id);
     pendientes = pendientes.filter((p) => entran.has(p.orderId));
-    if (!pendientes.length) throw new Error(`No hay pedidos por despachar que sean solo de ${soloModelos.join(", ")}.`);
+    if (!pendientes.length) throw new Error(sinPendientesCon(soloModelos, soloMuestras, vendedor));
     renglonesPorPedido = new Map([...renglonesPorPedido].filter(([id]) => entran.has(id)));
     automaticos = automaticos.filter((a) => entran.has(a.orderId));
     const lineasDelCorte = new Set([...renglonesPorPedido.values()].flat().map((r) => r.lineItemId));
@@ -596,8 +715,13 @@ export async function hacerCorte(
       // con un renglón CREAM sin stock); se reintenta UNA vez tras unos
       // segundos releyendo los paquetes.
       const confirmarPaquetes = async () => {
-      const paquetes = await paquetesDePedido(cliente, p.orderId);
-      if (!paquetes.length) throw new Error("TikTok no tiene paquete para este pedido.");
+      const todos = await paquetesDePedido(cliente, p.orderId);
+      if (!todos.length) throw new Error("TikTok no tiene paquete para este pedido.");
+      // Con un renglón recién cancelado TikTok deja también el paquete del
+      // renglón cancelado: ese no se confirma ni lleva etiqueta
+      // (`paquetesQueViajan`; el #57 del 7-oct-2026 salió con 882
+      // etiquetas de 875 pedidos por confirmar y numerar los dos).
+      const paquetes = await paquetesVivosDelPedido(cliente, todos, decision.quedan.map((r) => r.lineItemId));
       for (const pk of paquetes) {
         // Recolección: hay que decirle a TikTok CUÁNDO. Sin horario acepta
         // la petición pero la vuelve drop-off, que es justo lo que pasó en
@@ -704,6 +828,8 @@ export async function hacerCorte(
       cancelados,
       al3pl: { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: false },
       modelos: soloModelos.length ? soloModelos : null,
+      vendedor,
+      muestras: soloMuestras,
     };
   }
 
@@ -714,10 +840,22 @@ export async function hacerCorte(
     0,
   );
 
-  // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
-  // une en vez de abrir otro (ver `corteQueContinua`).
+  // ¿Este corte CONTINÚA uno de hoy con el mismo filtro al que nadie le ha
+  // preparado nada? Entonces se le une en vez de abrir otro (ver
+  // `corteQueContinua`). Desde el 7-oct-2026 también el corte GENERAL: el
+  // #58 (6 pedidos: uno reintentado del #57 y cinco que entraron mientras el
+  // #57 corría) se abrió aparte del #57 (869) un minuto después porque el
+  // #57 no había dejado nada «por tiempo»; dueño: «salieron separados, ¿qué
+  // pasó ahí?». Solo la segunda tanda del corte lunes pide abrir el suyo.
+  // Los cortes de un VENDEDOR EXTERNO (David) NO se juntan por ser del
+  // mismo día (dueño, 22-oct-2026: «hizo un corte y luego otro y le está
+  // juntando los cortes»): él despacha desde otra bodega y cada corte es un
+  // trabajo aparte; solo se une la continuación de uno que quedó «por
+  // tiempo», como siempre.
   const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
-    sinExigirTiempo: soloModelos.length > 0 && opciones.unirAlDeHoy !== false,
+    sinExigirTiempo: opciones.unirAlDeHoy !== false && !vendedor,
+    vendedor,
+    muestras: soloMuestras,
   });
   let corte: { id: number };
   let numero: number;
@@ -732,6 +870,9 @@ export async function hacerCorte(
         pedidos: (unirA.pedidos ?? 0) + confirmados.length,
         pares: (unirA.pares ?? 0) + pares,
         errores: erroresAlUnir(unirA.errores ?? [], errores, pendientes.map((p) => p.orderId)),
+        // Se renumera con los paquetes nuevos (nadie ha preparado nada):
+        // la numeración congelada vuelve a nacer en el siguiente armado.
+        numeracion: null,
       })
       .eq("id", unirA.id);
     if (error) throw new Error(`No se pudo unir al corte #${numero}: ${error.message}`);
@@ -767,6 +908,10 @@ export async function hacerCorte(
         orden_paquetes: ORDEN_ACTUAL,
         // Corte por modelo: con qué filtro nació (null = general).
         modelos: soloModelos.length ? soloModelos : null,
+        // De quién es (null = el dueño): un corte de David nunca se mezcla con uno del dueño.
+        vendedor,
+        // Corte de muestras: solo muestras gratis (dueño, 22-oct-2026).
+        muestras: soloMuestras,
       })
       .select("id")
       .single();
@@ -795,11 +940,13 @@ export async function hacerCorte(
   // Y las mismas salidas, al 3PL: que Industher también baje su número. Se
   // registran por (pedido, SKU) y se mandan; lo que no confirme se reintenta
   // en el cron. Un renglón sin SKU del ERP no se manda: el 3PL no lo conoce.
+  // Un par de un vendedor externo (David) tampoco: no sale de Industher.
   const porPedidoYSku = new Map<string, { orderId: string; sku: string; pares: number }>();
   const conSkuDelErp = new Set(filasRenglones.filter((r) => !r.sku.startsWith("(")).map((r) => r.lineItemId));
+  const externos = await skusExternos(admin, accountId).catch(() => new Map<string, string>());
   for (const id of confirmados) {
     for (const r of vivosPorPedido.get(id) ?? []) {
-      if (!conSkuDelErp.has(r.lineItemId)) continue;
+      if (!conSkuDelErp.has(r.lineItemId) || externos.has(r.sku)) continue;
       const k = `${id}|${r.sku}`;
       const prev = porPedidoYSku.get(k) ?? { orderId: id, sku: r.sku, pares: 0 };
       prev.pares += r.cantidad;
@@ -821,6 +968,8 @@ export async function hacerCorte(
     al3pl,
     unido,
     modelos: soloModelos.length ? soloModelos : null,
+    vendedor,
+    muestras: soloMuestras,
   };
 }
 
@@ -835,21 +984,28 @@ async function corteDeHoyQueContinua(
   orderIds: string[],
   /** filtro del corte que se está haciendo: solo se une a uno de hoy con el MISMO filtro */
   soloModelos: string[] = [],
-  opciones: { sinExigirTiempo?: boolean } = {},
+  opciones: { sinExigirTiempo?: boolean; vendedor?: string | null; muestras?: boolean } = {},
 ): Promise<{ id: number; numero: number; pedidos: number; pares: number; errores: { orderId: string; error: string }[] } | null> {
   const ahora = new Date();
   // Desde las 00:00 de hoy en México (UTC−6 fijo, como `diaMx`).
   const desde = new Date(`${diaMx(ahora.toISOString())}T06:00:00Z`).toISOString();
   const { data } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, pedidos, pares, errores, modelos")
+    .select("id, numero, creado_en, pedidos, pares, errores, modelos, vendedor, muestras")
     .eq("account_id", accountId)
     .gte("creado_en", desde)
     .order("id", { ascending: false })
     .limit(10);
   // Un corte por modelo nunca se une a uno general ni al de otro modelo:
-  // sus hojas son de un solo producto a propósito.
-  const cortes = ((data ?? []) as any[]).filter((c) => mismoFiltro(c.modelos ?? null, soloModelos));
+  // sus hojas son de un solo producto a propósito. Y un corte de David
+  // nunca se une a uno del dueño: los despacha otra bodega.
+  // Y un corte de muestras solo se une a otro de muestras (y uno normal a uno normal).
+  const cortes = ((data ?? []) as any[]).filter(
+    (c) =>
+      mismoFiltro(c.modelos ?? null, soloModelos) &&
+      mismoVendedor(c.vendedor ?? null, opciones.vendedor ?? null) &&
+      Boolean(c.muestras) === Boolean(opciones.muestras),
+  );
   if (!cortes.length) return null;
   const preparados = new Map<number, number>();
   for (const c of cortes) {
@@ -936,12 +1092,12 @@ const MS_CORTE_LUNES = 760_000;
 export async function hacerCorteLunes(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null; soloMuestras?: boolean },
 ): Promise<ResultadoCorteLunes> {
   const arranque = Date.now();
-  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
-  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos);
-  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
+  // Corte por modelo o de muestras: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null, opciones.soloMuestras === true);
+  if (!pendientes.length) throw new Error(sinPendientesCon(modelos, muestras, opciones.vendedor ?? null));
 
   const { urgentes, resto } = partirEnTandas(pendientes);
 
@@ -1022,11 +1178,11 @@ export async function hacerCorteLunes(
 export async function hacerCorteAyer(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null; vendedor?: string | null; soloMuestras?: boolean },
 ): Promise<ResultadoCorteLunes> {
-  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
-  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos);
-  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
+  // Corte por modelo o de muestras: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos, opciones.vendedor ?? null, opciones.soloMuestras === true);
+  if (!pendientes.length) throw new Error(sinPendientesCon(modelos, muestras, opciones.vendedor ?? null));
 
   const { urgentes, resto, corte } = partirEnTandas(pendientes);
   if (!urgentes.length) {
@@ -1078,43 +1234,63 @@ export interface CorteCargado {
 export async function cargarCorte(admin: any, accountId: string, corteId: number): Promise<CorteCargado> {
   const { data: corte } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, orden_paquetes, pedidos")
+    .select("id, numero, creado_en, orden_paquetes, pedidos, numeracion")
     .eq("account_id", accountId)
     .eq("id", corteId)
     .maybeSingle();
   if (!corte) throw new Error("Ese corte no existe.");
   const orden: OrdenPaquetes = corte.orden_paquetes === "un-color" ? "un-color" : corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
-  const [ordenes, items] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria, estado", (q) =>
-      q.eq("account_id", accountId).eq("corte_id", corteId),
-    ),
-    traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
-      q.eq("account_id", accountId),
-    ),
-  ]);
-  const ordenIds = new Set((ordenes ?? []).map((o: any) => o.order_id));
-  const itemsPorOrden = new Map<string, any[]>();
-  for (const i of items ?? []) {
-    if (!ordenIds.has(i.order_id)) continue;
-    // Un renglón cancelado —en TikTok, o por el bloqueo del corte— no va
-    // en la etiqueta ni en la lista: ese par no se manda.
-    if (efectoDeEstado(i.estado) === "reversa" || i.bloqueo_resultado === "cancelado") continue;
-    const l = itemsPorOrden.get(i.order_id) ?? [];
-    l.push(i);
-    itemsPorOrden.set(i.order_id, l);
-  }
-
+  // Del pedido solo se ocupa el destinatario (no el `detalle` entero), y los
+  // renglones se leen SOLO de los pedidos del corte, por tandas: antes se
+  // bajaban los ~27 mil renglones de la cuenta para quedarse con los de un
+  // corte en cada carga de la estación y de cada tomo de etiquetas. Los
+  // códigos (FNSKU y Full) no dependen de los pedidos: se leen a la par.
+  //
   // El FNSKU es el código de barras que ya trae la caja del zapato (las
   // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
   // El FNSKU es el que se imprime, pero la caja puede traer pegada la
   // etiqueta de Full de cualquiera de las dos cuentas de MELI: sus códigos
   // también valen para dar el par por bueno.
-  const [amazon, alias, meli] = await Promise.all([
+  const codigosP = Promise.all([
     mapaAmazon(admin),
     aliasAmazonDeCuenta(admin, accountId),
     codigosMeliDeCuenta(admin, accountId),
   ]);
+  codigosP.catch(() => {}); // si los pedidos fallan primero, no queda un rechazo suelto
+  const ordenes = await traerTodo<any>(
+    admin,
+    "tiktok_ordenes",
+    "order_id, paquetes, destinatario:detalle->destinatario, paqueteria, estado",
+    (q) => q.eq("account_id", accountId).eq("corte_id", corteId),
+  );
+  const items = await porTandas(
+    [...new Set((ordenes ?? []).map((o: any) => String(o.order_id)))],
+    TANDA_IDS,
+    (tanda) =>
+      traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
+        q.eq("account_id", accountId).in("order_id", tanda),
+      ),
+  );
+  const ordenIds = new Set((ordenes ?? []).map((o: any) => o.order_id));
+  const itemsPorOrden = new Map<string, any[]>();
+  /** lo que TikTok canceló DESPUÉS del corte: se enseña tachado en su lugar, no se manda */
+  const canceladosPorOrden = new Map<string, any[]>();
+  for (const i of items ?? []) {
+    if (!ordenIds.has(i.order_id)) continue;
+    // Un renglón cancelado por el bloqueo del corte nunca entró: fuera.
+    if (i.bloqueo_resultado === "cancelado") continue;
+    // Un renglón cancelado en TikTok no va en la etiqueta ni se escanea:
+    // ese par no se manda. Se guarda aparte para que un pedido cancelado
+    // completo después del corte siga diciendo en la hoja QUÉ llevaba
+    // (antes salía en blanco, «(sin renglones)»).
+    const destino = efectoDeEstado(i.estado) === "reversa" ? canceladosPorOrden : itemsPorOrden;
+    const l = destino.get(i.order_id) ?? [];
+    l.push(i);
+    destino.set(i.order_id, l);
+  }
+
+  const [amazon, alias, meli] = await codigosP;
   const fnskuDe = (sku: string) => resolverFnsku(amazon, alias, sku);
 
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
@@ -1126,6 +1302,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       const desdeTikTok = await paquetesDePedido(cliente, o.order_id);
       ids = desdeTikTok.map((p) => p.id);
       if (ids.length) {
+        o.paquetes = desdeTikTok; // lo que queda guardado (abajo se le pegan los renglones)
         await admin
           .from("tiktok_ordenes")
           .update({ paquetes: desdeTikTok })
@@ -1134,7 +1311,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       }
     }
 
-    const renglones = itemsPorOrden.get(o.order_id) ?? [];
+    const vivos = itemsPorOrden.get(o.order_id) ?? [];
+    // Sin nada vivo, el paquete se enseña con lo que llevaba (cancelado).
+    const renglones = vivos.length ? vivos : (canceladosPorOrden.get(o.order_id) ?? []);
     const aPar = (lista: any[]) => {
       const porSku = new Map<string, number>();
       for (const r of lista) {
@@ -1151,7 +1330,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
     // Cancelado después del corte (el pedido entero, o todos sus renglones):
     // conserva su número, pero ya no falta por preparar.
-    const cancelado = efectoDeEstado(o.estado) === "reversa" || renglones.length === 0;
+    const cancelado = efectoDeEstado(o.estado) === "reversa" || vivos.length === 0;
     // Ya se fue con el repartidor (TikTok lo tiene en camino o entregado):
     // salió aunque no se haya escaneado.
     const enviado = yaSeEnvio(o.estado);
@@ -1160,7 +1339,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       paquetes.push({
         orderId: o.order_id,
         packageId: ids[0] ?? "",
-        destinatario: o.detalle?.destinatario ?? null,
+        destinatario: o.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(renglones),
         cancelado,
@@ -1171,21 +1350,58 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
     // Varios paquetes: cada uno lleva sus propios renglones. Si TikTok no
     // dice cuáles, se estampan todos en cada etiqueta antes que adivinar.
-    for (const id of ids) {
-      let propios = renglones;
-      try {
-        const lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
-        if (lineIds.length) {
-          const set = new Set(lineIds);
-          propios = renglones.filter((r) => set.has(String(r.line_item_id)));
+    // El paquete cuyos renglones están TODOS cancelados (el que TikTok deja
+    // cuando la defensa cancela un renglón de un pedido grande) no viaja ni
+    // lleva etiqueta: `paquetesQueViajan`. Lo que se le aprendió al pedido
+    // se guarda para que la siguiente carga no vuelva a preguntar.
+    // Lo que TikTok ya contestó de cada paquete viaja guardado en
+    // `tiktok_ordenes.paquetes` (`lineIds`, `renglonesGuardados`): una
+    // recarga de la estación o de un tomo ya no le vuelve a preguntar. Un
+    // paquete sin respuesta (o vacía) se sigue preguntando; la
+    // sincronización reescribe `paquetes` con lo de TikTok y entonces se
+    // vuelve a preguntar, como antes.
+    const guardados = new Map<string, string[]>(
+      renglonesGuardados((o.paquetes ?? []) as any[]).map((g) => [g.id, g.lineIds]),
+    );
+    let aprendio = false;
+    const conRenglones: { id: string; lineIds: string[] }[] = await Promise.all(
+      ids.map(async (id) => {
+        const yaSabido = guardados.get(id);
+        if (yaSabido?.length) return { id, lineIds: yaSabido };
+        let lineIds: string[] = [];
+        try {
+          lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
+        } catch {
+          /* se estampan todos */
         }
-      } catch {
-        /* se estampan todos */
+        if (lineIds.length) aprendio = true;
+        return { id, lineIds };
+      }),
+    );
+    const viajan = paquetesQueViajan(conRenglones, renglones.map((r) => String(r.line_item_id)));
+    if (viajan.length < conRenglones.length) {
+      await admin
+        .from("tiktok_ordenes")
+        .update({ paquetes: viajan.map((v) => ({ id: v.id, estado: null, lineIds: v.lineIds })) })
+        .eq("account_id", accountId)
+        .eq("order_id", o.order_id);
+    } else if (aprendio && ((o.paquetes ?? []) as any[]).length === ids.length) {
+      await admin
+        .from("tiktok_ordenes")
+        .update({ paquetes: conRenglonesGuardados((o.paquetes ?? []) as any[], conRenglones) })
+        .eq("account_id", accountId)
+        .eq("order_id", o.order_id);
+    }
+    for (const { id, lineIds } of viajan) {
+      let propios = renglones;
+      if (lineIds.length) {
+        const set = new Set(lineIds);
+        propios = renglones.filter((r) => set.has(String(r.line_item_id)));
       }
       paquetes.push({
         orderId: o.order_id,
         packageId: id,
-        destinatario: o.detalle?.destinatario ?? null,
+        destinatario: o.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(propios.length ? propios : renglones),
         cancelado,
@@ -1194,13 +1410,23 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     }
   }
 
+  // La numeración se CONGELA la primera vez que el corte se arma (es la que
+  // va en las guías y en las hojas) y desde ahí manda sobre lo que diga el
+  // orden de hoy: un pedido cancelado, un renglón de menos o un paquete
+  // con otro id ya no corren a los demás. Al unirse una ronda se reinicia
+  // (`hacerCorte`), porque ahí sí se renumera y los PDF se tiran.
+  const numerados = numerarConGuardada(paquetes, orden, corte.numeracion ?? null);
+  if (numerados.nueva) {
+    await admin.from("tiktok_cortes").update({ numeracion: numerados.nueva }).eq("account_id", accountId).eq("id", corteId);
+  }
+
   return {
     id: corte.id,
     numero: corte.numero,
     creadoEn: corte.creado_en,
     pedidos: Number(corte.pedidos ?? 0),
     orden,
-    paquetes: numerarPaquetes(paquetes, orden),
+    paquetes: numerados.paquetes,
   };
 }
 
@@ -1549,6 +1775,29 @@ export async function calentarCortesRecientes(
   return { cortes, completos, guiasBajadas, tomosArmados };
 }
 
+
+/**
+ * Los paquetes de un pedido que de verdad viajan (ver `paquetesQueViajan`):
+ * con más de un paquete se le pregunta a TikTok qué renglones lleva cada
+ * uno y se descarta el que solo lleva renglones cancelados. Si TikTok no
+ * contesta por alguno, ese se queda.
+ */
+async function paquetesVivosDelPedido<T extends { id: string }>(cliente: any, paquetes: T[], renglonesVivos: string[]): Promise<T[]> {
+  if (paquetes.length <= 1) return paquetes;
+  const conRenglones = await Promise.all(
+    paquetes.map(async (pk) => {
+      let lineIds: string[] = [];
+      try {
+        lineIds = await renglonesDelPaquete(cliente, pk.id);
+      } catch {
+        /* sin dato: viaja */
+      }
+      return { id: pk.id, lineIds, paquete: pk };
+    }),
+  );
+  return paquetesQueViajan(conRenglones, renglonesVivos).map((x) => x.paquete);
+}
+
 /**
  * Baja y guarda las guías del corte que todavía no están en el bucket,
  * hasta donde alcance `msPresupuesto`. Es el calentamiento: se llama en el
@@ -1666,8 +1915,31 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     }
   };
 
+  // Un LOTE (muchos paquetes iguales de un par) lleva una hoja separadora
+  // delante de sus guías, para que la pila salga ya partida y coincida con
+  // la pila de cajas (dueño, 8-oct-2026). Si el lote viene del tomo
+  // anterior, la hoja lo dice.
+  const lotes = detectarLotes(corte.paquetes);
+  const separadorDeLote = (lote: Lote, continua: boolean) => {
+    const pagina = doc.addPage(A6);
+    const centrar = (texto: string, y: number, size: number) => {
+      const w = fuente.widthOfTextAtSize(texto, size);
+      pagina.drawText(texto, { x: Math.max(8, (A6[0] - w) / 2), y, size, font: fuente, color: rgb(0, 0, 0) });
+    };
+    pagina.drawRectangle({ x: 10, y: 10, width: A6[0] - 20, height: A6[1] - 20, borderColor: rgb(0, 0, 0), borderWidth: 3 });
+    centrar(continua ? "LOTE (continúa)" : "LOTE", A6[1] - 90, 34);
+    const sku = lote.sku;
+    centrar(sku, A6[1] - 140, sku.length > 22 ? 13 : 17);
+    centrar(`${lote.cantidad} guías · #${lote.desde} a #${lote.hasta}`, A6[1] - 180, 14);
+    centrar(`Corte #${corte.numero}`, A6[1] - 205, 11);
+    const lineas = [`Toma ${lote.cantidad} cajas de este producto`, "y pega las guías que siguen:", "cualquier guía en cualquier caja."];
+    lineas.forEach((t, i) => centrar(t, A6[1] - 250 - i * 16, 10));
+  };
+
   let sinGuia = 0;
   for (const p of paquetesDelPdf) {
+    const lote = loteDePaquete(lotes, p.numero);
+    if (lote && (p.numero === lote.desde || p === paquetesDelPdf[0])) separadorDeLote(lote, p.numero !== lote.desde);
     const g = guias.get(`${p.orderId}|${p.packageId}`) ?? { bytes: null, error: "sin guía" };
     const bytes = g.bytes;
     const error = g.error;
@@ -2241,13 +2513,21 @@ export interface SimulacionCorte {
   modelos: string[];
   /** cuántos pendientes (de TODOS, sin filtro) son de un solo modelo, por modelo */
   porModelo: PendientesPorModelo;
+  /** true = se simuló un corte de MUESTRAS */
+  muestras?: boolean;
 }
 
-export async function simularCorte(admin: any, accountId: string, soloModelos?: string[] | null): Promise<SimulacionCorte> {
+export async function simularCorte(
+  admin: any,
+  accountId: string,
+  soloModelos?: string[] | null,
+  vendedor: string | null = null,
+  soloMuestras = false,
+): Promise<SimulacionCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
-  const { pendientes, todos, modelos } = await pendientesDeCorteFiltrados(admin, accountId, soloModelos);
+  const { pendientes, todos, modelos, muestras } = await pendientesDeCorteFiltrados(admin, accountId, soloModelos, vendedor, soloMuestras);
   const porModelo = pendientesPorModelo(await renglonesLigerosDe(admin, accountId, todos));
   // La misma defensa automática que aplicaría el corte, sin escribir nada.
   const { porPedido: renglonesSim, enDuda } = await renglonesConDefensa(admin, accountId, pendientes);
@@ -2315,6 +2595,7 @@ export async function simularCorte(admin: any, accountId: string, soloModelos?: 
     salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
     endpoint3pl: urlSalidasIndusther(),
     modelos,
+    muestras,
     porModelo,
   };
 }

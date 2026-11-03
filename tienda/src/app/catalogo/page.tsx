@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CatalogoInfluencers } from "@/components/catalogo-influencers";
+import { PortadaCatalogo } from "@/components/portada-catalogo";
 import { catalogoCompleto } from "@/lib/catalogo";
 
 // El catálogo va en caché de 10 min (lib/catalogo.ts); el ERP lo refresca cada hora.
@@ -17,10 +18,8 @@ export default async function CatalogoCompleto() {
   const whatsapp = (process.env.INFLUENCERS_WHATSAPP ?? "").replace(/\D/g, "") || null;
   return (
     <div className="contenedor">
-      <section className="portada portada-creadores">
-        <h1 className="titulo-catalogo">Catálogo completo</h1>
-        <p>Todos los modelos GETAC por categoría. Elige los colores y tallas que te interesan y mándanos tu selección por WhatsApp.</p>
-      </section>
+      <link rel="preconnect" href="https://m.media-amazon.com" />
+      <PortadaCatalogo ceja="Calzado GETAC" titulo="Catálogo completo" texto="Todos nuestros modelos por categoría, con las existencias de hoy." productos={productos} />
       {productos.length ? (
         <CatalogoInfluencers productos={productos} whatsapp={whatsapp} porCategoria mostrarExistencia={false} llave="getac:catalogo:seleccion" />
       ) : (

@@ -55,7 +55,8 @@ export async function GET(req: NextRequest) {
       { header: "En camino desde China", key: "enCaminoChina", width: 20 },
       { header: "Existencia total", key: "total", width: 15 },
       { header: "Cobertura (días)", key: "cobertura", width: 15 },
-      { header: `Pedir (${DIAS_OBJETIVO_PEDIDO} días)`, key: "pedir", width: 14 },
+      { header: `Falta (${DIAS_OBJETIVO_PEDIDO} días)`, key: "falta", width: 14 },
+      { header: "Pedir (múltiplo cerrado)", key: "pedir", width: 20 },
       { header: "Costo unitario", key: "costo", width: 13 },
     ];
     hoja.getRow(1).font = { bold: true };
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
         enCaminoChina: v.enCaminoChina,
         total: v.posicionTotal,
         cobertura: Number.isFinite(v.cobertura) ? Math.round(v.cobertura) : "",
+        falta: v.necesidad ?? "",
         pedir: v.sugerido,
         costo: v.costoUnitario ?? "",
       });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal } from "./consolidado";
+import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, porUnidad, repartosPorUnidad, type BloqueCanal } from "./consolidado";
 import { compatibilidadGastosEmpresariales } from "./consolidado-cargar";
 import { armarEstadoResultados } from "./corte-meli";
 
@@ -96,6 +96,15 @@ describe("armarConsolidado", () => {
 
     expect(cns.total.utilidadNeta).toBe(140 + 450);
     expect(cns.total.unidades).toBe(15);
+
+    // Los repartos por unidad: publicidad por modelo, gastos generales y los
+    // dos juntos, por canal y en el total (el total divide entre las
+    // unidades de los canales calculables).
+    const r = repartosPorUnidad(cns);
+    expect(r.canal.meli_calzado).toEqual({ publicidad: 10, general: 26, ambos: 36 });
+    expect(r.canal.amazon).toEqual({ publicidad: 10, general: 20, ambos: 30 });
+    expect(r.total).toEqual({ publicidad: 10, general: 24, ambos: 34 });
+    expect(porUnidad(100, 0)).toBeNull();
     expect(cns.total.coberturaNeto).toBe(1);
     expect(cns.total.descuentosPlataforma).toBe(500);
     expect(cns.total.gananciaPorUnidad).toBe(Math.round(((140 + 450) / 15) * 100) / 100);

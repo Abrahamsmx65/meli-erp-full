@@ -14,9 +14,11 @@
  * duplica. Lo que no amarra se reporta aparte, nunca se tira en silencio.
  */
 import { MeliError, type MeliClient } from "../meli/client";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
+import { servirConCacheApp } from "./cache-app";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
+import { cargarInventario } from "./inventario";
 import { clienteDeCuenta } from "./webhooks";
 import { diasDeRango, fechaMx, netoConfirmadoDeFila, normalizarRango, type RangoFechas } from "./ventas-monitor";
 import {
@@ -55,6 +57,12 @@ export interface Publicidad {
   filas: FilaPublicidad[];
   /** qué hacer hoy con cada modelo, para ejecutarlo a mano en MELI */
   recomendaciones: RecomendacionAds[];
+  /**
+   * TODAS las campañas con gasto, por modelo: cuánto de lo que vende viene
+   * de la publicidad (`armarDependencias`). Opcional: los paneles guardados
+   * antes del 16-oct-2026 no la traen.
+   */
+  dependencias?: DependenciaAds[];
   totales: {
     gastoAds: number;
     ventaAds: number;
@@ -103,6 +111,11 @@ export interface CampanaAds {
   presupuesto: number | null;
   /** ACOS objetivo en % (así lo maneja MELI); null = automática o no vino */
   acosObjetivo: number | null;
+  /**
+   * ROAS objetivo (venta por publicidad ÷ inversión): el que MELI enseña en
+   * la consola. Viene como `roas_target` o se saca del ACOS (100 ÷ ACOS).
+   */
+  roasObjetivo: number | null;
   estrategia: string | null;
   /** gasto del periodo de los anuncios de esta campaña */
   gasto: number;
@@ -186,6 +199,7 @@ interface RespuestaCampanas {
     status?: string;
     budget?: number;
     acos_target?: number;
+    roas_target?: number;
     strategy?: string;
   }[];
   paging?: { total?: number; offset?: number; limit?: number };
@@ -344,7 +358,8 @@ export async function anunciosDesdeBase(
   const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
   if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
 
-  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+  // Por páginas: ~1,200 publicaciones con gasto y el API entrega 1,000.
+  const { data, error: errorRpc } = await rpcPaginado(db, "publicidad_resumen_items", {
     p_account: accountId,
     p_desde: r.desde,
     p_hasta: r.hasta,
@@ -400,6 +415,7 @@ export async function traerCampanasAds(
         estado: c.status ?? null,
         presupuesto: c.budget != null ? Number(c.budget) : null,
         acosObjetivo: c.acos_target != null ? Number(c.acos_target) : null,
+        roasObjetivo: roasDeCampana(c.roas_target, c.acos_target),
         estrategia: c.strategy ?? null,
       });
     }
@@ -420,6 +436,272 @@ export async function traerCampanasAds(
 export const COBERTURA_CORTA_DIAS = 14;
 /** Arriba de esto hay capital parado: espacio para invertir en ads. */
 export const COBERTURA_LARGA_DIAS = 45;
+
+/**
+ * TACOS ideal = tope: la publicidad nunca debe pasar del 10 % de la venta
+ * total del modelo (regla del dueño, 14-oct-2026: «el TACOS ideal que
+ * tenemos es 10 %, no hay que gastar más que eso»). Arriba se pide bajar
+ * aunque el margen aguante; subir solo llega hasta ahí.
+ */
+export const TACOS_TOPE = 0.1;
+
+/**
+ * Producto POSICIONADO (regla del dueño, 16-oct-2026): vende al menos
+ * `POSICIONADO_RITMO_MIN` al día hoy Y en los 60 días anteriores, su venta no
+ * cayó de 0.8× ni brincó arriba de 1.5× (un lanzamiento que despega no es
+ * estable), y a lo más la mitad de lo que vende lo atribuye MELI a la
+ * publicidad. Medido el 16-oct-2026 en calzado: MY2307, GT114, GT142, GT134,
+ * GT110 y GT135 quedaban entre 27 % y 50 %; los demás modelos con anuncio,
+ * entre 70 % y 120 %.
+ */
+export const POSICIONADO_RITMO_MIN = 10;
+export const POSICIONADO_PARTE_ADS_MAX = 0.5;
+export const POSICIONADO_CAMBIO_MIN = 0.8;
+export const POSICIONADO_CAMBIO_MAX = 1.5;
+
+export function esPosicionado(ritmo: number, ritmoPrevio: number, parteAds: number): boolean {
+  if (ritmo < POSICIONADO_RITMO_MIN || ritmoPrevio < POSICIONADO_RITMO_MIN) return false;
+  const cambio = ritmo / ritmoPrevio;
+  return cambio >= POSICIONADO_CAMBIO_MIN && cambio <= POSICIONADO_CAMBIO_MAX && parteAds <= POSICIONADO_PARTE_ADS_MAX;
+}
+
+/**
+ * El anuncio está corriendo. MELI marca «paused» lo que el dueño pausó,
+ * «hold» lo que MELI detiene sola (publicación sin stock o pausada) e
+ * «idle» lo que está en la campaña sin usarse: ninguno de los tres gasta, y
+ * pedir «pausar» sobre ellos es pedir lo ya hecho (GT181, 16-oct-2026:
+ * «me pones que apague la publicidad pero ya está pausado»).
+ */
+export const anuncioCorriendo = (estado: string | null): boolean => estado == null || estado === "active";
+
+/** Subir o bajar menos de esto al día no se pide: es ruido en la lista. */
+export const GASTO_DIA_MINIMO = 10;
+
+/**
+ * Presupuesto diario que HOY tiene cada modelo en MELI: la suma de sus
+ * campañas activas con algún anuncio suyo prendido. Una campaña con varios
+ * modelos se reparte en partes iguales. Puro.
+ */
+export function presupuestoPorModelo(
+  campanas: { id: string; estado: string | null; presupuesto: number | null }[],
+  itemsDeModelo: Map<string, ItemDeModelo[]>,
+): Map<string, number> {
+  const activas = new Map(
+    campanas.filter((c) => c.presupuesto != null && c.estado !== "paused").map((c) => [c.id, c.presupuesto as number]),
+  );
+  const modelosDeCampana = new Map<string, Set<string>>();
+  for (const [modelo, items] of itemsDeModelo) {
+    for (const it of items) {
+      if (!it.campanaId || !anuncioCorriendo(it.estado) || !activas.has(it.campanaId)) continue;
+      const set = modelosDeCampana.get(it.campanaId) ?? new Set<string>();
+      set.add(modelo);
+      modelosDeCampana.set(it.campanaId, set);
+    }
+  }
+  const salida = new Map<string, number>();
+  for (const [campana, modelos] of modelosDeCampana) {
+    const parte = (activas.get(campana) ?? 0) / modelos.size;
+    for (const m of modelos) salida.set(m, (salida.get(m) ?? 0) + parte);
+  }
+  return salida;
+}
+
+export type ClaseDependencia =
+  | "posicionado"
+  | "depende"
+  | "en_medio"
+  | "creciendo"
+  | "cayendo"
+  | "sin_venta";
+
+export const NOMBRE_CLASE_DEPENDENCIA: Record<ClaseDependencia, string> = {
+  posicionado: "Posicionado: se vende solo",
+  depende: "Depende de la publicidad",
+  en_medio: "En medio",
+  creciendo: "Creciendo",
+  cayendo: "Cayendo",
+  sin_venta: "Gasta sin vender",
+};
+
+/** Arriba de esta parte de las ventas por publicidad, el modelo DEPENDE de ella. */
+export const DEPENDE_PARTE_ADS_MIN = 0.7;
+
+/**
+ * Un modelo con anuncio y qué tanto depende de la publicidad (pedido del
+ * dueño, 16-oct-2026: «hazme de todas las campañas que tengo de qué
+ * dependo»).
+ */
+export interface DependenciaAds {
+  modelo: string;
+  /** nombres de las campañas donde está anunciado */
+  campanas: string[];
+  /** unidades al día en el periodo */
+  ritmo: number;
+  /** unidades al día en los 60 días anteriores; null = sin dato */
+  ritmoPrevio: number | null;
+  /** unidades que MELI atribuye a la publicidad ÷ unidades vendidas; null = sin venta */
+  parteAds: number | null;
+  /** gasto en ads al día del periodo */
+  gastoDia: number;
+  /** presupuesto diario de HOY de sus campañas; null = sin dato */
+  presupuestoHoy: number | null;
+  /** ROAS objetivo de HOY de sus campañas; null = sin dato o automática */
+  roasObjetivo?: number | null;
+  /** venta por publicidad ÷ gasto del periodo; null = sin venta por ads */
+  roasReal?: number | null;
+  tacos: number | null;
+  clase: ClaseDependencia;
+}
+
+/** La clase de dependencia de un modelo. Puro. */
+export function clasificarDependencia(
+  ritmo: number,
+  ritmoPrevio: number | null,
+  parteAds: number | null,
+): ClaseDependencia {
+  if (parteAds == null || ritmo === 0) return "sin_venta";
+  if (ritmoPrevio != null && esPosicionado(ritmo, ritmoPrevio, parteAds)) return "posicionado";
+  const cambio = ritmoPrevio != null && ritmoPrevio > 0 ? ritmo / ritmoPrevio : null;
+  if (cambio == null || cambio > POSICIONADO_CAMBIO_MAX) return "creciendo";
+  if (cambio < POSICIONADO_CAMBIO_MIN) return "cayendo";
+  if (parteAds >= DEPENDE_PARTE_ADS_MIN) return "depende";
+  return "en_medio";
+}
+
+/**
+ * La lista completa: cada modelo con gasto en el periodo, ordenado por gasto.
+ * Puro.
+ */
+export function armarDependencias(opts: {
+  filas: FilaPublicidad[];
+  dias: number;
+  itemsDeModelo: Map<string, ItemDeModelo[]>;
+  /** campaña -> nombre */
+  nombresCampana?: Map<string, string>;
+  presupuestoDeModelo?: Map<string, number>;
+  ritmoPrevioDeModelo?: Map<string, number>;
+  roasObjetivoDeModelo?: Map<string, number>;
+}): DependenciaAds[] {
+  const dias = opts.dias > 0 ? opts.dias : 1;
+  const salida: DependenciaAds[] = [];
+  for (const f of opts.filas) {
+    if (f.gastoAds <= 0) continue;
+    const ritmo = f.unidades / dias;
+    const ritmoPrevio = opts.ritmoPrevioDeModelo ? (opts.ritmoPrevioDeModelo.get(f.modelo) ?? 0) : null;
+    const parteAds = f.unidades > 0 ? f.unidadesAds / f.unidades : null;
+    const campanas = [
+      ...new Set(
+        (opts.itemsDeModelo.get(f.modelo) ?? [])
+          .map((i) => (i.campanaId ? (opts.nombresCampana?.get(i.campanaId) ?? i.campanaId) : null))
+          .filter((x): x is string => !!x),
+      ),
+    ].sort();
+    salida.push({
+      modelo: f.modelo,
+      campanas,
+      ritmo,
+      ritmoPrevio,
+      parteAds,
+      gastoDia: f.gastoAds / dias,
+      presupuestoHoy: opts.presupuestoDeModelo?.get(f.modelo) ?? null,
+      roasObjetivo: opts.roasObjetivoDeModelo?.get(f.modelo) ?? null,
+      roasReal: f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null,
+      tacos: f.tacos,
+      clase: clasificarDependencia(ritmo, ritmoPrevio, parteAds),
+    });
+  }
+  return salida.sort((a, b) => b.gastoDia - a.gastoDia || a.modelo.localeCompare(b.modelo));
+}
+
+/** ROAS objetivo de la campaña: `roas_target` o 100 ÷ ACOS objetivo. */
+export function roasDeCampana(roas: number | null | undefined, acos: number | null | undefined): number | null {
+  const r = roas != null ? Number(roas) : NaN;
+  if (Number.isFinite(r) && r > 0) return r;
+  const a = acos != null ? Number(acos) : NaN;
+  return Number.isFinite(a) && a > 0 ? 100 / a : null;
+}
+
+/**
+ * ROAS objetivo de HOY de cada modelo: el de sus campañas activas con algún
+ * anuncio suyo corriendo, pesado por presupuesto si está en varias. Puro.
+ */
+export function roasObjetivoPorModelo(
+  campanas: { id: string; estado: string | null; presupuesto: number | null; roasObjetivo: number | null }[],
+  itemsDeModelo: Map<string, ItemDeModelo[]>,
+): Map<string, number> {
+  const porId = new Map(campanas.filter((c) => c.estado !== "paused" && c.roasObjetivo != null).map((c) => [c.id, c]));
+  const salida = new Map<string, number>();
+  for (const [modelo, items] of itemsDeModelo) {
+    const ids = new Set(items.filter((i) => i.campanaId && anuncioCorriendo(i.estado)).map((i) => i.campanaId as string));
+    let suma = 0;
+    let peso = 0;
+    for (const id of ids) {
+      const c = porId.get(id);
+      if (!c) continue;
+      const w = c.presupuesto && c.presupuesto > 0 ? c.presupuesto : 1;
+      suma += (c.roasObjetivo as number) * w;
+      peso += w;
+    }
+    if (peso > 0) salida.set(modelo, suma / peso);
+  }
+  return salida;
+}
+
+/**
+ * El presupuesto se está gastando: el gasto al día llega a esta parte del
+ * presupuesto de hoy. Si no llega, el presupuesto NO es lo que limita y
+ * moverlo no cambia nada: lo que manda es el ROAS objetivo (dueño,
+ * 16-oct-2026: «el presupuesto es 150 y gasta 50 […] ahí deberías
+ * ajustar el ROAS objetivo»).
+ */
+export const PRESUPUESTO_LLENO = 0.8;
+
+/** Un paso de ROAS objetivo nunca mueve más de esto (ni menos de lo mínimo). */
+export const PASO_ROAS_MAX = 1.5;
+export const PASO_ROAS_MIN = 1.15;
+
+/**
+ * El ROAS objetivo nuevo para llevar el gasto de `alDia` a `meta`: se mueve
+ * el objetivo de HOY por la proporción de gasto que se busca, en pasos de
+ * 15 % a 50 % (para bajar el gasto a la mitad, ×1.5). No se parte del ROAS
+ * real: MELI suele quedar muy arriba del objetivo y el paso salía de 8 a 33
+ * (GT135, 16-oct-2026). Puro.
+ */
+export function roasParaGasto(roasObjetivo: number, alDia: number, meta: number): number {
+  const razon = alDia / Math.max(meta, 0.01);
+  const sube = razon >= 1;
+  const paso = Math.min(PASO_ROAS_MAX, Math.max(PASO_ROAS_MIN, sube ? razon : 1 / razon));
+  const nuevo = sube ? roasObjetivo * paso : roasObjetivo / paso;
+  return Math.round(nuevo * 10) / 10;
+}
+
+/**
+ * Días con que se mide el gasto RECIENTE: el de 14 días va atrasado, así que
+ * un ROAS ya movido se reconoce porque el gasto de estos días ya llegó a la
+ * meta.
+ */
+export const DIAS_GASTO_RECIENTE = 3;
+
+/** Gasto al día por modelo; un anuncio de varios modelos se parte parejo. Puro. */
+export function gastoDiaPorModelo(
+  anuncios: { itemId: string; gasto: number }[],
+  modelosDeItem: Map<string, string[]>,
+  dias: number,
+): Map<string, number> {
+  const salida = new Map<string, number>();
+  for (const a of anuncios) {
+    const modelos = modelosDeItem.get(a.itemId) ?? [];
+    if (!modelos.length || !(a.gasto > 0)) continue;
+    for (const m of modelos) salida.set(m, (salida.get(m) ?? 0) + a.gasto / modelos.length / Math.max(dias, 1));
+  }
+  return salida;
+}
+
+const restarDiasIso = (dia: string, n: number) =>
+  new Date(Date.parse(`${dia}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+
+/** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
+export const MAX_NUEVOS_SIN_ANUNCIO = 10;
 
 /**
  * En qué orden se atienden. Primero lo que está TIRANDO dinero (apagar y
@@ -454,9 +736,12 @@ export const GRUPOS_ACCION: { acciones: AccionSugerida[]; titulo: string }[] = [
  * 2. Anuncio pausado con el stock ya repuesto -> ENCENDER.
  * 3. Gasta sin vender, en un modelo que YA vendía antes -> APAGAR (un
  *    lanzamiento nuevo está en rampa, a ese no se le dice nada).
- * 4. Los ads se llevan más que el margen -> BAJAR, con el ACOS objetivo sano.
- * 5. Mucho stock y ads usando menos de la mitad del margen -> SUBIR.
- * 6. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
+ * 4. Los ads pasan del 10 % de la venta (`TACOS_TOPE`) o del margen -> BAJAR,
+ *    con el gasto al día que deja el modelo en el tope.
+ * 5. Mucho stock y ads en menos de la mitad del tope -> SUBIR, hasta el tope.
+ * 6. Producto NUEVO (no vendía antes del periodo) con stock en Full y sin
+ *    anuncio -> ACTIVAR, aunque todavía venda poco (hasta 10, por stock).
+ * 7. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
  *
  * El texto sale listo para ejecutarse a mano en la consola de Product Ads:
  * el API de MELI no acepta escrituras de publicidad de esta cuenta.
@@ -474,8 +759,50 @@ export function armarRecomendaciones(opts: {
    * muerto: a ese no se le sugiere apagar (verificado con GT190).
    */
   modelosConHistoria?: Set<string>;
+  /** dónde vive el stock que se mira: «Full» (MELI) o «FBA» (Amazon) */
+  almacen?: string;
+  /** cómo se cuentan: «pares» (calzado) o «piezas» (fundas) */
+  unidad?: string;
+  /** días de stock debajo de los cuales se pausa (por omisión 14) */
+  coberturaCorta?: number;
+  /** días de stock arriba de los cuales cabe más inversión (por omisión 45) */
+  coberturaLarga?: number;
+  /** dónde se crea el anuncio, para el texto */
+  consola?: string;
+  /** TACOS máximo (publicidad ÷ venta total); por omisión `TACOS_TOPE` */
+  tacosTope?: number;
+  /**
+   * modelo -> presupuesto diario que HOY tienen sus campañas en MELI
+   * (`presupuestoPorModelo`). El gasto de 14 días va atrasado: si el dueño
+   * ya subió (o bajó) el presupuesto, no se le vuelve a pedir (fundas 650,
+   * 14-oct-2026: «me llegó subir el gasto pero ya se había subido»).
+   */
+  presupuestoDeModelo?: Map<string, number>;
+  /**
+   * modelo -> unidades al día en los 60 días ANTERIORES al periodo. Con ella
+   * se reconoce un producto POSICIONADO (vende parejo y casi todo sin
+   * publicidad) y se le pide bajar el gasto.
+   */
+  ritmoPrevioDeModelo?: Map<string, number>;
+  /**
+   * modelo -> piezas en las bodegas propias (cajas de Industher, Caseshop,
+   * EnvioPack; el Sheet de fundas). Con poco stock en Full pero bodega para
+   * reponerlo, el anuncio NO se pausa: lo que falta es mandar a Full
+   * (GT259, 16-oct-2026: 47 pares en Full y 528 en bodega).
+   */
+  stockBodegaDeModelo?: Map<string, number>;
+  /** modelo -> ROAS objetivo de HOY de sus campañas (`roasObjetivoPorModelo`) */
+  roasObjetivoDeModelo?: Map<string, number>;
+  /** modelo -> gasto al día de los últimos `DIAS_GASTO_RECIENTE` días */
+  gastoRecienteDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
+  const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
+  const almacen = opts.almacen ?? "Full";
+  const unidad = opts.unidad ?? "pares";
+  const corta = opts.coberturaCorta ?? COBERTURA_CORTA_DIAS;
+  const larga = opts.coberturaLarga ?? COBERTURA_LARGA_DIAS;
+  const consola = opts.consola ?? "Product Ads";
   const modelosConHistoria = opts.modelosConHistoria ?? null;
   const recomendaciones: RecomendacionAds[] = [];
   const num = (x: number) => Math.round(x).toLocaleString("es-MX");
@@ -488,30 +815,61 @@ export function armarRecomendaciones(opts: {
     peso.set(r, enJuego);
   };
 
+  // Productos nuevos sin anuncio: van aparte del recorte de candidatos.
+  const nuevos = new Set<RecomendacionAds>();
+  const esNuevoSinAnuncio = (modelo: string, gasto: number, anunciosDelModelo: number, stock: number) =>
+    modelosConHistoria != null &&
+    !modelosConHistoria.has(modelo) &&
+    gasto === 0 &&
+    anunciosDelModelo === 0 &&
+    stock > 0;
+
   for (const f of filas) {
     const stock = stockDeModelo.get(f.modelo) ?? 0;
     const ritmo = dias > 0 ? f.unidades / dias : 0;
     const cobertura = ritmo > 0 ? stock / ritmo : null;
     const items = itemsDeModelo.get(f.modelo) ?? [];
-    const activos = items.filter((i) => i.estado !== "paused");
+    const activos = items.filter((i) => anuncioCorriendo(i.estado));
     const pausados = items.filter((i) => i.estado === "paused");
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
+    // ¿Se gasta el presupuesto? Si no, moverlo no cambia nada: va el ROAS.
+    const roasObj = opts.roasObjetivoDeModelo?.get(f.modelo) ?? null;
+    const presHoy = opts.presupuestoDeModelo?.get(f.modelo) ?? null;
+    const gastoDiaActual = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+    const presupuestoLleno = presHoy == null || presHoy <= 0 || gastoDiaActual >= presHoy * PRESUPUESTO_LLENO;
+    const consumo =
+      presHoy != null && presHoy > 0
+        ? ` · gasta $${num(gastoDiaActual)} de $${num(presHoy)} de presupuesto`
+        : "";
+    // Para BAJAR el gasto se sube el ROAS objetivo (si la campaña tiene uno);
+    // devuelve null si ya está ahí o si no hay ROAS con qué trabajar.
+    const reciente = opts.gastoRecienteDeModelo ? (opts.gastoRecienteDeModelo.get(f.modelo) ?? 0) : null;
+    const subirRoas = (meta: number): { texto: string; listo: boolean } | null => {
+      if (roasObj == null) return null;
+      // Ya se movió: el gasto de los últimos días ya llegó a la meta.
+      if (reciente != null && reciente <= meta * 1.1) return { texto: "", listo: true };
+      const nuevo = roasParaGasto(roasObj, gastoDiaActual, meta);
+      return { texto: `Subir el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)}`, listo: false };
+    };
     const cobertext =
       cobertura != null
-        ? `${num(cobertura)} días de stock (${num(stock)} pares)`
-        : `${num(stock)} pares en Full`;
+        ? `${num(cobertura)} días de stock (${num(stock)} ${unidad})`
+        : `${num(stock)} ${unidad} en ${almacen}`;
 
     // 1. Stock agotado o por agotarse con el anuncio prendido.
     const sinStock = stock <= 0;
-    const coberturaCorta = cobertura != null && cobertura < COBERTURA_CORTA_DIAS;
-    if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta)) {
+    const coberturaCorta = cobertura != null && cobertura < corta;
+    const bodega = opts.stockBodegaDeModelo?.get(f.modelo) ?? 0;
+    // Con la bodega, ¿alcanza? Entonces se repone Full; el anuncio sigue.
+    const bodegaRepone = bodega > 0 && (ritmo > 0 ? (stock + bodega) / ritmo >= corta : true);
+    if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta) && !bodegaRepone) {
       agregar(
         {
           modelo: f.modelo,
           accion: "pausar",
           queHacer: "Pausar el anuncio",
           razon: sinStock
-            ? `Sin stock en Full y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
+            ? `Sin stock en ${almacen} y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
             : `Quedan ${cobertext} y ya lleva $${num(f.gastoAds)} en ads: esas ventas caen solas, la publicidad solo acelera el quiebre.`,
         },
         f.gastoAds,
@@ -521,7 +879,7 @@ export function armarRecomendaciones(opts: {
 
     // 2. Anuncio pausado con el stock ya repuesto.
     const stockRecuperado =
-      cobertura != null ? cobertura >= COBERTURA_CORTA_DIAS : stock > 0;
+      cobertura != null ? cobertura >= corta : stock > 0;
     if (pausados.length > 0 && stockRecuperado) {
       agregar(
         {
@@ -551,39 +909,136 @@ export function armarRecomendaciones(opts: {
       continue;
     }
 
-    // 4. Los ads se comen más que el margen.
-    if (margen != null && f.tacos != null && f.gastoAds > 0 && f.tacos > margen) {
-      const acosSano = Math.round(margen * 100);
+    // 4. Los ads pasan del tope de TACOS (10 % de la venta, regla del
+    // dueño) o se comen el margen: bajar. El tope manda aunque el margen
+    // aguante; sin costo capturado, también.
+    const tope = margen != null ? Math.min(margen, tacosTope) : tacosTope;
+    if (f.tacos != null && f.gastoAds > 0 && f.tacos > tope) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaSano = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
+      const sinMargen = margen != null && f.tacos > margen;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      if (alDia - alDiaSano < GASTO_DIA_MINIMO) continue;
+      // Con ROAS objetivo, se baja subiéndolo (el presupuesto casi nunca es
+      // lo que limita); sin él, con el presupuesto, si no está ya en el tope.
+      const roas = subirRoas(alDiaSano);
+      if (roas?.listo) continue;
+      if (!roas && hoy != null && hoy <= alDiaSano * 1.1) continue;
       agregar(
         {
           modelo: f.modelo,
           accion: "bajar",
-          queHacer: `Bajar el gasto: ACOS objetivo a ${acosSano}% (ROAS ${(1 / margen).toFixed(1)})`,
-          razon: `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen)}: cada venta por publicidad sale con pérdida.`,
+          queHacer: roas
+            ? `${roas.texto} para bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${consumo}`
+            : `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+          razon: sinMargen
+            ? `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen!)}: cada venta por publicidad sale con pérdida.`
+            : `Los ads se llevan ${pct(f.tacos)} de la venta; el tope es ${pct(tacosTope)}.`,
         },
         f.gastoAds,
       );
       continue;
     }
 
-    // 5. Capital parado y margen de sobra.
+    // 4b. Producto POSICIONADO: vende parejo desde hace meses y la mayor
+    // parte de sus ventas NO viene de la publicidad. Ahí el anuncio paga
+    // ventas que ya caían solas (regla del dueño, 16-oct-2026: «no vale la
+    // pena gastar en productos ya posicionados»): bajar el gasto a la mitad
+    // y, si en dos semanas sigue vendiendo igual, otra vez.
+    const previo = opts.ritmoPrevioDeModelo?.get(f.modelo) ?? null;
+    const parteAds = f.unidades > 0 ? f.unidadesAds / f.unidades : null;
     if (
-      margen != null &&
+      activos.length > 0 &&
+      f.gastoAds > 0 &&
+      previo != null &&
+      parteAds != null &&
+      esPosicionado(ritmo, previo, parteAds)
+    ) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaMitad = alDia / 2;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      // Con ROAS objetivo: subirlo (dueño: «si está bien posicionado, en vez
+      // de bajar el gasto podemos subir el ROAS objetivo»). Sin él, el
+      // presupuesto; ya se hizo si el de hoy anda en la mitad (el gasto de
+      // 14 días va atrasado). Unos pesos no valen el clic.
+      const roas = subirRoas(alDiaMitad);
+      const yaBajado = roas ? roas.listo : hoy != null && hoy <= alDiaMitad * 1.1;
+      if (!yaBajado && alDia - alDiaMitad >= GASTO_DIA_MINIMO) {
+        agregar(
+          {
+            modelo: f.modelo,
+            accion: "bajar",
+            queHacer: roas
+              ? `Producto posicionado: ${roas.texto.charAt(0).toLowerCase()}${roas.texto.slice(1)} (gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día)${consumo}`
+              : `Producto posicionado: bajar el gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+            razon: `Vende ${num(ritmo)} al día parejo (antes ${num(previo)}) y solo ${pct(parteAds)} de sus ventas viene de la publicidad: ya se vende solo. Si en dos semanas sigue igual, se puede volver a bajar.`,
+          },
+          f.gastoAds,
+        );
+      }
+      // Un posicionado nunca recibe «subir».
+      continue;
+    }
+
+    // 5. Capital parado y lejos del tope: subir, pero nunca arriba del 10 %.
+    if (
       f.gastoAds > 0 &&
       f.tacos != null &&
+      f.importe > 0 &&
       cobertura != null &&
-      cobertura > COBERTURA_LARGA_DIAS &&
-      f.tacos < margen / 2
+      cobertura > larga &&
+      f.tacos < tope / 2 &&
+      (margen == null || margen > tope)
     ) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaTope = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      if (alDiaTope - alDia < GASTO_DIA_MINIMO) continue;
+      // Si el presupuesto NO se gasta, subirlo no mueve nada: lo que frena
+      // es el ROAS objetivo y hay que BAJARLO, sin pasar del piso que deja la
+      // publicidad en el tope de TACOS.
+      let queHacer: string;
+      if (!presupuestoLleno && roasObj != null) {
+        const parteVentaAds = f.importe > 0 ? f.ventaAds / f.importe : 0;
+        const piso = Math.round((parteVentaAds / tope) * 10) / 10;
+        const nuevo = Math.max(piso, roasParaGasto(roasObj, alDia, alDiaTope));
+        // Ya se bajó (el gasto de los últimos días ya subió) o no hay a dónde.
+        if (reciente != null && reciente >= alDiaTope * 0.9) continue;
+        if (roasObj <= nuevo * 1.05) continue;
+        queHacer = `Bajar el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)} para que gaste más (hasta ~$${num(alDiaTope)} al día, ${pct(tope)} de la venta)${consumo}`;
+      } else {
+        // El presupuesto de hoy ya alcanza para el tope: ya se subió.
+        if (hoy != null && hoy >= alDiaTope * 0.9) continue;
+        queHacer = `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`;
+      }
       agregar(
         {
           modelo: f.modelo,
           accion: "subir",
-          queHacer: `Subir el presupuesto (hasta ${Math.round(margen * 100)}% de ACOS)`,
-          razon: `Hay ${cobertext} parados y los ads solo usan ${pct(f.tacos)} de un margen de ${pct(margen)}: cabe más inversión sin perder.`,
+          queHacer,
+          razon: `Hay ${cobertext} parados y los ads solo se llevan ${pct(f.tacos)} de la venta: cabe más inversión sin pasar del tope de ${pct(tacosTope)}.`,
         },
         f.importe,
       );
+      continue;
+    }
+
+    // 6a. Producto NUEVO en Full sin anuncio: no vendía antes del periodo y
+    // ya tiene stock. Un lanzamiento sin publicidad tarda mucho en arrancar
+    // (regla de producto nuevo del plan de Full: si no se le empuja, nunca
+    // paga), así que se sugiere aunque todavía venda poco.
+    if (esNuevoSinAnuncio(f.modelo, f.gastoAds, items.length, stock)) {
+      const r: RecomendacionAds = {
+        modelo: f.modelo,
+        accion: "activar",
+        queHacer: "Crear anuncio: producto nuevo",
+        razon:
+          f.unidades > 0
+            ? `Producto nuevo (no vendía antes del periodo): lleva ${num(f.unidades)} ${unidad} vendidos sin publicidad y hay ${cobertext}. Un anuncio acelera el arranque.`
+            : `Producto nuevo con ${num(stock)} ${unidad} en ${almacen} y sin anuncio: sin publicidad casi no se ve.`,
+      };
+      nuevos.add(r);
+      agregar(r, stock);
       continue;
     }
 
@@ -593,31 +1048,51 @@ export function armarRecomendaciones(opts: {
       items.length === 0 &&
       ritmo >= 1 &&
       stock > 0 &&
-      (cobertura == null || cobertura > COBERTURA_LARGA_DIAS)
+      (cobertura == null || cobertura > larga)
     ) {
       agregar(
         {
           modelo: f.modelo,
           accion: "activar",
           queHacer: "Crear anuncio (candidato)",
-          razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en Product Ads.`,
+          razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en ${consola}.`,
         },
         f.importe,
       );
     }
   }
 
+  // Modelos con stock en Full que NO vendieron en el periodo ni antes y no
+  // tienen anuncio: tampoco salen en `filas` (no tienen venta ni gasto).
+  const enFilas = new Set(filas.map((f) => f.modelo));
+  for (const [modelo, stock] of stockDeModelo) {
+    if (enFilas.has(modelo)) continue;
+    if (!esNuevoSinAnuncio(modelo, 0, (itemsDeModelo.get(modelo) ?? []).length, stock)) continue;
+    const r: RecomendacionAds = {
+      modelo,
+      accion: "activar",
+      queHacer: "Crear anuncio: producto nuevo",
+      razon: `Producto nuevo con ${num(stock)} ${unidad} en ${almacen}, sin ventas todavía y sin anuncio: sin publicidad casi no se ve.`,
+    };
+    nuevos.add(r);
+    agregar(r, stock);
+  }
+  // Los nuevos se quedan con los que más stock tienen (no saturar la lista).
+  const nuevosQueQuedan = new Set(
+    [...nuevos].sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0)).slice(0, MAX_NUEVOS_SIN_ANUNCIO),
+  );
+
   // Los candidatos a activar pueden ser docenas: se queda con los 5 que más
   // venden ANTES de ordenar, para que el recorte no dependa del alfabeto.
   const mejoresCandidatos = new Set(
     recomendaciones
-      .filter((r) => r.accion === "activar")
+      .filter((r) => r.accion === "activar" && !nuevos.has(r))
       .sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0))
       .slice(0, 5),
   );
 
   return recomendaciones
-    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
+    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r) || nuevosQueQuedan.has(r))
     // Por lo que hay que HACER, no por el alfabeto: primero lo que está
     // tirando dinero y al final los candidatos nuevos. Antes se ordenaba por
     // modelo y la prioridad solo desempataba — y como hay UNA recomendación
@@ -881,10 +1356,13 @@ export async function cargarPublicidad(
   const leerVentasAgregadas = async (): Promise<{
     periodo: VentaDiaria[];
     skusConHistoria: Set<string>;
+    /** sku -> unidades en los 60 días anteriores al periodo */
+    unidadesPrevias: Map<string, number>;
     /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
     ventaSinDeposito: number;
   }> => {
-    const { data, error } = await db.rpc("ventas_resumen_sku", {
+    // Por páginas: hay más de 1,000 SKUs con venta.
+    const { data, error } = await rpcPaginado(db, "ventas_resumen_sku", {
       p_account: cuenta.id,
       p_desde: r.desde,
       p_hasta: r.hasta,
@@ -895,6 +1373,7 @@ export async function cargarPublicidad(
     if (!error) {
       const periodo: VentaDiaria[] = [];
       const skusConHistoria = new Set<string>();
+      const unidadesPrevias = new Map<string, number>();
       let ventaSinDeposito = 0;
       for (const f of (data ?? []) as any[]) {
         const sku = String(f.sku);
@@ -904,11 +1383,15 @@ export async function cargarPublicidad(
         // se estima como importe − comisión: se declara y queda fuera.
         const neto = Number(f.neto_real) || 0;
         ventaSinDeposito += Math.max(0, importe - (Number(f.importe_neto_real) || 0));
-        if ((Number(f.unidades_prev) || 0) > 0) skusConHistoria.add(sku);
+        const previas = Number(f.unidades_prev) || 0;
+        if (previas > 0) {
+          skusConHistoria.add(sku);
+          unidadesPrevias.set(sku, previas);
+        }
         if (unidades === 0 && importe === 0 && neto === 0) continue;
         periodo.push({ sku, fecha: r.desde, unidades, importe, comision: importe - neto, neto: null });
       }
-      return { periodo, skusConHistoria, ventaSinDeposito };
+      return { periodo, skusConHistoria, unidadesPrevias, ventaSinDeposito };
     }
 
     if (!esErrorObjetoLegacy(error, ["ventas_resumen_sku"])) {
@@ -916,12 +1399,16 @@ export async function cargarPublicidad(
     }
     const filas = await leerVentas();
     const skusConHistoria = new Set<string>();
+    const unidadesPrevias = new Map<string, number>();
     let ventaSinDeposito = 0;
     for (const v of filas) {
-      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) skusConHistoria.add(v.sku);
+      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) {
+        skusConHistoria.add(v.sku);
+        unidadesPrevias.set(v.sku, (unidadesPrevias.get(v.sku) ?? 0) + (v.unidades ?? 0));
+      }
       if (v.fecha >= r.desde && netoConfirmadoDeFila(v) == null) ventaSinDeposito += v.importe ?? 0;
     }
-    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, ventaSinDeposito };
+    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, unidadesPrevias, ventaSinDeposito };
   };
 
   const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
@@ -1055,6 +1542,58 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
+  // Ritmo de venta por modelo en los 60 días anteriores (producto posicionado).
+  const diasPrevios = diasDeRango({ desde: desdeHistoria, hasta: diaAntes });
+  const ritmoPrevioDeModelo = new Map<string, number>();
+  for (const [sku, u] of ventasAgregadas.unidadesPrevias) {
+    const modelo = modeloDeSku.get(sku) ?? (sku.split("-")[0] || sku);
+    ritmoPrevioDeModelo.set(modelo, (ritmoPrevioDeModelo.get(modelo) ?? 0) + u / diasPrevios);
+  }
+
+  // Pares en las bodegas propias: con bodega para reponer Full no se pausa.
+  let stockBodegaDeModelo: Map<string, number> | undefined;
+  if (!stockEstado.error) {
+    try {
+      const inv = await cargarInventario(db, cuenta.id, { sinCrudos: true });
+      stockBodegaDeModelo = new Map();
+      for (const rg of inv.renglones) {
+        if (!rg.enBodega) continue;
+        const modelo = modeloDeSku.get(rg.sku) ?? rg.modelo;
+        stockBodegaDeModelo.set(modelo, (stockBodegaDeModelo.get(modelo) ?? 0) + rg.enBodega);
+      }
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer la bodega: ${(err as Error).message}. «Pausar» solo mira el stock de Full.`);
+    }
+  }
+
+  // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
+  // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
+  let presupuestoDeModelo: Map<string, number> | undefined;
+  let roasObjetivoDeModelo: Map<string, number> | undefined;
+  let nombresCampana: Map<string, string> | undefined;
+  if (cliente && !stockEstado.error) {
+    try {
+      const adv = await resolverAdvertiser(cliente, cuenta.site_id);
+      const campanas = await traerCampanasAds(cliente, adv);
+      nombresCampana = new Map(campanas.map((c) => [c.id, c.nombre]));
+      presupuestoDeModelo = presupuestoPorModelo(campanas, itemsDeModelo);
+      roasObjetivoDeModelo = roasObjetivoPorModelo(campanas, itemsDeModelo);
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer el presupuesto de las campañas: ${(err as Error).message}. Las recomendaciones salen solo del gasto.`);
+    }
+  }
+  // Gasto de los últimos días, para reconocer un ROAS ya movido.
+  let gastoRecienteDeModelo: Map<string, number> | undefined;
+  if (!stockEstado.error && !errorAds) {
+    const rec = { desde: restarDiasIso(r.hasta, DIAS_GASTO_RECIENTE - 1), hasta: r.hasta };
+    try {
+      let recientes = await anunciosDesdeBase(db, cuenta.id, rec);
+      if (!recientes && cliente) recientes = await traerAnunciosAds(cliente, await resolverAdvertiser(cliente, cuenta.site_id), rec);
+      if (recientes) gastoRecienteDeModelo = gastoDiaPorModelo(recientes, modelosDeItem, DIAS_GASTO_RECIENTE);
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer el gasto de los últimos días: ${(err as Error).message}.`);
+    }
+  }
   datos.recomendaciones = stockEstado.error
     ? []
     : armarRecomendaciones({
@@ -1063,12 +1602,63 @@ export async function cargarPublicidad(
         dias: diasDeRango(r),
         itemsDeModelo,
         modelosConHistoria,
+        presupuestoDeModelo,
+        ritmoPrevioDeModelo,
+        stockBodegaDeModelo,
+        roasObjetivoDeModelo,
+        gastoRecienteDeModelo,
       });
+  datos.dependencias = armarDependencias({
+    filas: datos.filas,
+    dias: diasDeRango(r),
+    itemsDeModelo,
+    nombresCampana,
+    presupuestoDeModelo,
+    roasObjetivoDeModelo,
+    ritmoPrevioDeModelo,
+  });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
+  // (Esta es la caché EN MEMORIA, que también leen los cortes; las pantallas
+  // guardan el resultado completo, con sus avisos, en `servirPublicidad`.)
   if (!errorAds && advertencias.length === 0) {
     cachePublicidad.set(claveCache, { en: Date.now(), datos });
   }
   return datos;
+}
+
+/** Cuánto vive el panel guardado de un rango que incluye hoy. */
+export const VIDA_PUBLICIDAD_ABIERTA_MS = 10 * 60_000;
+/** Un rango que ya cerró casi no cambia: se refresca cada 6 horas. */
+export const VIDA_PUBLICIDAD_CERRADA_MS = 6 * 3_600_000;
+
+export const clavePublicidadMeli = (r: RangoFechas): string => `publicidad-meli:${r.desde}:${r.hasta}`;
+
+/**
+ * El panel de publicidad masticado para PANTALLAS (/ventas, /publicidad y la
+ * tabla de modelos): sirve el renglón de `app_cache` aunque esté viejo y lo
+ * refresca por atrás. El error de ads y las advertencias se guardan junto
+ * con el resultado y se enseñan igual. Los cortes NO usan esto: piden
+ * `cargarPublicidad` directo porque congelan lo que leen.
+ */
+export async function servirPublicidad(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango?: RangoFechas,
+): Promise<{ datos: Publicidad; generadoEn: string | null; refrescando: boolean }> {
+  const r = rango ?? normalizarRango();
+  const vida = r.hasta < fechaMx(0) ? VIDA_PUBLICIDAD_CERRADA_MS : VIDA_PUBLICIDAD_ABIERTA_MS;
+  // Sin la copia en memoria (10 min): lo guardado tiene que ser de ahora.
+  return servirConCacheApp(db, cuenta.id, clavePublicidadMeli(r), vida, () => calcularPublicidadFresca(db, cuenta, r));
+}
+
+/** Calcula el panel sin caché en memoria (lo usa el fondo para guardarlo). */
+export function calcularPublicidadFresca(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango: RangoFechas,
+): Promise<Publicidad> {
+  cachePublicidad.clear();
+  return cargarPublicidad(db, cuenta, rango);
 }

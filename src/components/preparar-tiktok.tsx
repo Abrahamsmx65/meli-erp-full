@@ -1,11 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { Aviso } from "@/components/ui/pagina";
 import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
-import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, salirDeLote, trasGuardar, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanceDeLote, detectarLotes } from "@/lib/tiktok/lotes";
+import {
+  MS_REINTENTO_COLA,
+  agregarACola,
+  esErrorDeRed,
+  guardarCola,
+  leerCola,
+  quitarDeCola,
+  textoDeCola,
+  type PendienteGuardar,
+} from "@/lib/tiktok/cola-preparados";
 import { hablar, pitar } from "./sonido-tiktok";
+
+function almacenLocal(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * La estación de preparar: un solo campo que recibe lo que dispare el
@@ -41,6 +61,81 @@ export function PrepararTikTok({
   const [pidiendoClave, setPidiendoClave] = useState<PaqueteNumerado | null>(null);
   const [clave, setClave] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // La COLA de constancias que no alcanzaron a llegar al servidor por falta
+  // de señal (`cola-preparados.ts`): el paquete se da por preparado en este
+  // dispositivo y se manda solo cuando vuelve el wifi. `colaRef` es la copia
+  // viva para que el reintento no trabaje con una lista vieja.
+  const [cola, setCola] = useState<PendienteGuardar[]>([]);
+  const colaRef = useRef<PendienteGuardar[]>([]);
+  const enviandoCola = useRef(false);
+  const [enLinea, setEnLinea] = useState(true);
+  const [sinGuardar, setSinGuardar] = useState<string[]>([]);
+  const destino = urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`;
+
+  function fijarCola(siguiente: PendienteGuardar[]) {
+    colaRef.current = siguiente;
+    setCola(siguiente);
+    guardarCola(almacenLocal(), corteId, siguiente);
+  }
+
+  /** Manda UNA constancia. Lanza TypeError (red) o Error (el servidor la rechazó). */
+  async function mandarConstancia(datos: { numero: number; orderId: string; packageId: string; escaneos: string[] }) {
+    const r = await fetch(destino, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+  }
+
+  /** Reintenta la cola en orden; se detiene en el primer fallo de red y sigue cuando vuelva. */
+  async function vaciarCola() {
+    if (enviandoCola.current || !colaRef.current.length) return;
+    enviandoCola.current = true;
+    try {
+      for (const p of [...colaRef.current]) {
+        try {
+          await mandarConstancia({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, escaneos: p.escaneos });
+          fijarCola(quitarDeCola(colaRef.current, p));
+        } catch (e) {
+          if (esErrorDeRed(e)) break;
+          // El servidor la rechazó: no es cosa de señal, se saca de la cola y se avisa.
+          fijarCola(quitarDeCola(colaRef.current, p));
+          setSinGuardar((prev) => [...prev, `#${p.numero}: ${(e as Error).message}`]);
+        }
+      }
+    } finally {
+      enviandoCola.current = false;
+    }
+  }
+
+  useEffect(() => {
+    // Lo que quedó en este dispositivo de una sesión anterior sigue contando
+    // como preparado y se vuelve a intentar.
+    const guardada = leerCola(almacenLocal(), corteId);
+    if (guardada.length) {
+      colaRef.current = guardada;
+      setCola(guardada);
+      setPreparados((p) => new Set([...p, ...guardada.map((x) => x.numero)]));
+    }
+    setEnLinea(typeof navigator === "undefined" ? true : navigator.onLine);
+    const alVolver = () => {
+      setEnLinea(true);
+      void vaciarCola();
+    };
+    const alCaer = () => setEnLinea(false);
+    window.addEventListener("online", alVolver);
+    window.addEventListener("offline", alCaer);
+    const reloj = window.setInterval(() => void vaciarCola(), MS_REINTENTO_COLA);
+    void vaciarCola();
+    return () => {
+      window.removeEventListener("online", alVolver);
+      window.removeEventListener("offline", alCaer);
+      window.clearInterval(reloj);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corteId]);
 
   useEffect(() => {
     try {
@@ -91,24 +186,35 @@ export function PrepararTikTok({
 
     if (siguiente.paso === "listo" && siguiente.paquete) {
       setGuardando(true);
+      const datos = {
+        numero: siguiente.paquete.numero,
+        orderId: siguiente.paquete.orderId,
+        packageId: siguiente.paquete.packageId,
+        escaneos: siguiente.escaneos,
+      };
       try {
-        const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            numero: siguiente.paquete.numero,
-            orderId: siguiente.paquete.orderId,
-            packageId: siguiente.paquete.packageId,
-            escaneos: siguiente.escaneos,
-          }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
-        setPreparados((p) => new Set([...p, siguiente.paquete!.numero]));
-        setEstado({ ...estadoInicial(), indicacion: siguiente.indicacion });
+        await mandarConstancia(datos);
+        setPreparados((p) => new Set([...p, datos.numero]));
+        setEstado(trasGuardar(siguiente));
+        setEnLinea(true);
+        void vaciarCola();
       } catch (e) {
-        pitar(false);
-        setEstado({ ...siguiente, paso: "listo", error: (e as Error).message });
+        if (esErrorDeRed(e)) {
+          // Sin señal: la constancia se queda en este dispositivo y el
+          // paquete cuenta como preparado; se manda sola al volver el wifi.
+          fijarCola(agregarACola(colaRef.current, { ...datos, en: new Date().toISOString() }));
+          setPreparados((p) => new Set([...p, datos.numero]));
+          setEnLinea(false);
+          setEstado(
+            trasGuardar(
+              siguiente,
+              `#${datos.numero} PREPARADO (sin señal: guardado en este dispositivo, se manda solo al volver el wifi). ${siguiente.lote ? "Siguiente guía del lote." : "Escanea la siguiente etiqueta."}`,
+            ),
+          );
+        } else {
+          pitar(false);
+          setEstado({ ...siguiente, paso: "listo", error: (e as Error).message });
+        }
       } finally {
         setGuardando(false);
       }
@@ -117,7 +223,10 @@ export function PrepararTikTok({
     setEstado(siguiente);
   }
 
-  const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados));
+  // Los LOTES del corte (muchos paquetes iguales de un par): al escanear su
+  // producto se abre el modo lote y cada guía escaneada queda preparada.
+  const lotes = useMemo(() => detectarLotes(paquetes), [paquetes]);
+  const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados, lotes));
 
   /**
    * Sin escanear, con la clave del supervisor: para cuando el código no se
@@ -140,7 +249,7 @@ export function PrepararTikTok({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, sinEscanear: true, pin }),
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       pitar(true, 1);
       if (voz) hablar(`${p.numero} confirmado con clave`);
@@ -150,13 +259,17 @@ export function PrepararTikTok({
       setEstado({ ...estadoInicial(), indicacion: `#${p.numero} confirmado con clave, sin escanear. Escanea la siguiente etiqueta.` });
     } catch (e) {
       pitar(false);
-      setEstado({ ...estado, error: (e as Error).message });
+      // La clave la valida el servidor: sin señal no hay cómo, y se dice.
+      const m = esErrorDeRed(e) ? "Sin señal: la clave de supervisor se valida en el servidor. Inténtalo cuando vuelva el wifi (o escanea el paquete)." : (e as Error).message;
+      if (esErrorDeRed(e)) setEnLinea(false);
+      setEstado({ ...estado, error: m });
     } finally {
       setGuardando(false);
     }
   }
 
   const manual = () => aplicar(darPorBueno(estado));
+  const avisoCola = textoDeCola(cola.length, enLinea);
   const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.codigos.length && f.faltan > 0);
 
   const hechos = paquetes.filter((p) => preparados.has(p.numero)).length;
@@ -167,36 +280,58 @@ export function PrepararTikTok({
     <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
       <section className="tarjeta p-5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Corte #{numero}</h2>
+          <h2 className="seccion-titulo">Corte #{numero}</h2>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={alternarVoz}
               aria-pressed={voz}
               title={voz ? "Silenciar la voz" : "Encender la voz"}
-              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-xs"
-              style={{ borderColor: "var(--grid)", color: voz ? "var(--acento)" : "var(--ink-2)" }}
+              className="boton boton-borde boton-chico"
+              style={{ color: voz ? "var(--acento)" : "var(--ink-2)" }}
             >
               {voz ? <Volume2 size={14} /> : <VolumeX size={14} />}
               {voz ? "Voz" : "Sin voz"}
             </button>
-            <span className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
+            <span className="cifra text-sm texto-2">
               {hechos} / {paquetes.length} preparados
             </span>
           </div>
         </div>
+        {avisoCola || !enLinea ? (
+          <Aviso tono="alerta" className="mt-2">
+            {enLinea ? "" : "Sin señal de wifi. Puedes seguir escaneando: lo preparado se guarda en este dispositivo. "}
+            {avisoCola ?? ""}
+          </Aviso>
+        ) : null}
+        {sinGuardar.length ? (
+          <Aviso tono="critico" className="mt-2">
+            El servidor rechazó {sinGuardar.length === 1 ? "una constancia" : `${sinGuardar.length} constancias`}: {sinGuardar.join(" · ")}
+          </Aviso>
+        ) : null}
 
         <div
           className="mt-4 rounded-lg p-4"
-          style={{ background: estado.error ? "color-mix(in oklab, var(--estado-critico) 12%, transparent)" : "var(--acento-suave)" }}
+          style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em]" style={{ color: "var(--ink-muted)" }}>
-            {estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
+          <div className="text-[11px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
+            {estado.paso === "lote" || (estado.paso === "listo" && estado.lote) ? "Lote" : estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: colorPaso }}>
             {estado.error ?? estado.indicacion}
           </p>
-          {estado.paquete && estado.paso !== "inicio" ? (
+          {estado.lote ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <span>
+                Lote <span className="font-medium">{estado.lote.sku}</span> · #{estado.lote.desde}–#{estado.lote.hasta} ·{" "}
+                <span className="cifra">{avanceDeLote(estado.lote, preparados).hechos}</span> de <span className="cifra">{estado.lote.cantidad}</span> listos
+              </span>
+              <button type="button" onClick={() => aplicar(salirDeLote(estado))} className="boton boton-borde">
+                Salir del lote
+              </button>
+            </div>
+          ) : null}
+          {estado.paquete && estado.paso !== "inicio" && estado.paso !== "lote" ? (
             <ul className="mt-2 text-sm">
               {estado.paquete.pares.map((x) => {
                 const f = estado.faltantes.find((y) => y.sku === x.sku);
@@ -205,11 +340,11 @@ export function PrepararTikTok({
                   <li key={x.sku}>
                     <span className="font-medium">{x.sku}</span> × {x.pares}
                     {codigos.length ? (
-                      <span style={{ color: "var(--ink-2)" }}> · {codigos.join(" o ")}</span>
+                      <span className="texto-2"> · {codigos.join(" o ")}</span>
                     ) : (
                       <span style={{ color: "var(--estado-alerta)" }}> · sin código: "Dar por bueno"</span>
                     )}
-                    {f && estado.paso === "producto" ? <span style={{ color: "var(--ink-2)" }}> · faltan {f.faltan}</span> : null}
+                    {f && estado.paso === "producto" ? <span className="texto-2"> · faltan {f.faltan}</span> : null}
                   </li>
                 );
               })}
@@ -224,7 +359,7 @@ export function PrepararTikTok({
             if (!guardando) void escanear(codigo);
           }}
         >
-          <ScanLine size={18} style={{ color: "var(--ink-2)" }} />
+          <ScanLine size={18} className="texto-2" />
           <input
             ref={input}
             value={codigo}
@@ -235,7 +370,7 @@ export function PrepararTikTok({
             className="flex-1 rounded-lg border px-3 py-2 text-lg"
             style={{ borderColor: "var(--grid)" }}
           />
-          <button type="submit" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--grid)" }}>
+          <button type="submit" className="boton boton-borde">
             Enter
           </button>
           <button
@@ -246,16 +381,15 @@ export function PrepararTikTok({
             }}
             aria-pressed={teclado}
             title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
-            className="rounded-lg border px-2 py-2 text-sm"
-            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+            className="boton boton-borde px-2"
+            style={{ color: teclado ? "var(--acento)" : "var(--ink-2)" }}
           >
             <Keyboard size={16} />
           </button>
           <button
             type="button"
             onClick={() => setEstado(estadoInicial())}
-            className="rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: "var(--grid)" }}
+            className="boton boton-borde"
           >
             Reiniciar
           </button>
@@ -265,8 +399,7 @@ export function PrepararTikTok({
             type="button"
             onClick={() => confirmarConClave(estado.paquete as PaqueteNumerado)}
             disabled={guardando}
-            className="mt-3 mr-2 rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+            className="boton boton-borde mt-3 mr-2"
           >
             Confirmar #{estado.paquete.numero} sin escanear (clave)
           </button>
@@ -276,17 +409,12 @@ export function PrepararTikTok({
             type="button"
             onClick={manual}
             disabled={guardando}
-            className="mt-3 rounded-lg border px-3 py-2 text-sm font-medium"
-            style={{ borderColor: "var(--estado-alerta)", color: "var(--estado-alerta)" }}
+            className="boton boton-borde mt-3 whitespace-normal text-left"
+            style={{ borderColor: "var(--estado-alerta)", color: "var(--alerta-texto)" }}
           >
             Dar por bueno sin escanear los que no tienen FNSKU (queda registrado como manual)
           </button>
         ) : null}
-        <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
-          Escanea la etiqueta: el sistema dice qué va adentro y pita una vez por par. Luego el
-          producto, un escaneo por par. Si algo no cuadra suena grave y no avanza. También puedes
-          empezar por el renglón de la hoja.
-        </p>
       </section>
 
       {pidiendoClave ? (
@@ -301,7 +429,7 @@ export function PrepararTikTok({
           <p className="text-sm font-semibold">
             Confirmar #{pidiendoClave.numero} sin escanear
           </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-1 text-xs texto-2">
             {pidiendoClave.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")} · pedido {pidiendoClave.orderId}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -320,8 +448,7 @@ export function PrepararTikTok({
             <button
               type="submit"
               disabled={guardando || !clave}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               Confirmar
             </button>
@@ -332,8 +459,7 @@ export function PrepararTikTok({
                 setClave("");
                 input.current?.focus();
               }}
-              className="rounded-lg border px-3 py-2 text-sm"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
@@ -342,7 +468,7 @@ export function PrepararTikTok({
       ) : null}
 
       <section className="tarjeta overflow-hidden">
-        <h2 className="px-4 pt-4 text-sm font-semibold">Renglones</h2>
+        <h2 className="seccion-titulo px-4 pt-4">Renglones</h2>
         <ul className="mt-2 max-h-[70vh] overflow-y-auto">
           {paquetes.map((p) => {
             const hecho = preparados.has(p.numero);
@@ -364,8 +490,7 @@ export function PrepararTikTok({
                     onClick={() => confirmarConClave(p)}
                     disabled={guardando}
                     title="Dar por preparado sin escanear, con la clave de supervisor"
-                    className="rounded border px-1.5 py-0.5 text-xs"
-                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                    className="boton boton-borde boton-chico"
                   >
                     Clave
                   </button>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  patronBusquedaSku,
   amarrar,
   claveAplastada,
   claveCanonica,
@@ -237,5 +238,16 @@ describe("color escrito distinto (black/blk, navy/blue)", () => {
   it("gold no es beige ni mint es green: sin amarre", () => {
     const idx = construirIndice(["380-A11-gold"]);
     expect(amarrar("380-A11-beige", idx).skuMeli).toBeNull();
+  });
+});
+
+describe("patronBusquedaSku (type-ahead del amarre manual)", () => {
+  it("busca por pedazo y escapa los comodines", () => {
+    expect(patronBusquedaSku(" 462-a5 ")).toBe("%462-a5%");
+    expect(patronBusquedaSku("50%_x")).toBe("%50\\%\\_x%");
+  });
+  it("con menos de 2 letras no busca", () => {
+    expect(patronBusquedaSku("4")).toBeNull();
+    expect(patronBusquedaSku("  ")).toBeNull();
   });
 });

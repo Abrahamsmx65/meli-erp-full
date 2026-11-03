@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ventasDelCorte,
   armarEstadoResultados,
   desglosePorSkuDesdeRpc,
   nombreDelPeriodo,
@@ -880,5 +881,23 @@ describe("el residual de cargos solo se calcula sobre la venta con depósito le�
     // Cubierto: 1000 − 100 de comisión − 800 depositados = 100. Antes salían
     // 1,000 porque la venta del día 4 (sin depósito) entraba a la resta.
     expect(e.cargosSinDesglosar).toBe(100);
+  });
+});
+
+describe("ventasDelCorte: la venta del calzado sale de las órdenes", () => {
+  const diarias = [
+    // El 3 trae un renglón inflado (orden cancelada que la búsqueda de MELI devolvió como pagada).
+    { sku: "GT161-CAMEL-26", fecha: "2026-09-03", unidades: 2, ordenes: 2, importe: 200, neto: 174.62, netoConfirmado: true },
+    { sku: "GT161-CAMEL-26", fecha: "2026-09-04", unidades: 1, ordenes: 1, importe: 100, neto: 87.31, netoConfirmado: true },
+  ];
+  const deOrdenes = [{ sku: "GT161-CAMEL-26", fecha: "2026-09-03", unidades: 1, ordenes: 1, importe: 100, neto: 87.31, netoConfirmado: true }];
+
+  it("el día con órdenes registradas usa las órdenes; el día sin ellas, el renglón diario", () => {
+    expect(ventasDelCorte(diarias, deOrdenes)).toEqual([deOrdenes[0], diarias[1]]);
+  });
+
+  it("sin la lectura de órdenes se queda con los renglones", () => {
+    expect(ventasDelCorte(diarias, null)).toBe(diarias);
+    expect(ventasDelCorte(diarias, [])).toBe(diarias);
   });
 });

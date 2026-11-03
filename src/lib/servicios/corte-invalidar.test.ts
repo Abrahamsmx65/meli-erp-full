@@ -31,7 +31,7 @@ describe("invalidarCortesDePeriodos", () => {
     await invalidarCortesDePeriodos(db as any, { meliAccountId: "meli-1" }, ["2026-08", "2026-08", "2026-07"], "prueba");
     const tablas = db.escrituras.map((e) => e.tabla);
     expect(tablas).toEqual(["app_cache", "consolidado_cache"]);
-    expect(db.escrituras[0].filtros.join(" | ")).toContain("corte:v2:2026-08");
+    expect(db.escrituras[0].filtros.join(" | ")).toContain("corte:v3:2026-08");
     expect(db.escrituras[1].filtros.join(" | ")).toContain("periodo in 2026-08,2026-07");
     expect(db.escrituras[1].cambios).toEqual({ vigente: false, motivo: "prueba" });
   });

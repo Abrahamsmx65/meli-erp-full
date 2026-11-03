@@ -289,6 +289,73 @@ export function numerarPaquetes(
   });
 }
 
+/** La numeración con que se imprimió un corte: pedido|paquete → "#n". */
+export type NumeracionGuardada = Record<string, number>;
+
+export function numeracionDe(paquetes: PaqueteNumerado[]): NumeracionGuardada {
+  const n: NumeracionGuardada = {};
+  for (const p of paquetes) n[clavePaquete(p)] = p.numero;
+  return n;
+}
+
+/**
+ * Numera los paquetes RESPETANDO la numeración con que el corte ya se
+ * imprimió (`tiktok_cortes.numeracion`). Sin numeración guardada, numera
+ * como siempre y la devuelve en `nueva` para que se guarde: desde ahí los
+ * "#n" ya no se mueven aunque un pedido se cancele, pierda un renglón o le
+ * cambien el paquete.
+ *
+ * El 26-oct-2026 (corte #93, 620 paquetes) el pedido 586797048459724373
+ * (GT135-BLK-28) se canceló en TikTok a las 14:41, cuando las guías y las
+ * hojas ya estaban impresas: `cargarCorte` lo dejaba sin renglones, el
+ * paquete sin SKU se iba al FRENTE del orden (sin modelo ordena antes que
+ * todo) y los 180 paquetes anteriores a su lugar corrieron un número: la
+ * estación decía «#186» a dos paquetes distintos y lo escaneado no cuadraba
+ * con el papel (dueño: «ya imprimí las etiquetas y todo, solo corrígelo en
+ * sistema»). Un paquete que no esté en lo guardado (se unió una ronda sin
+ * reiniciar, o cambió de id y el pedido tiene varios) toma el siguiente
+ * número libre después del último, en el orden de hoy, y se guarda.
+ */
+export function numerarConGuardada(
+  paquetes: PaqueteDespacho[],
+  orden: OrdenPaquetes,
+  guardada: NumeracionGuardada | null | undefined,
+): { paquetes: PaqueteNumerado[]; nueva: NumeracionGuardada | null } {
+  const frescos = numerarPaquetes(paquetes, orden);
+  const claves = Object.keys(guardada ?? {});
+  if (!guardada || !claves.length) return { paquetes: frescos, nueva: numeracionDe(frescos) };
+
+  // Un pedido de un solo paquete se reconoce también por el pedido a secas:
+  // TikTok a veces cambia el id del paquete (o no lo había dado al imprimir).
+  const porOrden = new Map<string, number[]>();
+  for (const clave of claves) {
+    const orderId = clave.split("|")[0];
+    const l = porOrden.get(orderId) ?? [];
+    l.push(guardada[clave]);
+    porOrden.set(orderId, l);
+  }
+  const usados = new Set<number>();
+  const sinNumero: PaqueteNumerado[] = [];
+  const conNumero: PaqueteNumerado[] = [];
+  for (const p of frescos) {
+    let n: number | undefined = guardada[clavePaquete(p)];
+    if (n === undefined) {
+      const delPedido = porOrden.get(p.orderId);
+      if (delPedido && delPedido.length === 1) n = delPedido[0];
+    }
+    if (n === undefined || usados.has(n)) {
+      sinNumero.push(p);
+      continue;
+    }
+    usados.add(n);
+    conNumero.push({ ...p, numero: n });
+  }
+  let siguiente = Math.max(0, ...claves.map((c) => guardada[c]), ...usados);
+  const nuevos = sinNumero.map((p) => ({ ...p, numero: ++siguiente }));
+  const todos = [...conNumero, ...nuevos].sort((a, b) => a.numero - b.numero);
+  return { paquetes: todos, nueva: nuevos.length ? { ...guardada, ...numeracionDe(nuevos) } : null };
+}
+
 /**
  * Los números que les tocan HOY a los paquetes que ya se prepararon. La
  * constancia se guarda por pedido + paquete, así que cambiar el orden no la
@@ -529,4 +596,103 @@ export function avanceDeTomos(tomo: number, total: number, fase: "armando" | "ba
     return total === 1 ? "Bajando las etiquetas ya armadas…" : `Bajando las etiquetas ya armadas: ${tomo} de ${total} tomos (${PAQUETES_POR_TOMO} guías cada uno)…`;
   }
   return total === 1 ? "Armando las etiquetas…" : `Armando etiquetas: tomo ${tomo} de ${total} (${PAQUETES_POR_TOMO} guías cada uno)…`;
+}
+
+/** Un paquete de TikTok con los renglones (line items) que dice llevar; vacío = TikTok no lo dijo. */
+export interface PaqueteConRenglones {
+  id: string;
+  lineIds: string[];
+}
+
+/**
+ * De los paquetes de un pedido, los que VIAJAN: los que llevan algún renglón
+ * vivo, o de los que TikTok no dice qué llevan. Cuando la defensa cancela
+ * un renglón de un pedido grande, TikTok deja el pedido con DOS paquetes:
+ * el del renglón cancelado (nunca se envía ni tiene guía) y el rearmado con
+ * lo que sí va. Hasta el 7-oct-2026 los dos entraban al corte: el #57
+ * enseñaba 882 etiquetas de 875 pedidos (7 pedidos de GT148 con CREAM
+ * cancelado salían con dos números, uno «SIN GUÍA» para siempre, y los
+ * tomos con esos paquetes nunca se daban por completos). Un pedido de un
+ * solo paquete no se toca, y si la regla dejara el pedido sin ningún
+ * paquete se quedan todos: nunca se deja un pedido sin etiqueta.
+ */
+export function paquetesQueViajan<T extends PaqueteConRenglones>(paquetes: T[], renglonesVivos: Iterable<string>): T[] {
+  if (paquetes.length <= 1) return paquetes;
+  const vivos = new Set([...renglonesVivos].map(String));
+  const viajan = paquetes.filter((p) => !p.lineIds.length || p.lineIds.some((id) => vivos.has(String(id))));
+  return viajan.length ? viajan : paquetes;
+}
+
+/** El avance de un corte en la lista de Despacho y de la estación. */
+export interface AvanceCorte {
+  /** renglones con constancia de preparado */
+  preparados: number;
+  /** pedidos cancelados DESPUÉS de entrar al corte (conservan su número) */
+  cancelados: number;
+  /** pedidos que TikTok ya tiene en camino o entregados SIN constancia: salieron sin escanearse */
+  enviados: number;
+}
+
+const ESTADOS_CANCELADO_AVANCE = new Set(["CANCELLED", "CANCEL"]);
+
+/**
+ * Cuenta el avance por corte desde las constancias de preparado y los
+ * pedidos cortados que ya no faltan (cancelados, en camino, entregados).
+ * Es la misma cuenta que hace el RPC `tiktok_avance_cortes` (migración
+ * 0120); esta queda de respaldo si el RPC no contesta. Con solo la guía
+ * creada (AWAITING_COLLECTION) un pedido no cuenta: los pedidos que se le
+ * pasen deben venir ya filtrados a los estados que resuelven.
+ */
+export function contarAvanceDeCortes(
+  preparaciones: readonly { corte_id: number; order_id: string }[],
+  ordenes: readonly { corte_id: number; order_id: string; estado: string }[],
+): Map<number, AvanceCorte> {
+  const avance = new Map<number, AvanceCorte>();
+  const de = (corte: number) => {
+    let a = avance.get(corte);
+    if (!a) avance.set(corte, (a = { preparados: 0, cancelados: 0, enviados: 0 }));
+    return a;
+  };
+  for (const r of preparaciones) de(r.corte_id).preparados++;
+  const conConstancia = new Set(preparaciones.map((r) => `${r.corte_id}|${r.order_id}`));
+  for (const r of ordenes) {
+    if (ESTADOS_CANCELADO_AVANCE.has(r.estado)) de(r.corte_id).cancelados++;
+    // Ya salió sin escanearse: resuelto, pero no se cuenta dos veces.
+    else if (!conConstancia.has(`${r.corte_id}|${r.order_id}`)) de(r.corte_id).enviados++;
+  }
+  return avance;
+}
+
+/**
+ * Lo que TikTok ya contestó de cada paquete (sus renglones), tal como quedó
+ * guardado en `tiktok_ordenes.paquetes` (`lineIds`). Solo cuenta una
+ * respuesta con renglones: un paquete sin dato se le vuelve a preguntar.
+ */
+export function renglonesGuardados(paquetes: readonly unknown[]): PaqueteConRenglones[] {
+  const salida: PaqueteConRenglones[] = [];
+  for (const p of paquetes ?? []) {
+    if (!p || typeof p !== "object") continue;
+    const { id, lineIds } = p as { id?: unknown; lineIds?: unknown };
+    if (id == null || !Array.isArray(lineIds) || !lineIds.length) continue;
+    salida.push({ id: String(id), lineIds: lineIds.map(String) });
+  }
+  return salida;
+}
+
+/**
+ * Los paquetes guardados del pedido con los renglones que TikTok contestó
+ * pegados a cada uno (`lineIds`), sin tocar lo demás que ya traían (estado).
+ * Un paquete sin respuesta se queda como estaba.
+ */
+export function conRenglonesGuardados(
+  paquetes: readonly unknown[],
+  respuestas: readonly PaqueteConRenglones[],
+): Record<string, unknown>[] {
+  const porId = new Map(respuestas.filter((r) => r.lineIds.length).map((r) => [String(r.id), r.lineIds]));
+  return (paquetes ?? [])
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+    .map((p) => {
+      const lineIds = porId.get(String(p.id));
+      return lineIds ? { ...p, lineIds } : { ...p };
+    });
 }

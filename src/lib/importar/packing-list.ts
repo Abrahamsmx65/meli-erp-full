@@ -98,10 +98,25 @@ export function pedidoBase(crudo: string): string {
   return m ? m[1] : p;
 }
 
-/** "23", "23MX", "23MX=39" -> "23"; "MM" o texto -> null. */
+/** «GT142 (IN10161)» → modelo GT142 + pedido IN10161; sin paréntesis de pedido, tal cual. */
+export function modeloConPedido(crudo: string): { modelo: string; pedido: string | null } {
+  const t = texto(crudo).toUpperCase();
+  const m = t.match(/^(.+?)\s*[(（]\s*([A-Z]{1,4}\d{3,}(?:-\d{1,2})?)\s*[)）]\s*$/);
+  return m ? { modelo: m[1].trim(), pedido: m[2] } : { modelo: t, pedido: null };
+}
+
+/** "23", "23MX", "23MX=39", "Mex 27" -> "23"; "MM", texto o rango -> null. */
 function tallaDeCelda(v: unknown): string | null {
-  const t = texto(v).toUpperCase();
+  // «Mex 27» (S272-2026): la palabra va adelante de la talla mexicana.
+  const t = texto(v).toUpperCase().replace(/^\s*(?:MEX|MX)\.?\s*(?=\d)/, "");
   if (!t) return null;
+  // «39 (26)»: europea afuera y MEXICANA en el paréntesis (S263-2026, cajas
+  // de una sola talla del GT114). Un rango «36-41 (23-27)» es corrida.
+  const mxEnParentesis = t.match(/^\d{1,2}(?:\.\d)?\s*[(（]\s*(\d{1,2}(?:\.\d)?)\s*(?:MX)?\s*[)）]$/);
+  if (mxEnParentesis) {
+    const n = Number(mxEnParentesis[1]);
+    return n >= 14 && n <= 32 ? normalizarTalla(mxEnParentesis[1]) : null;
+  }
   if (/^\d{1,2}(\.\d)?$/.test(t)) {
     const n = Number(t);
     return n >= 14 && n <= 50 ? normalizarTalla(t) : null;
@@ -235,7 +250,9 @@ export async function importarPackingList(
   for (let i = 0; i < Math.min(25, filas.length); i++) {
     const f = filas[i].map((c) => canonizar(texto(c)));
     const iModelo = f.findIndex(
-      (c) => c === "STYLE" || c === "ITEM-NO" || c === "ITEM" || c === "MODELO" || c === "MODEL" || c === "STYLE-NO",
+      (c) =>
+        c === "STYLE" || c === "ITEM-NO" || c === "ITEM" || c === "MODELO" || c === "MODEL" || c === "STYLE-NO" ||
+        c === "ARTICLE" || c === "ARTICLE-NO",
     );
     const iSku = f.findIndex((c) => c === "SKU");
     if (iModelo < 0 && iSku < 0) continue;
@@ -272,9 +289,15 @@ export async function importarPackingList(
         c === "G-W-CTN" || c === "GW-CTN" || c === "G-W-PER-CTN" || c === "GROSS-WEIGHT-CTN" || c === "KGS-CTN" ||
         c === "KG-CTN" || c === "PESO" || c === "PESO-CAJA" || c === "PESO-CTN" || c === "WEIGHT-CTN",
     );
-    col.pesoTotal = f.findIndex(
-      (c) => c === "TOTAL-G-W" || c === "TOTAL-GW" || c === "G-W" || c === "GW" || c === "GROSS-WEIGHT" || c === "TOTAL-GROSS-WEIGHT",
-    );
+    // «G.W» suelto es AMBIGUO: si el archivo trae además «Total G.W», es el
+    // peso POR CAJA (S263-2026: G.W 11 | Total G.W 330 con 30 cajas). Antes
+    // se tomaba como total y se dividía entre las cajas: 11 ÷ 30 = 0.37 kg.
+    const esTotalExplicito = (c: string) => c === "TOTAL-G-W" || c === "TOTAL-GW" || c === "TOTAL-GROSS-WEIGHT";
+    const esPesoSuelto = (c: string) => c === "G-W" || c === "GW" || c === "GROSS-WEIGHT";
+    const iTotal = f.findIndex(esTotalExplicito);
+    const iSuelto = f.findIndex(esPesoSuelto);
+    col.pesoTotal = iTotal >= 0 ? iTotal : iSuelto;
+    if (col.pesoCaja < 0 && iTotal >= 0 && iSuelto >= 0) col.pesoCaja = iSuelto;
     break;
   }
 
@@ -306,7 +329,8 @@ export async function importarPackingList(
   for (let i = filaEnc + 1; i < filas.length; i++) {
     const f = filas[i];
     const primeras = f.slice(0, 4).map((c) => texto(c).toUpperCase());
-    if (primeras.some((c) => /^(TTL|TOTAL|GRAND TOTAL)\b/.test(c))) break;
+    // «合计» es «total» en chino (S271-2026 traía su total de 713 cajas así).
+    if (primeras.some((c) => /^(TTL|TOTAL|GRAND TOTAL|SUBTOTAL|SUB-TOTAL)\b/.test(c) || /^(合计|合計|总计|總計|小计|小計)/.test(c))) break;
 
     // ---- Formato del ERP: SKU | Cajas ----------------------------------------
     if (col.sku >= 0 && col.modelo < 0) {
@@ -343,7 +367,28 @@ export async function importarPackingList(
     const porCajaFila = col.porCaja >= 0 ? numero(f[col.porCaja]) : 0;
 
     if (pedidoCrudo && /\d{3,}/.test(pedidoCrudo)) pedidoActual = pedidoCrudo.toUpperCase();
-    if (modeloCrudo) modeloActual = modeloCrudo.toUpperCase();
+    if (modeloCrudo) {
+      // «GT142 (IN10161)» / «MY2307（IN10163）»: el pedido viaja en el
+      // paréntesis del modelo (S272-2026, columna «Article no» sin Invoice).
+      const conPedido = modeloConPedido(modeloCrudo);
+      modeloActual = conPedido.modelo;
+      if (conPedido.pedido) pedidoActual = conPedido.pedido;
+    }
+
+    // Fila de TOTAL sin etiqueta: trae cajas pero ni pedido, ni modelo, ni
+    // color, ni talla, ni pares por caja. Sin esto se leía como otro bloque
+    // del último modelo y el contenedor salía al DOBLE (S267-2026: 1,060
+    // cajas contra las 530 del BL; el total sin letrero quedó como «GT104-6
+    // BROWN 530 cajas»).
+    const tallaCelda = col.talla >= 0 ? texto(f[col.talla]) : "";
+    if (cajasFila > 0 && !colorCrudo && !modeloCrudo && !pedidoCrudo && !tallaCelda && !porCajaFila) {
+      const hastaAqui = lineas.reduce((a, l) => a + l.cajas, 0);
+      if (cajasFila !== hastaAqui) {
+        avisos.push(`Fila ${i + 1}: ${cajasFila} cajas sin modelo, color ni talla; se tomó como total y no se contó.`);
+      }
+      bloque = null;
+      continue;
+    }
 
     // ¿Empieza un bloque? Trae color o cajas propias.
     const empieza = Boolean(colorCrudo) || cajasFila > 0;
@@ -354,7 +399,9 @@ export async function importarPackingList(
         bloque = null;
         continue;
       }
-      const colorDelBloque = colorCrudo || colorAnterior;
+      // «COGNAC   coñac»: la traducción va en minúsculas tras varios espacios
+      // y, cortada en la «ñ», dejaba «COGNAC CO» (S270-2026).
+      const colorDelBloque = (colorCrudo || colorAnterior).replace(/\s{2,}[a-zà-ÿ].*$/u, "");
       colorAnterior = colorDelBloque;
       bloque = {
         pedidoCrudo: pedidoActual || null,
@@ -388,6 +435,11 @@ export async function importarPackingList(
       const prs = col.prsPorTalla >= 0 ? numero(f[col.prsPorTalla]) : 0;
       if (talla && prs > 0) {
         bloque.tallas[talla] = (bloque.tallas[talla] ?? 0) + prs;
+      } else if (talla && empieza && col.prsPorTalla < 0 && porCajaFila > 0) {
+        // Sin columna de pares por talla, la talla en el renglón de la caja
+        // es caja UNITALLA: todos sus pares son de esa talla (S263-2026,
+        // «GT114 BLK (NEGRO) · 39 (26) · 10 cajas × 48»).
+        bloque.tallas[talla] = porCajaFila;
       } else if (talla && prs <= 0 && !empieza) {
         avisos.push(`Fila ${i + 1}: talla ${talla} sin pares por caja; se ignoró.`);
       }

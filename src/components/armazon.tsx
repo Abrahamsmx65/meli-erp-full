@@ -1,20 +1,22 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut, Menu, Package, Search, X } from "lucide-react";
-import { MenuLateral } from "@/components/menu-lateral";
+import { LogOut, Menu, Search, X } from "lucide-react";
+import { MenuLateral, abrirPaleta } from "@/components/menu-lateral";
+import { Logo } from "@/components/logo";
 import { EstadoConexion } from "@/components/estado-conexion";
 import { Avisos } from "@/components/ui/avisos";
+import { Paleta } from "@/components/ui/paleta";
 import type { Rol } from "@/lib/acceso/roles";
 
 /**
- * Armazón de la app: barra superior azul marino, menú lateral blanco y el
- * área de trabajo sobre gris frío. Es el esqueleto de un panel de vendedor
- * (Seller Central, el de MELI), que es donde el dueño pasa el resto del día:
- * así la herramienta se siente parte del mismo escritorio y no un sistema
- * aparte.
+ * Armazón de la app (rediseño del 9-oct-2026; 19-oct-2026 sin barra
+ * superior en escritorio): riel crema a la izquierda con el logo, las
+ * secciones y al pie Buscar (⌘K) y Cerrar sesión, y el área de trabajo
+ * sobre crema. La barra blanca de arriba solo repetía la ceja de la
+ * pantalla y se quitó; en el celular queda una barra delgada con el menú,
+ * el logo, buscar y salir.
  *
  * Las pantallas SIN sesión (login, el link de contenido de Amazon y la
  * estación de preparar pedidos) reciben solo la franja de marca: quien entra
@@ -32,144 +34,104 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
   const publica =
     ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
 
+  // El login se dibuja a pantalla completa, sin marco.
+  if (ruta.startsWith("/login")) return <>{children}</>;
+
   if (publica) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-dvh flex-col">
         <header
           aria-label="Barra superior"
-          className="no-imprimir flex h-12 items-center px-5"
-          style={{ background: "linear-gradient(90deg, var(--marca), var(--marca-2))" }}
+          className="no-imprimir flex h-14 items-center px-5"
+          style={{ background: "var(--sidebar)", borderBottom: "1px solid var(--sidebar-borde)" }}
         >
-          <Logo />
+          <Logo alto={30} />
         </header>
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-5 py-6">{children}</main>
       </div>
     );
   }
 
-  return (
-    <div className="flex min-h-screen flex-col">
-      <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} rol={rol} />
+  return <Marco rol={rol} abierto={abierto} setAbierto={setAbierto}>{children}</Marco>;
+}
 
-      <div className="flex flex-1">
-        <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
-        <div className="min-w-0 flex-1">
-          <main className="aparece mx-auto max-w-[1400px] px-4 py-6 md:px-6" key={ruta}>
-            {children}
-          </main>
-        </div>
+/** El marco de trabajo con sesión: riel, barra del celular y área de trabajo. */
+export function Marco({
+  children,
+  rol = "dueño",
+  abierto = false,
+  setAbierto = () => {},
+}: {
+  children: React.ReactNode;
+  rol?: Rol;
+  abierto?: boolean;
+  setAbierto?: (v: boolean | ((v: boolean) => boolean)) => void;
+}) {
+  // Esc cierra el cajón del menú en el celular.
+  useEffect(() => {
+    if (!abierto) return;
+    function tecla(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setAbierto(false);
+    }
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [abierto, setAbierto]);
+
+  return (
+    <div className="flex min-h-dvh">
+      <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <BarraMovil abierto={abierto} alternar={() => setAbierto((v) => !v)} />
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
+      {/* Invisible: mantiene vivo el latido mientras la app está abierta. */}
+      <EstadoConexion oculto />
+      <Paleta rol={rol} />
       <Avisos />
     </div>
   );
 }
 
-function Logo() {
-  return (
-    <Link href="/" className="flex items-center gap-2.5" aria-label="GETAC, inicio">
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-lg"
-        style={{ background: "var(--acento)", color: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}
-      >
-        <Package size={18} strokeWidth={2.5} />
-      </span>
-      <span className="leading-none">
-        <span className="block text-[15px] font-extrabold tracking-tight" style={{ color: "var(--marca-texto)" }}>
-          GETAC
-        </span>
-        <span
-          className="mt-0.5 block text-[9px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "rgba(255,255,255,.6)" }}
-        >
-          Control de inventario
-        </span>
-      </span>
-    </Link>
-  );
-}
-
 /**
- * La barra superior. Lleva el logo, el buscador de SKUs (va directo a Bodega
- * con el filtro puesto), el estado de la conexión con MELI y la salida.
+ * Barra delgada SOLO en pantallas chicas: abrir el menú, el logo, buscar y
+ * salir. En escritorio todo eso vive en el riel.
  */
-function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alternar: () => void; rol?: Rol }) {
-  const router = useRouter();
-  const [q, setQ] = useState("");
-
-  function buscar(e: React.FormEvent) {
-    e.preventDefault();
-    const t = q.trim();
-    if (!t) return;
-    router.push(`/inventario?q=${encodeURIComponent(t)}`);
-  }
-
+function BarraMovil({ abierto, alternar }: { abierto: boolean; alternar: () => void }) {
   return (
     <header
       aria-label="Barra superior"
-      className="no-imprimir sticky top-0 z-40 flex h-14 items-center gap-3 px-4 md:gap-5 md:px-5"
-      style={{
-        background: "linear-gradient(90deg, var(--marca), var(--marca-2))",
-        boxShadow: "0 1px 0 rgba(0,0,0,.2), 0 2px 8px rgba(15,27,45,.18)",
-      }}
+      className="no-imprimir sticky top-0 z-30 flex h-12 items-center gap-1 border-b px-2 lg:hidden"
+      style={{ background: "var(--sidebar)", borderColor: "var(--sidebar-borde)" }}
     >
       <button
+        type="button"
         onClick={alternar}
         aria-label={abierto ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={abierto}
-        className="-ml-1 rounded-md p-1.5 lg:hidden"
-        style={{ color: "var(--marca-texto)" }}
+        aria-controls="menu-lateral"
+        className="salir grid h-10 w-10 place-items-center rounded-md"
+        style={{ color: "var(--ink-1)" }}
       >
         {abierto ? <X size={20} /> : <Menu size={20} />}
       </button>
-
-      <div className="hidden sm:block">
-        <Logo />
-      </div>
-
-      {/* El buscador va a Bodega: quien solo es de TikTok no lo tiene. */}
-
-      {rol !== "tiktok" ? (
-
-      <form
-        onSubmit={buscar}
-        role="search"
-        className="relative mx-auto flex w-full max-w-xl items-stretch"
-      >
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar SKU, modelo o color en bodega…"
-          aria-label="Buscar en bodega"
-          className="h-9 w-full rounded-r-none border-0 pr-2"
-          style={{ borderRadius: "var(--radio) 0 0 var(--radio)" }}
-        />
+      <Logo alto={28} />
+      <div className="ml-auto flex items-center">
         <button
-          type="submit"
-          aria-label="Buscar"
-          className="flex h-9 w-11 shrink-0 items-center justify-center"
-          style={{
-            background: "var(--acento)",
-            color: "#fff",
-            borderRadius: "0 var(--radio) var(--radio) 0",
-          }}
+          type="button"
+          onClick={abrirPaleta}
+          aria-label="Buscar pantalla"
+          className="salir grid h-10 w-10 place-items-center rounded-md"
+          style={{ color: "var(--ink-2)" }}
         >
-          <Search size={17} strokeWidth={2.2} />
+          <Search size={19} strokeWidth={2} />
         </button>
-      </form>
-
-      ) : null}
-
-      <div className="ml-auto hidden items-center gap-3 md:flex">
-        <EstadoConexion />
         <a
           href="/api/salir"
-          className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-semibold"
-          style={{ color: "rgba(255,255,255,.85)" }}
-          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+          className="salir grid h-10 w-10 place-items-center rounded-md"
+          style={{ color: "var(--ink-2)" }}
         >
-          <LogOut size={15} strokeWidth={2.2} />
-          Salir
+          <LogOut size={18} strokeWidth={2} />
         </a>
       </div>
     </header>

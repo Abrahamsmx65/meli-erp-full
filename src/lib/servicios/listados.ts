@@ -28,7 +28,7 @@ export interface AtributoCrudo {
   value_id?: string | null;
   value_name?: string | null;
   /** los atributos multivalor (p. ej. materiales) vienen aquí */
-  values?: { id?: string | null; name?: string | null }[];
+  values?: { id?: string | null; name?: string | null; struct?: unknown }[];
 }
 
 export interface VariacionCruda {
@@ -49,6 +49,12 @@ export interface ItemCrudo {
   permalink?: string;
   price?: number;
   category_id?: string | null;
+  /** publicaciones del modelo user products (MLMU…): los atributos del
+   *  producto viven en /user-products/{id}, no en el item */
+  user_product_id?: string | null;
+  /** nombre de familia de user products: MELI junta en UNA página las
+   *  publicaciones que lo comparten (y arma el título con él) */
+  family_name?: string | null;
   attributes?: AtributoCrudo[];
   variations?: VariacionCruda[];
 }
@@ -217,9 +223,23 @@ export function aplanarItem(
     permalink: item.permalink ?? null,
     precio: item.price ?? null,
     color: filaItem?.color ?? (colores.size === 1 ? [...colores][0] : null),
-    atributos: aValores(item.attributes),
+    atributos: [...atributoFamilia(item), ...aValores(item.attributes)],
     variantes,
   };
+}
+
+/**
+ * El nombre de familia no es un atributo de MELI, pero es lo que más parte
+ * una página de user products: la Edad (AGE_GROUP) es read_only y no cuenta,
+ * y GT251 (13-oct-2026) quedó en dos páginas porque una talla se llamaba
+ * «Botín Tipo Chelsea…» y las otras siete «Botas Chelsea…». Se enseña como
+ * atributo para compararlo y unificarlo con el mismo botón.
+ */
+export const ATRIBUTO_FAMILIA = "FAMILY_NAME";
+
+function atributoFamilia(item: ItemCrudo): ValorAtributo[] {
+  if (!item.family_name) return [];
+  return [{ id: ATRIBUTO_FAMILIA, nombre: "Nombre de familia (título)", valor: item.family_name, valueId: null }];
 }
 
 /**
@@ -344,16 +364,31 @@ export function armarPlanUnificacion(
   item: ItemCrudo,
   atributoId: string,
   valor: string,
+  desde?: string,
 ): PlanUnificacion {
   // SIEMPRE por nombre, nunca por value_id: mandar solo el id truena con
   // "Value name of attribute MATERIALS was not provided and couldn't be
   // resolved from attributes database" (visto en producción con MATERIALS,
   // que es multivalor). El nombre MELI sí lo resuelve contra su catálogo, y
   // si es un valor custom que las hermanas ya traen, lo acepta igual.
+  if (atributoId === ATRIBUTO_FAMILIA) {
+    // MELI solo lo deja cambiar si ninguna venta del user product existe;
+    // si no, contesta el error y la pantalla lo enseña.
+    const igual = (item.family_name ?? "").trim() === valor.trim();
+    return igual
+      ? { itemId: item.id, cuerpo: null, niveles: [] }
+      : { itemId: item.id, cuerpo: { family_name: valor.trim() }, niveles: ["publicacion"] };
+  }
+
   const objetivo: Record<string, unknown> = { id: atributoId, value_name: valor };
 
   const coincide = (a: AtributoCrudo): boolean =>
     (valorDeAtributo(a) ?? "").trim() === valor.trim();
+  // RENOMBRAR (`desde`): solo se toca lo que hoy dice ese valor (cambiar el
+  // nombre de UN color sin pisar los demás); nada se agrega donde falta.
+  const viejo = desde?.trim().toLowerCase();
+  const toca = (a: AtributoCrudo): boolean =>
+    !coincide(a) && (viejo == null || (valorDeAtributo(a) ?? "").trim().toLowerCase() === viejo);
 
   const variaciones = item.variations ?? [];
   const enCombos = variaciones.some((v) =>
@@ -373,7 +408,7 @@ export function armarPlanUnificacion(
       let cambia = false;
 
       const combos = (v.attribute_combinations ?? []).map((a) => {
-        if (a.id === atributoId && !coincide(a)) {
+        if (a.id === atributoId && toca(a)) {
           cambia = true;
           return objetivo;
         }
@@ -381,14 +416,14 @@ export function armarPlanUnificacion(
       });
 
       const attrs = (v.attributes ?? []).map((a) => {
-        if (a.id === atributoId && !coincide(a)) {
+        if (a.id === atributoId && toca(a)) {
           cambia = true;
           return objetivo;
         }
         return pasarAtributo(a);
       });
       // Una hermana sin el atributo también parte el picker: se le agrega.
-      if (enAtributosVar && !(v.attributes ?? []).some((a) => a.id === atributoId)) {
+      if (viejo == null && enAtributosVar && !(v.attributes ?? []).some((a) => a.id === atributoId)) {
         attrs.push(objetivo);
         cambia = true;
       }
@@ -410,12 +445,43 @@ export function armarPlanUnificacion(
   }
 
   const attrItem = (item.attributes ?? []).find((a) => a.id === atributoId);
-  if (attrItem ? !coincide(attrItem) : !enCombos && !enAtributosVar) {
+  if (attrItem ? toca(attrItem) : viejo == null && !enCombos && !enAtributosVar) {
     cuerpo.attributes = [objetivo];
     niveles.push("publicacion");
   }
 
   return { itemId: item.id, cuerpo: niveles.length ? cuerpo : null, niveles };
+}
+
+/**
+ * Cuerpo del PUT a /user-products/{id}: el arreglo COMPLETO de atributos del
+ * user product con `atributoId` reemplazado (o agregado). Se manda completo a
+ * propósito: si MELI reemplaza el arreglo, quitar el resto borraría el
+ * SELLER_SKU, que en Full vive justo ahí. null si ya trae el valor.
+ */
+function tal(a: AtributoCrudo): Record<string, unknown> {
+  const out: Record<string, unknown> = { id: a.id };
+  if (a.value_id != null) out.value_id = a.value_id;
+  if (a.value_name != null) out.value_name = a.value_name;
+  if (a.values?.length) out.values = a.values;
+  return out;
+}
+
+export function armarCuerpoUserProduct(
+  atributos: AtributoCrudo[],
+  atributoId: string,
+  valor: string,
+): Record<string, unknown> | null {
+  const actual = atributos.find((a) => a.id === atributoId);
+  if (actual && (valorDeAtributo(actual) ?? "").trim() === valor.trim()) return null;
+  const objetivo = { id: atributoId, value_name: valor };
+  // Los demás regresan TAL CUAL vinieron (con `values[].struct`: las medidas
+  // del paquete del user product solo traen eso; recortarlo las borraría).
+  const salida: Record<string, unknown>[] = atributos
+    .filter((a) => a.id)
+    .map((a) => (a.id === atributoId ? objetivo : tal(a)));
+  if (!actual) salida.push(objetivo);
+  return { attributes: salida };
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +583,7 @@ export async function leerGrupoListados(
 export interface ResultadoUnificacion {
   itemId: string;
   estado: "actualizado" | "sin_cambio" | "error";
-  niveles: ("publicacion" | "variantes")[];
+  niveles: ("publicacion" | "variantes" | "user_product")[];
   detalle: string | null;
 }
 
@@ -544,6 +610,7 @@ export async function unificarAtributo(
   itemIds: string[],
   atributoId: string,
   valor: string,
+  desde?: string,
 ): Promise<ResultadoUnificacion[]> {
   const { items } = await traerItemsCrudos(cliente, itemIds);
   const resultados: ResultadoUnificacion[] = [];
@@ -562,7 +629,7 @@ export async function unificarAtributo(
       continue;
     }
 
-    const plan = armarPlanUnificacion(item, atributoId, valor);
+    const plan = armarPlanUnificacion(item, atributoId, valor, desde);
     if (!plan.cuerpo) {
       resultados.push({ itemId, estado: "sin_cambio", niveles: [], detalle: null });
       continue;
@@ -570,13 +637,89 @@ export async function unificarAtributo(
 
     try {
       await cliente.put(`/items/${itemId}`, plan.cuerpo, { reintentos: 1 });
-      resultados.push({ itemId, estado: "actualizado", niveles: plan.niveles, detalle: null });
     } catch (err) {
       resultados.push({ itemId, estado: "error", niveles: plan.niveles, detalle: mensajeMeli(err) });
+      continue;
     }
+
+    // MELI contesta 200 al PUT del item aunque NO guarde el atributo: en las
+    // publicaciones de user products (MLMU…) los atributos del producto
+    // (Edad, Género…) viven en el user product y el del item se ignora en
+    // silencio (GT251, 13-oct-2026: «actualizado» en 7 publicaciones y la
+    // relectura seguía «sin dato»). Por eso se relee y solo cuenta lo que
+    // MELI de verdad trae.
+    resultados.push(await verificarOEscribirEnUserProduct(cliente, item, plan, atributoId, valor, desde));
   }
 
   return resultados;
+}
+
+const ESPERA_RELECTURA_MS = 1500;
+
+async function releerItem(cliente: MeliClient, itemId: string): Promise<ItemCrudo | null> {
+  await new Promise((r) => setTimeout(r, ESPERA_RELECTURA_MS));
+  try {
+    return await cliente.get<ItemCrudo>(`/items/${itemId}`);
+  } catch {
+    return null;
+  }
+}
+
+async function verificarOEscribirEnUserProduct(
+  cliente: MeliClient,
+  item: ItemCrudo,
+  plan: PlanUnificacion,
+  atributoId: string,
+  valor: string,
+  desde?: string,
+): Promise<ResultadoUnificacion> {
+  const itemId = item.id;
+  const releido = await releerItem(cliente, itemId);
+  if (!releido) {
+    return {
+      itemId,
+      estado: "error",
+      niveles: plan.niveles,
+      detalle: "MELI aceptó el cambio pero no se pudo releer la publicación para confirmarlo.",
+    };
+  }
+  if (!armarPlanUnificacion(releido, atributoId, valor, desde).cuerpo) {
+    return { itemId, estado: "actualizado", niveles: plan.niveles, detalle: null };
+  }
+
+  const up = releido.user_product_id ?? item.user_product_id ?? null;
+  if (!up || atributoId === ATRIBUTO_FAMILIA) {
+    return {
+      itemId,
+      estado: "error",
+      niveles: plan.niveles,
+      detalle: "MELI contestó OK pero no guardó el valor (la publicación lo sigue sin traer).",
+    };
+  }
+
+  try {
+    const actual = await cliente.get<{ attributes?: AtributoCrudo[] }>(`/user-products/${up}`);
+    const cuerpo = armarCuerpoUserProduct(actual.attributes ?? [], atributoId, valor);
+    if (cuerpo) await cliente.put(`/user-products/${up}`, cuerpo, { reintentos: 1 });
+  } catch (err) {
+    return {
+      itemId,
+      estado: "error",
+      niveles: plan.niveles,
+      detalle: `MELI ignoró el cambio en la publicación y rechazó el del user product ${up}: ${mensajeMeli(err)}`,
+    };
+  }
+
+  const final = await releerItem(cliente, itemId);
+  if (final && !armarPlanUnificacion(final, atributoId, valor, desde).cuerpo) {
+    return { itemId, estado: "actualizado", niveles: ["user_product"], detalle: null };
+  }
+  return {
+    itemId,
+    estado: "error",
+    niveles: ["user_product"],
+    detalle: `Se escribió en el user product ${up} pero la publicación aún no lo enseña; vuelve a buscar en unos minutos.`,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Parametros } from "@/lib/engine/types";
+import { Ayuda } from "@/components/ui/pagina";
 
 const CAMPOS: {
   clave: keyof Parametros;
   etiqueta: string;
   ayuda: string;
+  /** Texto corto bajo el campo; con él, `ayuda` va plegada abajo. */
+  corta?: string;
   paso?: number;
   min?: number;
 }[] = [
@@ -40,6 +43,7 @@ const CAMPOS: {
     clave: "nivelServicio",
     etiqueta: "Nivel de servicio",
     ayuda: "0.95 = aceptas quedarte sin stock 5% del tiempo. Más alto = más colchón.",
+    corta: "0.95 = 95 %.",
     paso: 0.01,
     min: 0.5,
   },
@@ -67,6 +71,7 @@ const CAMPOS: {
     clave: "maxCajasPorEnvio",
     etiqueta: "Tope de cajas por envío",
     ayuda: "0 = sin tope. Úsalo si tu transporte tiene un límite fijo.",
+    corta: "0 = sin tope.",
     min: 0,
   },
   {
@@ -74,6 +79,7 @@ const CAMPOS: {
     etiqueta: "Producto nuevo (días)",
     ayuda:
       "Un producto estrenado en Full hace menos de estos días es NUEVO: cualquier faltante fuerza su caja, sin tolerancia de rescate. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
   {
@@ -88,6 +94,44 @@ const CAMPOS: {
     etiqueta: "Cobertura para no forzar caja (días)",
     ayuda:
       "Si la caja va a forzar otras tallas, la talla que la pide solo la fuerza con menos de estos días de stock en Full. 0 = siempre se fuerza.",
+    corta: "0 = siempre se fuerza.",
+    min: 0,
+  },
+  {
+    clave: "corridaHermanasMaxDias",
+    etiqueta: "Tope de las tallas hermanas (días)",
+    ayuda:
+      "Si las cajas que pide una talla corta dejan a una hermana arriba de estos días, esa talla solo se surte a la cobertura para no forzar caja (15). 0 = regla vieja (mitad / 7 días).",
+    corta: "0 = regla vieja.",
+    min: 0,
+  },
+  {
+    clave: "colchonSubidaFactor",
+    etiqueta: "Colchón de subida: se activa desde (×)",
+    ayuda:
+      "Si el modelo + color vende en sus últimas 2 semanas con stock al menos este múltiplo de lo que usa el plan, se usa ese ritmo y el objetivo sube. 0 = apagado.",
+    corta: "0 = apagado.",
+    paso: 0.05,
+    min: 0,
+  },
+  {
+    clave: "colchonObjetivoDias",
+    etiqueta: "Colchón de subida: objetivo (días)",
+    ayuda: "Días que se surten de un color que va en subida, en vez de 30.",
+    min: 1,
+  },
+  {
+    clave: "colchonTopeColorDias",
+    etiqueta: "Colchón de subida: tope del color (días)",
+    ayuda:
+      "La corrida de un color en subida se fuerza mientras el color completo no pase de estos días a su ritmo. La caja que cruza el tope sí va.",
+    min: 1,
+  },
+  {
+    clave: "colchonMaxCajasEnvio",
+    etiqueta: "Colchón de subida: máximo de cajas por envío",
+    ayuda: "Con colchón, a lo más estas cajas de un mismo color en cada envío; lo demás va en los siguientes. 0 = sin máximo.",
+    corta: "0 = sin máximo.",
     min: 0,
   },
   {
@@ -95,6 +139,7 @@ const CAMPOS: {
     etiqueta: "Cajas mínimas sin venta",
     ayuda:
       "Un producto que nunca ha vendido en Full y tiene cajas en bodega se sostiene con al menos estas cajas por modelo + color entre Full y en camino. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
 ];
@@ -120,7 +165,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       setEstado("ok");
-      setMensaje("Parámetros guardados. El plan se recalcula con estos valores.");
+      setMensaje("Parámetros guardados.");
       router.refresh();
     } catch (err) {
       setEstado("error");
@@ -142,19 +187,23 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
               onChange={(e) => setV({ ...v, [c.clave]: Number(e.target.value) })}
               className="cifra"
             />
-            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
-              {c.ayuda}
-            </span>
+            {c.corta ? <span className="text-xs texto-tenue">{c.corta}</span> : null}
           </label>
         ))}
       </div>
+      <Ayuda titulo="¿Qué hacen las reglas de producto?">
+        {CAMPOS.filter((c) => c.corta).map((c) => (
+          <p key={String(c.clave)}>
+            <strong>{c.etiqueta}.</strong> {c.ayuda}
+          </p>
+        ))}
+      </Ayuda>
 
       <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={estado === "enviando"}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario"
         >
           {estado === "enviando" ? "Guardando…" : "Guardar parámetros"}
         </button>

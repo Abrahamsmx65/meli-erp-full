@@ -112,7 +112,8 @@ export async function GET(request: NextRequest) {
   // Opción 1 (descontando stock) y opción 2 (solo venta) traen listas
   // distintas: un color con inventario suficiente puede no pedir nada en la
   // opción 1 y sí en la 2.
-  const delModelo = compra.renglones.filter((r) => !modelo || r.modelo === modelo);
+  // `modelo` puede ser una FAMILIA (GT117-GT122): salen todos sus modelos.
+  const delModelo = compra.renglones.filter((r) => !modelo || r.modelo === modelo || r.familia === modelo);
   const renglones = delModelo.filter((r) => r.cajasSugeridas > 0);
   const renglonesSoloVenta = delModelo.filter((r) => r.soloVenta.cajas > 0);
   if (!renglones.length && !renglonesSoloVenta.length) {

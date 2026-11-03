@@ -10,7 +10,7 @@ import type { DB } from "../datos/repos";
 import { upsertEnTandas } from "../datos/repos";
 import { todo } from "./db";
 import { invalidarYz } from "./cache";
-import { agruparGemelas, principalDe } from "./gemelas";
+import { agruparGemelas, amarreConGemelas } from "./gemelas";
 import { amarrar, construirIndice, esAutomatico, type Amarre, type NivelAmarre } from "./sku";
 import { descargarSheet, leerInventario, leerLibro, type ResultadoInventario } from "./sheets";
 
@@ -61,8 +61,7 @@ export async function cargarInventarioAmarrado(db: DB, accountId: string): Promi
   let sugeridos = 0;
 
   for (const f of inventario) {
-    const crudo = amarrar(f.sku_bodega, indice, manual);
-    const a: Amarre = crudo.skuMeli ? { ...crudo, skuMeli: principalDe(gemelas, crudo.skuMeli) } : crudo;
+    const a: Amarre = amarreConGemelas(amarrar(f.sku_bodega, indice, manual), gemelas);
     const ignorado = setIgnorados.has(f.sku_bodega);
     renglones.push({ ...a, hoja: f.hoja, diseno: f.diseno, modelo: f.modelo, color: f.color, cantidad: f.cantidad, ignorado });
     niveles[a.nivel]++;

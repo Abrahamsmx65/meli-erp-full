@@ -26,7 +26,7 @@
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 
-export type OrigenAmarreTikTok = "manual" | "catalogo" | "exacto" | "canonico" | "aplastado" | "ordenado" | "propio";
+export type OrigenAmarreTikTok = "manual" | "catalogo" | "exacto" | "canonico" | "aplastado" | "ordenado" | "propio" | "externo";
 
 export interface AmarreTikTok {
   skuInterno: string | null;

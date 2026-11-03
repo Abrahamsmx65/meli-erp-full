@@ -102,6 +102,49 @@ async function leerXls(buffer: Buffer, hoja?: string): Promise<Filas> {
   return filas;
 }
 
+/**
+ * Lo que la celda ENSEÑA en vez de su valor: el texto formateado (.xls) o el
+ * formato de número (.xlsx). FUZHOU guarda el precio como 1.03 con formato
+ * "US$1.030" y la moneda solo vive ahí. Se lee celda por celda, como arriba.
+ */
+export async function formatosDeHoja(
+  buffer: ArrayBuffer | Buffer,
+  opts?: { nombre?: string; hoja?: string },
+): Promise<Filas> {
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (esFormatoViejo(opts?.nombre, buf)) {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(buf, { type: "buffer", cellFormula: false, cellHTML: false, cellStyles: false, bookVBA: false });
+    const ws = wb.Sheets[opts?.hoja ?? wb.SheetNames[0]];
+    const ref = ws?.["!ref"];
+    if (!ws || !ref) return [];
+    const rango = XLSX.utils.decode_range(ref);
+    const filas: Filas = [];
+    for (let r = rango.s.r; r <= rango.e.r; r++) {
+      const fila: string[] = [];
+      for (let c = rango.s.c; c <= rango.e.c; c++) {
+        const celda = ws[XLSX.utils.encode_cell({ r, c })];
+        fila[c - rango.s.c] = celda && typeof celda.w === "string" ? celda.w : "";
+      }
+      filas.push(fila);
+    }
+    return filas;
+  }
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf as unknown as ArrayBuffer);
+  const ws = opts?.hoja ? wb.getWorksheet(opts.hoja) : wb.worksheets[0];
+  if (!ws) return [];
+  const filas: Filas = [];
+  ws.eachRow({ includeEmpty: true }, (row) => {
+    const vals: string[] = [];
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      vals[col - 1] = typeof cell.numFmt === "string" ? cell.numFmt : "";
+    });
+    filas.push(vals);
+  });
+  return filas;
+}
+
 export async function leerHoja(
   buffer: ArrayBuffer | Buffer,
   opts?: { nombre?: string; hoja?: string },

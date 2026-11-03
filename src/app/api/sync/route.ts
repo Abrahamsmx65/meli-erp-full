@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, RecursoOcupadoError } from "@/lib/datos/repos";
 import { sincronizar } from "@/lib/servicios/sync";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     // también enciende el proceso.
     if (resultado.descartadas.sinSku > 0) {
       await dispararPendientes(
-        process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin,
+        origenDeLaApp(req),
         req.headers.get("cookie"),
       );
     }

@@ -4,6 +4,7 @@ import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { numeroDePedido } from "./compras";
 import { resumirEnCamino } from "./fba-en-camino";
+import type { ReglaFba } from "./fba-plan";
 
 
 /**
@@ -95,8 +96,62 @@ export interface SugerenciaFba {
    * objetivo): viaja la mitad de las cajas. "solo_7_dias" = corrida ya
    * dispareja: viaja una semana de venta de las tallas agotadas, no más.
    */
-  ajusteCorrida: "mitad_corrida" | "solo_7_dias" | null;
+  ajusteCorrida: ReglaFba | null;
+  /** SKUs (de MELI si amarran) del modelo + color: así se cruza con el plan de cajas */
+  skus?: string[];
+  /**
+   * Sin venta en Amazon y el plan le manda cajas: producto NUEVO o que
+   * nunca ha vendido y se manda a probar (posición mínima de 2 cajas).
+   */
+  aProbar?: boolean;
 }
+
+/**
+ * Lo que el plan de cajas le pasa a la vista «Por producto»: las cajas que de
+ * verdad viajan y las reglas que tocaron a cada talla. Con él, la vista dice
+ * lo mismo que el plan (antes llevaba su propia cuenta con la regla vieja).
+ */
+export interface PlanParaSugerencias {
+  cajas: {
+    cantidad: number;
+    paresTotales: number;
+    modelo?: string;
+    color?: string;
+    aporta: { sku: string }[];
+  }[];
+  ajustesCorrida: { sku: string; regla: ReglaFba }[];
+}
+
+/** Cómo se lee cada regla en la pantalla y en el Excel. */
+export function etiquetaAjusteFba(regla: ReglaFba): string {
+  switch (regla) {
+    case "mitad_corrida":
+      return "tallas agotadas con el resto al día: viaja la mitad de las cajas";
+    case "solo_7_dias":
+      return `corrida dispareja: solo ${DIAS_CORRIDA_DISPAREJA} días de las tallas agotadas`;
+    case "quince_dias":
+      return "las hermanas quedarían muy surtidas: la talla corta va a 15 días";
+    case "goteo":
+      return "goteo: una caja por envío";
+    case "cobertura_suficiente":
+      return "a la talla corta le alcanza para 15 días: no se fuerza la caja";
+    case "colchon":
+      return "va en subida: objetivo de 45 días";
+    case "tope_color":
+      return "va en subida: tope de cajas del color por envío";
+  }
+}
+
+// Si una talla trae varias reglas, la que se enseña en el producto.
+const ORDEN_REGLA: ReglaFba[] = [
+  "tope_color",
+  "colchon",
+  "goteo",
+  "quince_dias",
+  "cobertura_suficiente",
+  "mitad_corrida",
+  "solo_7_dias",
+];
 
 /**
  * Sobrante tolerado a las tallas hermanas: posición ≤ 1.5× su venta del
@@ -130,6 +185,7 @@ export function sugerirEnvioFba(
   corridas: Map<string, number>,
   objetivoDias = OBJETIVO_DIAS_FBA,
   indiceMeli?: IndiceCatalogo,
+  plan?: PlanParaSugerencias,
 ): SugerenciaFba[] {
   interface TallaGrupo {
     ventaDiaria: number;
@@ -146,6 +202,7 @@ export function sugerirEnvioFba(
     enTransferencia: number;
     faltante: number;
     detalleTallas: TallaGrupo[];
+    skus: string[];
   }
   const grupos = new Map<string, Grupo>();
 
@@ -168,7 +225,8 @@ export function sugerirEnvioFba(
 
     const g =
       grupos.get(clave) ??
-      { modelo, color, titulo: r.titulo, tallas: 0, ventaDiaria: 0, disponible: 0, enTransferencia: 0, faltante: 0, detalleTallas: [] as TallaGrupo[] };
+      { modelo, color, titulo: r.titulo, tallas: 0, ventaDiaria: 0, disponible: 0, enTransferencia: 0, faltante: 0, detalleTallas: [] as TallaGrupo[], skus: [] as string[] };
+    g.skus.push(enCatalogo?.sku ? String(enCatalogo.sku) : r.sku);
 
     const ventaDiaria = r.unidades / dias;
     const posicion = r.disponible + r.enTransferencia;
@@ -186,9 +244,74 @@ export function sugerirEnvioFba(
     grupos.set(clave, g);
   }
 
-  return [...grupos.values()]
-    .filter((g) => g.ventaDiaria > 0 && g.faltante >= 1)
-    .map((g) => {
+  // Con el plan de cajas, la vista dice lo que el plan manda: sus cajas y
+  // sus reglas (hermanas, goteo, colchón), no una cuenta aparte.
+  let grupoDeSku: Map<string, string> | null = null;
+  const delPlan = new Map<string, { cajas: number; pares: number; regla: ReglaFba | null }>();
+  // Cajas de productos que Amazon no tiene en sus renglones (nunca han
+  // vendido): el plan las manda a probar y la vista también las enseña.
+  const sinRenglon = new Map<
+    string,
+    { modelo: string; color: string; cajas: number; pares: number; skus: Set<string> }
+  >();
+  if (plan) {
+    grupoDeSku = new Map();
+    for (const [clave, g] of grupos) for (const sk of g.skus) grupoDeSku.set(sk, clave);
+    for (const c of plan.cajas) {
+      const clave = c.aporta.map((a) => grupoDeSku!.get(a.sku)).find((x) => x);
+      if (!clave) {
+        const modelo = (c.modelo ?? "").toUpperCase();
+        const color = (c.color ?? "").toUpperCase();
+        const k = claveGrupoFba(modelo, color);
+        const x = sinRenglon.get(k) ?? { modelo, color, cajas: 0, pares: 0, skus: new Set<string>() };
+        x.cajas += c.cantidad;
+        x.pares += c.paresTotales;
+        for (const a of c.aporta) x.skus.add(a.sku);
+        sinRenglon.set(k, x);
+        continue;
+      }
+      const d = delPlan.get(clave) ?? { cajas: 0, pares: 0, regla: null };
+      d.cajas += c.cantidad;
+      d.pares += c.paresTotales;
+      delPlan.set(clave, d);
+    }
+    for (const a of plan.ajustesCorrida) {
+      const clave = grupoDeSku.get(a.sku);
+      if (!clave) continue;
+      const d = delPlan.get(clave) ?? { cajas: 0, pares: 0, regla: null };
+      if (d.regla === null || ORDEN_REGLA.indexOf(a.regla) < ORDEN_REGLA.indexOf(d.regla)) {
+        d.regla = a.regla;
+      }
+      delPlan.set(clave, d);
+    }
+  }
+
+  const extras: SugerenciaFba[] = [...sinRenglon.values()].map((x) => ({
+    modelo: x.modelo,
+    color: x.color,
+    producto: `${x.modelo} ${x.color}`.trim(),
+    titulo: null,
+    tallas: x.skus.size,
+    ventaDiaria: 0,
+    disponible: 0,
+    enTransferencia: 0,
+    cobertura: null,
+    faltantePares: 0,
+    paresPorCaja: corridas.get(claveGrupoFba(x.modelo, x.color)) ?? null,
+    cajas: x.cajas,
+    pares: x.pares,
+    tieneCorrida: true,
+    ajusteCorrida: null,
+    skus: [...x.skus],
+    aProbar: true,
+  }));
+
+  return [...grupos.entries()]
+    .filter(
+      ([clave, g]) =>
+        (g.ventaDiaria > 0 && g.faltante >= 1) || (delPlan.get(clave)?.cajas ?? 0) > 0,
+    )
+    .map(([clave, g]): SugerenciaFba => {
       const posicion = g.disponible + g.enTransferencia;
       const cobertura = g.ventaDiaria > 0 ? posicion / g.ventaDiaria : null;
       const paresPorCaja = corridas.get(claveGrupoFba(g.modelo, g.color)) ?? null;
@@ -232,8 +355,9 @@ export function sugerirEnvioFba(
         // que la hermana pasada del factor: se surte COMPLETO, sin ajuste.
       }
 
+      const enPlan = plan ? (delPlan.get(clave) ?? { cajas: 0, pares: 0, regla: null }) : null;
       const cajasCompletas = paresPorCaja ? Math.ceil(g.faltante / paresPorCaja) : 0;
-      const cajas = paresPorCaja
+      const cajasCuenta = paresPorCaja
         ? ajusteCorrida === "mitad_corrida"
           ? Math.ceil(cajasCompletas / 2)
           : Math.ceil(faltanteEnvio / paresPorCaja)
@@ -250,13 +374,25 @@ export function sugerirEnvioFba(
         cobertura,
         faltantePares: Math.round(g.faltante),
         paresPorCaja,
-        cajas,
-        pares: paresPorCaja ? cajas * paresPorCaja : Math.round(faltanteEnvio),
-        tieneCorrida: Boolean(paresPorCaja),
-        ajusteCorrida,
+        cajas: enPlan ? enPlan.cajas : cajasCuenta,
+        pares: enPlan
+          ? enPlan.pares
+          : paresPorCaja
+            ? cajasCuenta * paresPorCaja
+            : Math.round(faltanteEnvio),
+        tieneCorrida: Boolean(paresPorCaja) || (enPlan?.cajas ?? 0) > 0,
+        ajusteCorrida: enPlan ? enPlan.regla : ajusteCorrida,
+        skus: g.skus,
+        aProbar: g.ventaDiaria <= 0 && (enPlan?.cajas ?? 0) > 0,
       };
     })
-    .sort((a, b) => (a.cobertura ?? 0) - (b.cobertura ?? 0));
+    .concat(extras)
+    // Lo que se manda a probar (sin cobertura) va al final.
+    .sort((a, b) =>
+      a.cobertura === null || b.cobertura === null
+        ? Number(a.cobertura === null) - Number(b.cobertura === null)
+        : a.cobertura - b.cobertura,
+    );
 }
 
 /** Ventana de venta que alimenta el pedido a China (días). */

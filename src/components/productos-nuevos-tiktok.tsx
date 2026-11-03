@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { Aviso } from "@/components/ui/pagina";
 import type { ProductosNuevosTikTok, PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { ProductoAmazonParaTikTok } from "@/lib/tiktok/publicar";
 import { PublicacionesMeliTikTok } from "./publicaciones-meli-tiktok";
+import { confirmar } from "@/components/ui/confirmar";
 
 function dinero(x: number | null | undefined, moneda: string): string {
   if (x == null) return "—";
@@ -51,6 +53,15 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   // borra en el Seller Center). Dueño, 2-oct-2026: «quiero volver a publicar
   // el GT168 porque quedó mal pero ya no me sale».
   const [volverAPublicar, setVolverAPublicar] = useState(false);
+  // Un modelo que TikTok ya vende ACTIVO recibe sus colores nuevos como
+  // variantes del MISMO producto (dueño, 15-oct-2026: «agregar colores
+  // nuevos a listados ya hechos, por ejemplo el GT125»); aquí se anota el
+  // que el dueño prefiera publicar aparte como producto nuevo.
+  const [comoNuevo, setComoNuevo] = useState<Record<string, boolean>>({});
+  // Colores que el dueño DESMARCÓ en el renglón: de los que van a publicarse,
+  // solo salen los que se queden marcados (dueño, 27-oct-2026: «me gustaría
+  // poder seleccionar cuáles colores puedo aumentar»).
+  const [quitados, setQuitados] = useState<Record<string, string[]>>({});
   const [enviando, setEnviando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +101,14 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     return () => clearInterval(t);
   }, [hayPendientes, esDueno]);
 
-  // Mientras haya algo en cola, se vuelve a leer cada 5 s.
+  // Mientras haya algo en cola, se vuelve a leer SOLO la cola cada 5 s
+  // (`?soloCola=1`; antes viajaba la lista completa de productos cada vez),
+  // y no se pregunta con la pestaña escondida. Cuando la cola se vacía, la
+  // lista se relee una vez recalculada para que lo publicado salga tachado.
+  const trabajabaAntes = useRef(trabajando);
   useEffect(() => {
+    if (trabajabaAntes.current && !trabajando) recargar(true).catch(() => {});
+    trabajabaAntes.current = trabajando;
     if (!trabajando) {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
@@ -99,12 +116,19 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     }
     if (sondeo.current) return;
     sondeo.current = setInterval(() => {
-      recargar().catch(() => {});
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetch("/api/tiktok/publicar-productos?soloCola=1", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j && Array.isArray(j.cola)) setDatos((d) => ({ ...d, cola: j.cola }));
+        })
+        .catch(() => {});
     }, 5000);
     return () => {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trabajando]);
 
   const visibles = useMemo(() => {
@@ -143,21 +167,52 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     });
   }
 
-  const coloresDe = (p: ProductoAmazonParaTikTok) =>
+  /** Los colores que PODRÍAN publicarse de este modelo con los filtros de hoy. */
+  const coloresElegibles = (p: ProductoAmazonParaTikTok) =>
     volverAPublicar ? p.colores.map((c) => c.color) : incluirApagados ? p.coloresPorPublicar : p.coloresActivosPorPublicar;
+  /** Los que se publican: los elegibles menos los que el dueño desmarcó. */
+  const coloresDe = (p: ProductoAmazonParaTikTok) => {
+    const fuera = new Set(quitados[p.modelo] ?? []);
+    return coloresElegibles(p).filter((c) => !fuera.has(c));
+  };
+  function elegirColor(modelo: string, color: string, si: boolean) {
+    setQuitados((q) => {
+      const lista = new Set(q[modelo] ?? []);
+      if (si) lista.delete(color);
+      else lista.add(color);
+      return { ...q, [modelo]: [...lista] };
+    });
+  }
   const porModelo = useMemo(() => new Map(datos.productos.map((p) => [p.modelo, p])), [datos.productos]);
-  const listos = [...marcados].filter((m) => Number(precios[m]) > 0 && (coloresDe(porModelo.get(m)!)?.length ?? 0) > 0);
-  const sinPrecio = [...marcados].filter((m) => !(Number(precios[m]) > 0)).length;
-  const sinColores = [...marcados].filter((m) => Number(precios[m]) > 0 && !(coloresDe(porModelo.get(m)!)?.length)).length;
+  /** A qué producto de TikTok se le AGREGAN los colores (null = se crea uno nuevo). */
+  const agregarA = (p: ProductoAmazonParaTikTok): string | null =>
+    !volverAPublicar && p.productoTikTok && p.coloresPorPublicar.length && !comoNuevo[p.modelo] ? p.productoTikTok : null;
+  /** El precio con el que se publica: el capturado o, al agregar a un listado, el que ese producto ya tiene en TikTok. */
+  const precioEfectivo = (m: string): number => {
+    const p = porModelo.get(m);
+    const capturado = Number(precios[m]);
+    if (capturado > 0) return capturado;
+    return p && agregarA(p) ? (p.precioTikTok ?? 0) : 0;
+  };
+  const listos = [...marcados].filter((m) => precioEfectivo(m) > 0 && (coloresDe(porModelo.get(m)!)?.length ?? 0) > 0);
+  const sinPrecio = [...marcados].filter((m) => !(precioEfectivo(m) > 0)).length;
+  const sinColores = [...marcados].filter((m) => precioEfectivo(m) > 0 && !(coloresDe(porModelo.get(m)!)?.length)).length;
+  const seAgregan = listos.filter((m) => agregarA(porModelo.get(m)!)).length;
 
   async function publicar() {
     if (!listos.length) return;
     const n = listos.length;
+    const nuevos = n - seAgregan;
     if (
-      !window.confirm(
-        `¿Publicar ${n} producto${n === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? Se crean con sus colores y tallas y el precio capturado.` +
+      !(await confirmar({
+        titulo: nuevos ? "¿Publicar en TikTok?" : "¿Agregar colores en TikTok?",
+        mensaje:
+          (nuevos ? `¿Publicar ${nuevos} producto${nuevos === 1 ? "" : "s"} nuevo${nuevos === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? ` : "") +
+          (seAgregan ? `${nuevos ? "Y a" : "¿A"} ${seAgregan} listado${seAgregan === 1 ? "" : "s"} que ya existe${seAgregan === 1 ? "" : "n"} se le${seAgregan === 1 ? "" : "s"} agregan sus colores nuevos como variantes${nuevos ? "." : "?"} ` : "") +
+          "Con sus colores y tallas y el precio capturado." +
           (volverAPublicar ? " Lo que TikTok ya tiene se publica OTRA VEZ como producto nuevo: borra el viejo en el Seller Center." : ""),
-      )
+        confirmar: nuevos ? "Publicar" : "Agregar colores",
+      }))
     )
       return;
     setEnviando(true);
@@ -170,10 +225,11 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
         body: JSON.stringify({
           productos: listos.map((m) => ({
             modelo: m,
-            precio: Number(precios[m]),
+            precio: precioEfectivo(m),
             colores: coloresDe(porModelo.get(m)!),
             titulo: (titulos[m] ?? porModelo.get(m)!.titulo).trim(),
             forzar: volverAPublicar,
+            agregarA: agregarA(porModelo.get(m)!),
           })),
           borrador,
         }),
@@ -255,78 +311,78 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   return (
     <div className="flex flex-col gap-6">
       {datos.avisos.map((a) => (
-        <div key={a} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "#f59e0b", color: "#92400e", background: "#fffbeb" }}>
-          <AlertTriangle size={16} /> {a}
-        </div>
+        <Aviso key={a} tono="alerta">
+          {a}
+        </Aviso>
       ))}
 
       <section className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Buscar
             <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="GT134, sandalia, BLK…" className="w-56 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} /> Solo con tallas activas en Amazon
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={verPublicados} onChange={(e) => setVerPublicados(e.target.checked)} /> Ver también lo que TikTok ya vende
           </label>
-          <button onClick={refrescarLista} disabled={refrescando} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde boton-chico">
             <RefreshCw size={14} className={refrescando ? "animate-spin" : ""} /> Releer Amazon
           </button>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {resumen.productos} modelos en Amazon · {resumen.porPublicar} con colores por publicar · {resumen.enTikTok} ya en TikTok · lista de {cuando(datos.generadoEn)}
           </span>
         </div>
 
         {esDueno ? (
           <div className="mt-4 flex flex-wrap items-end gap-3 border-t pt-4" style={{ borderColor: "var(--grid)" }}>
-            <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label className="flex flex-col text-xs texto-2">
               Mismo precio para los marcados ({datos.moneda})
               <div className="flex gap-1">
                 <input type="number" min={1} step={1} value={precioTodos} onChange={(e) => setPrecioTodos(e.target.value)} className="w-28 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
-                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="boton boton-borde boton-chico">
                   Aplicar
                 </button>
               </div>
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }} title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
-              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
+            <label className="flex items-center gap-1.5 text-sm texto-2" title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
+              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir colores sin tallas activas
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
+            <label className="flex items-center gap-1.5 text-sm texto-2">
+              <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok
             </label>
             <label
               className="flex items-center gap-1.5 text-sm"
-              style={{ color: volverAPublicar ? "#92400e" : "var(--ink-2)" }}
+              style={{ color: volverAPublicar ? "var(--alerta-texto)" : "var(--ink-2)" }}
               title="Para un producto que quedó mal: se publica OTRA VEZ con TODOS sus colores como producto nuevo. El viejo hay que borrarlo en el Seller Center; en la siguiente lectura del catálogo deja de contar."
             >
-              <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
+              <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga
             </label>
-            <button onClick={publicar} disabled={enviando || !listos.length} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: "var(--acento)" }}>
+            <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario">
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})
             </button>
             {sinPrecio > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
                 {sinPrecio} marcado{sinPrecio === 1 ? "" : "s"} sin precio: no se publica{sinPrecio === 1 ? "" : "n"} hasta capturarlo.
               </span>
             ) : null}
             {sinColores > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
-                {sinColores} marcado{sinColores === 1 ? "" : "s"} solo con colores apagados en Amazon: marca «Incluir colores sin tallas activas» para publicarlos.
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
+                {sinColores} marcado{sinColores === 1 ? "" : "s"} sin ningún color elegido: marca algún color en su renglón o «Incluir colores sin tallas activas».
               </span>
             ) : null}
           </div>
         ) : null}
-        {error ? <p className="mt-3 text-sm" style={{ color: "#b91c1c" }}>{error}</p> : null}
-        {aviso ? <p className="mt-3 text-sm" style={{ color: "#15803d" }}>{aviso}</p> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
       </section>
 
       <section className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+            <tr className="text-left text-xs texto-2">
               {esDueno ? (
                 <th className="px-3 py-2">
                   <input type="checkbox" checked={visibles.length > 0 && visibles.every((p) => !p.coloresPorPublicar.length || marcados.has(p.modelo))} onChange={(e) => marcarTodos(e.target.checked)} />
@@ -352,16 +408,21 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 titulo={titulos[p.modelo] ?? p.titulo}
                 enCola={enCola.get(p.modelo) ?? null}
                 forzar={volverAPublicar}
+                agregarA={agregarA(p)}
+                elegibles={coloresElegibles(p)}
+                elegidos={coloresDe(p)}
+                onColor={(color, si) => elegirColor(p.modelo, color, si)}
                 abierto={abierto === p.modelo}
                 onAbrir={() => setAbierto(abierto === p.modelo ? null : p.modelo)}
                 onMarcar={(si) => marcar(p.modelo, si)}
                 onPrecio={(v) => setPrecios((s) => ({ ...s, [p.modelo]: v }))}
                 onTitulo={(v) => setTitulos((s) => ({ ...s, [p.modelo]: v }))}
+                onComoNuevo={(si) => setComoNuevo((s) => ({ ...s, [p.modelo]: si }))}
               />
             ))}
             {!visibles.length ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={7} className="px-3 py-6 text-center text-sm texto-2">
                   Nada que enseñar con estos filtros.
                 </td>
               </tr>
@@ -382,8 +443,8 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
       {datos.cola.length ? (
         <section className="tarjeta p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="titulo-seccion">Cola de publicación</h2>
-            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--ink-2)" }}>
+            <h2 className="seccion-titulo">Cola de publicación</h2>
+            <div className="flex items-center gap-2 text-xs texto-2">
               {trabajando ? (
                 <>
                   <Loader2 size={14} className="animate-spin" /> Publicando por atrás…
@@ -392,7 +453,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 "Sin trabajo pendiente."
               )}
               {esDueno && datos.cola.some((c) => c.estado === "pendiente") ? (
-                <button onClick={() => accion("continuar")} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={() => accion("continuar")} className="boton boton-borde boton-chico">
                   Empujar la cola
                 </button>
               ) : null}
@@ -400,7 +461,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
           </div>
           <table className="mt-3 w-full text-sm">
             <thead>
-              <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+              <tr className="text-left text-xs texto-2">
                 <th className="px-2 py-1">Modelo</th>
                 <th className="px-2 py-1">Colores</th>
                 <th className="px-2 py-1 text-right">Precio</th>
@@ -418,7 +479,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                     <td className="px-2 py-1.5 font-medium">
                       {c.modelo}
                       {c.fuente === "meli" ? (
-                        <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs font-normal texto-tenue">
                           publicación de MELI · {c.titulo}
                         </div>
                       ) : null}
@@ -432,20 +493,21 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                         {c.borrador ? " (borrador)" : ""}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "#b91c1c" : "var(--ink-2)" }}>
+                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "var(--critico-texto)" : "var(--ink-2)" }}>
+                      {c.productoDestino ? `Al listado ${c.productoDestino} · ` : ""}
                       {c.estado === "error" ? c.error : c.productId ? `Producto ${c.productId}` : c.intentos > 1 ? `Intento ${c.intentos}` : ""}
                       {c.avisos.length ? ` · TikTok avisa: ${c.avisos.join("; ")}` : ""}
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: "var(--ink-2)" }}>{cuando(c.publicadoEn ?? c.creadoEn)}</td>
+                    <td className="px-2 py-1.5 text-xs texto-2">{cuando(c.publicadoEn ?? c.creadoEn)}</td>
                     {esDueno ? (
                       <td className="px-2 py-1.5 text-right">
                         {c.estado === "error" ? (
-                          <button onClick={() => accion("reintentar", c.id)} className="mr-2 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("reintentar", c.id)} className="boton boton-borde boton-chico mr-2 gap-1">
                             <RefreshCw size={12} /> Reintentar
                           </button>
                         ) : null}
                         {c.estado === "error" || c.estado === "pendiente" ? (
-                          <button onClick={() => accion("quitar", c.id)} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("quitar", c.id)} className="boton boton-borde boton-chico gap-1">
                             <Trash2 size={12} /> Quitar
                           </button>
                         ) : null}
@@ -471,11 +533,16 @@ function FilaProducto({
   titulo,
   enCola,
   forzar,
+  agregarA,
+  elegibles,
+  elegidos,
+  onColor,
   abierto,
   onAbrir,
   onMarcar,
   onPrecio,
   onTitulo,
+  onComoNuevo,
 }: {
   p: ProductoAmazonParaTikTok;
   moneda: string;
@@ -486,22 +553,39 @@ function FilaProducto({
   enCola: PublicacionEnCola | null;
   /** «Volver a publicar»: también lo que TikTok ya tiene */
   forzar: boolean;
+  /** el producto de TikTok al que se le agregan los colores que faltan; null = producto nuevo */
+  agregarA: string | null;
+  /** los colores que podrían publicarse con los filtros de hoy */
+  elegibles: string[];
+  /** los que el dueño dejó marcados (los que se publican) */
+  elegidos: string[];
+  onColor: (color: string, si: boolean) => void;
   abierto: boolean;
   onAbrir: () => void;
   onMarcar: (si: boolean) => void;
   onPrecio: (v: string) => void;
   onTitulo: (v: string) => void;
+  onComoNuevo: (si: boolean) => void;
 }) {
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
+  const puedeAgregar = Boolean(p.productoTikTok) && p.coloresPorPublicar.length > 0 && !forzar;
+  const elegibleSet = new Set(elegibles);
+  const elegidoSet = new Set(elegidos);
   const estado = !p.coloresPorPublicar.length
-    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "#92400e" : "#15803d" }
+    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "var(--alerta-texto)" : "var(--exito-texto)" }
     : bloqueado
       ? { texto: enCola?.estado === "publicando" ? "Publicando…" : "En cola", color: "var(--acento)" }
       : enCola?.estado === "error"
-        ? { texto: "Falló; ver cola", color: "#b91c1c" }
+        ? { texto: "Falló; ver cola", color: "var(--critico-texto)" }
         : p.coloresEnTikTok.length
-          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "#92400e" }
+          ? {
+              texto:
+                `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores` +
+                (elegidos.length !== elegibles.length ? ` · ${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}` : "") +
+                (agregarA ? " · se agregan al listado" : puedeAgregar ? " · producto nuevo" : ""),
+              color: "var(--alerta-texto)",
+            }
           : { texto: "Sin publicar", color: "var(--ink-2)" };
 
   return (
@@ -524,7 +608,20 @@ function FilaProducto({
               <button onClick={onAbrir} className="font-semibold hover:underline">
                 {p.modelo}
               </button>
-              {esDueno && publicable ? (
+              {esDueno && publicable && puedeAgregar ? (
+                // Un modelo que TikTok ya vende: sus colores nuevos van al
+                // mismo listado, salvo que el dueño lo quiera aparte.
+                <select
+                  value={agregarA ? "agregar" : "nuevo"}
+                  onChange={(e) => onComoNuevo(e.target.value === "nuevo")}
+                  className="mt-0.5 w-full min-w-64 rounded-lg border px-2 py-1 text-xs"
+                  style={{ borderColor: agregarA ? "var(--acento)" : "var(--grid)", color: "var(--ink-1)" }}
+                  title={`Producto de TikTok ${p.productoTikTok}`}
+                >
+                  <option value="agregar">Agregar los colores al listado que ya existe en TikTok</option>
+                  <option value="nuevo">Publicar los colores como producto nuevo</option>
+                </select>
+              ) : esDueno && publicable ? (
                 // El título con el que se publica: se puede corregir aquí antes de confirmar.
                 <textarea
                   value={titulo}
@@ -536,7 +633,7 @@ function FilaProducto({
                   title="Título con el que se publica en TikTok (hasta 255 caracteres)"
                 />
               ) : (
-                <p className="line-clamp-2 text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                <p className="line-clamp-2 text-xs texto-2" title={p.titulo}>
                   {p.titulo}
                 </p>
               )}
@@ -545,31 +642,48 @@ function FilaProducto({
         </td>
         <td className="px-3 py-2">
           <div className="flex flex-wrap gap-1">
-            {p.colores.map((c) => (
-              <span
-                key={c.color}
-                title={
-                  (c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}. ` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon. `) +
-                  `Código en Amazon: ${c.color}` +
-                  (c.traducido ? "" : " (sin traducción al español: se publica tal cual)")
-                }
-                className="rounded-full border px-2 py-0.5 text-xs"
-                style={
-                  c.enTikTok.length
-                    ? { borderColor: "var(--grid)", color: "var(--ink-2)", textDecoration: "line-through" }
-                    : { borderColor: "var(--acento)", color: "var(--ink-1)" }
-                }
-              >
-                {c.nombre || c.color}
-                {!c.traducido ? " ⚠" : ""}
-                {!c.activas ? " (sin activas)" : ""}
-              </span>
-            ))}
+            {p.colores.map((c) => {
+              const titulo =
+                (c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}. ` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon. `) +
+                `Código en Amazon: ${c.color}` +
+                (c.traducido ? "" : " (sin traducción al español: se publica tal cual)");
+              const texto = `${c.nombre || c.color}${!c.traducido ? " ⚠" : ""}${!c.activas ? " (sin activas)" : ""}`;
+              // Un color que puede publicarse lleva su casilla: el dueño elige
+              // cuáles se mandan; desmarcado se queda para otra vez.
+              if (esDueno && publicable && elegibleSet.has(c.color)) {
+                const si = elegidoSet.has(c.color);
+                return (
+                  <label
+                    key={c.color}
+                    title={`${titulo}. ${si ? "Se publica" : "No se publica esta vez"}.`}
+                    className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                    style={si ? { borderColor: "var(--acento)", color: "var(--ink-1)" } : { borderColor: "var(--grid)", color: "var(--ink-2)", opacity: 0.7 }}
+                  >
+                    <input type="checkbox" checked={si} onChange={(e) => onColor(c.color, e.target.checked)} />
+                    {texto}
+                  </label>
+                );
+              }
+              return (
+                <span
+                  key={c.color}
+                  title={titulo}
+                  className="rounded-full border px-2 py-0.5 text-xs"
+                  style={
+                    c.enTikTok.length
+                      ? { borderColor: "var(--grid)", color: "var(--ink-2)", textDecoration: "line-through" }
+                      : { borderColor: "var(--acento)", color: "var(--ink-1)" }
+                  }
+                >
+                  {texto}
+                </span>
+              );
+            })}
           </div>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {p.skus}
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {" "}
             ({p.activas} act.)
           </span>
@@ -583,7 +697,8 @@ function FilaProducto({
               step={1}
               value={precio}
               disabled={!publicable}
-              placeholder={p.precioAmazon ? String(p.precioAmazon) : ""}
+              placeholder={agregarA && p.precioTikTok ? String(p.precioTikTok) : p.precioAmazon ? String(p.precioAmazon) : ""}
+              title={agregarA && p.precioTikTok ? `Vacío = el precio que el listado ya tiene en TikTok (${dinero(p.precioTikTok, moneda)})` : undefined}
               onChange={(e) => onPrecio(e.target.value)}
               className="w-24 rounded-lg border px-2 py-1 text-sm"
               style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}
@@ -606,8 +721,8 @@ function FilaProducto({
                       <img src={c.imagenUrl} alt="" className="h-10 w-10 rounded object-cover" />
                     ) : null}
                     <span className="font-medium">{c.nombre || c.color}</span>
-                    <span style={{ color: "var(--ink-2)" }}>{c.color}</span>
-                    {c.enTikTok.length ? <span style={{ color: "#15803d" }}>ya en TikTok</span> : null}
+                    <span className="texto-2">{c.color}</span>
+                    {c.enTikTok.length ? <span style={{ color: "var(--exito-texto)" }}>ya en TikTok</span> : null}
                   </div>
                   <table className="mt-1">
                     <tbody>

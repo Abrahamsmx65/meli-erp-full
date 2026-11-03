@@ -323,7 +323,7 @@ export function VentanaProforma({
                           />
                           {a.esCajaCompleta ? (
                             <div
-                              className="text-[10px] leading-tight"
+                              className="text-[11px] leading-tight"
                               style={{ color: e.problema ? "var(--estado-critico)" : "var(--ink-muted)" }}
                             >
                               {e.problema ?? "una caja por talla"}

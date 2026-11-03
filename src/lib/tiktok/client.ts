@@ -203,7 +203,7 @@ export class Cliente {
    * en la próxima corrida, que es mejor que perderlo todo.
    */
   async llamar<T = any>(
-    metodo: "GET" | "POST" | "PUT",
+    metodo: "GET" | "POST" | "PUT" | "DELETE",
     ruta: string,
     opciones: {
       params?: Record<string, string | number | undefined>;

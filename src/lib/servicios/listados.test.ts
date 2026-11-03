@@ -10,7 +10,9 @@
 import { describe, expect, it } from "vitest";
 import {
   aplanarItem,
+  ATRIBUTO_FAMILIA,
   armarPlanUnificacion,
+  armarCuerpoUserProduct,
   calcularDiferencias,
   esMedidaDePaquete,
   valorDeAtributo,
@@ -143,6 +145,34 @@ describe("calcularDiferencias", () => {
 });
 
 describe("armarPlanUnificacion", () => {
+  it("renombrar (desde) solo cambia las variantes que dicen el valor viejo", () => {
+    const item: ItemCrudo = {
+      id: "MLM400",
+      variations: [
+        { id: 1, attribute_combinations: [{ id: "COLOR", value_name: "Tabaco" }, { id: "SIZE", value_name: "25" }] },
+        { id: 2, attribute_combinations: [{ id: "COLOR", value_name: "Negro" }, { id: "SIZE", value_name: "25" }] },
+      ],
+    };
+    const plan = armarPlanUnificacion(item, "COLOR", "Café tostado", "tabaco");
+    const vs = (plan.cuerpo as { variations: Record<string, unknown>[] }).variations;
+    expect(vs[0].attribute_combinations).toContainEqual({ id: "COLOR", value_name: "Café tostado" });
+    expect(vs[1]).toEqual({ id: 2 });
+    expect(armarPlanUnificacion(item, "COLOR", "Café tostado", "Rojo").cuerpo).toBeNull();
+  });
+
+  it("renombrar a nivel publicación no toca otro color ni agrega el atributo", () => {
+    const item: ItemCrudo = { id: "MLM401", attributes: [{ id: "COLOR", value_name: "Negro" }] };
+    expect(armarPlanUnificacion(item, "COLOR", "Café", "Tabaco").cuerpo).toBeNull();
+    expect(armarPlanUnificacion({ id: "MLM402" }, "COLOR", "Café", "Tabaco").cuerpo).toBeNull();
+    const plan = armarPlanUnificacion(
+      { id: "MLM403", attributes: [{ id: "COLOR", value_name: "Tabaco" }] },
+      "COLOR",
+      "Café",
+      "Tabaco",
+    );
+    expect((plan.cuerpo as { attributes: unknown[] }).attributes).toEqual([{ id: "COLOR", value_name: "Café" }]);
+  });
+
   it("cuando el atributo vive en las variantes, manda TODAS (MELI borra las omitidas) y solo cambia la desviada", () => {
     const item = grupoDesparejo()[0]; // variante 1 bien, variante 2 desviada
     const plan = armarPlanUnificacion(item, "MATERIAL", "Piel real");
@@ -283,5 +313,51 @@ describe("medidas del paquete", () => {
     const plan = armarPlanUnificacion(hermana("MLM2864907921", false, "11 cm"), "FABRIC_DESIGN", "Militar/táctico");
     expect(plan.niveles).toEqual(["publicacion"]);
     expect(plan.cuerpo).toEqual({ attributes: [{ id: "FABRIC_DESIGN", value_name: "Militar/táctico" }] });
+  });
+});
+
+describe("armarCuerpoUserProduct", () => {
+  const atributos = [
+    { id: "SELLER_SKU", values: [{ id: null, name: "GT251-BROWN-24-MX" }] },
+    { id: "PACKAGE_LENGTH", values: [{ id: null, name: null, struct: { number: 33, unit: "cm" } }] },
+    { id: "GENDER", value_id: "339665", value_name: "Mujer" },
+  ];
+
+  it("agrega el atributo que falta y regresa los demás tal cual (SKU y medidas con struct)", () => {
+    const c = armarCuerpoUserProduct(atributos, "AGE_GROUP", "Adultos") as { attributes: Record<string, unknown>[] };
+    expect(c.attributes).toContainEqual({ id: "AGE_GROUP", value_name: "Adultos" });
+    expect(c.attributes).toContainEqual({ id: "SELLER_SKU", values: [{ id: null, name: "GT251-BROWN-24-MX" }] });
+    expect(c.attributes).toContainEqual({
+      id: "PACKAGE_LENGTH",
+      values: [{ id: null, name: null, struct: { number: 33, unit: "cm" } }],
+    });
+    expect(c.attributes).toHaveLength(4);
+  });
+
+  it("reemplaza el valor distinto y no hace nada si ya está bien", () => {
+    const c = armarCuerpoUserProduct(atributos, "GENDER", "Unisex") as { attributes: Record<string, unknown>[] };
+    expect(c.attributes.filter((a) => a.id === "GENDER")).toEqual([{ id: "GENDER", value_name: "Unisex" }]);
+    expect(armarCuerpoUserProduct(atributos, "GENDER", "Mujer")).toBeNull();
+  });
+});
+
+describe("nombre de familia (user products)", () => {
+  const item = (id: string, familia: string) => ({ id, family_name: familia, attributes: [] });
+
+  it("se compara como atributo y parte el selector cuando difiere (GT251)", () => {
+    const grupo = [
+      aplanarItem(item("MLM1", "Botas Chelsea Mujer Ajuste Elástico Con Cierre Confort")),
+      aplanarItem(item("MLM2", "Botín Tipo Chelsea Mujer Ajuste Elástico Con Cierre Confort")),
+    ];
+    const d = calcularDiferencias(grupo).find((x) => x.atributoId === ATRIBUTO_FAMILIA);
+    expect(d?.esperada).toBe(false);
+    expect(d?.valores).toHaveLength(2);
+  });
+
+  it("se unifica mandando family_name y nada más", () => {
+    const valor = "Botas Chelsea Mujer Ajuste Elástico Con Cierre Confort";
+    const plan = armarPlanUnificacion(item("MLM2", "Botín Tipo Chelsea"), ATRIBUTO_FAMILIA, valor);
+    expect(plan.cuerpo).toEqual({ family_name: valor });
+    expect(armarPlanUnificacion(item("MLM1", valor), ATRIBUTO_FAMILIA, valor).cuerpo).toBeNull();
   });
 });

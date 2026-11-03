@@ -182,8 +182,16 @@ interface InventarioGuardado {
  */
 export interface InversionCategoria {
   categoria: string;
-  pares: { enBodega: number; enCamino: number };
-  valor: { enBodega: number; enCamino: number; total: number };
+  pares: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number };
+  valor: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
+  /**
+   * Ganancia estimada de vender TODO lo de esta categoría (bodega, barco,
+   * Full, FBA y TikTok) a lo que MELI depositó por par en los últimos 30 días, menos
+   * el costo. Solo de los modelos con venta en MELI; los demás se apartan.
+   */
+  ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
+  /** De esos, los pares estimados con el promedio (sin venta propia en MELI). */
+  paresPorPromedio: number;
   /** Cuántos modelos distintos caen en esta categoría. */
   modelos: number;
   /** Qué parte del valor total representa (0-1). */
@@ -192,7 +200,15 @@ export interface InversionCategoria {
 
 export interface InversionEnBodega {
   categorias: InversionCategoria[];
-  total: { enBodega: number; enCamino: number; total: number };
+  total: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
+  /** La ganancia estimada sumada (ver `InversionCategoria.ganancia`). */
+  ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
+  /**
+   * Pares costeados sin venta en MELI en 30 días. Su venta se estima con el
+   * PROMEDIO de los que sí venden (`veces` = depósito ÷ costo de esos;
+   * pedido del dueño, 16-oct-2026) y ya va sumada en `ganancia`.
+   */
+  sinVentaMeli: { pares: number; modelos: string[]; costo: number; deposito: number; veces: number | null };
   /** Lo que quedó fuera del total por no tener costo capturado. */
   sinCosto: { pares: number; modelos: string[] };
   /** Modelos costeados pero sin categoría: van juntos en «Sin categoría». */
@@ -201,17 +217,48 @@ export interface InversionEnBodega {
 
 const SIN_CATEGORIA = "Sin categoría";
 
+/**
+ * Un renglón para costear. `enFull` (Full + transferencia a Full) y `enFba`
+ * (todo lo que Amazon tiene o recibe en FBA) son opcionales: el dinero
+ * invertido de verdad incluye lo que ya está en los almacenes de MELI y
+ * Amazon, no solo la bodega y el barco (dueño, 16-oct-2026).
+ */
+export interface RenglonParaCostear {
+  /** el SKU de origen, cuando se conoce (FBA y TikTok lo traen) */
+  sku?: string;
+  modelo: string;
+  enBodega: number;
+  enCamino: number;
+  enFull?: number;
+  enFba?: number;
+  /** Saldo del kardex de la bodega de TikTok (sin lo de vendedores externos). */
+  enTikTok?: number;
+}
+
+/** Lo que MELI deposita por par de un modelo, buscado como en Números. */
+function netoDeModelo(netoPorModelo: Map<string, number>, modelo: string): number | null {
+  const m = modelo.toUpperCase();
+  return netoPorModelo.get(modelo) ?? netoPorModelo.get(m) ?? netoPorModelo.get(m.split("-")[0]) ?? null;
+}
+
 export function inversionPorCategoria(
-  renglones: { modelo: string; enBodega: number; enCamino: number }[],
+  renglones: RenglonParaCostear[],
   config: Map<string, { categoria: string | null; costo: number | null }>,
+  /** Depósito real de MELI por par y modelo (30 días); vacío = sin ganancia estimada. */
+  netoPorModelo: Map<string, number> = new Map(),
 ): InversionEnBodega {
-  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string> }>();
+  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string>; costoSinVenta: number }>();
   const sinCostoModelos = new Set<string>();
+  const sinVentaModelos = new Set<string>();
+  let paresSinVenta = 0;
   const sinCategoriaModelos = new Set<string>();
   let paresSinCosto = 0;
 
   for (const r of renglones) {
-    const pares = r.enBodega + r.enCamino;
+    const enFull = Math.max(0, r.enFull ?? 0);
+    const enFba = Math.max(0, r.enFba ?? 0);
+    const enTikTok = Math.max(0, r.enTikTok ?? 0);
+    const pares = r.enBodega + r.enCamino + enFull + enFba + enTikTok;
     if (pares <= 0) continue;
 
     // El costo se busca igual que en el resto del sistema: por modelo tal
@@ -230,22 +277,43 @@ export function inversionPorCategoria(
       grupos.get(categoria) ??
       {
         categoria,
-        pares: { enBodega: 0, enCamino: 0 },
-        valor: { enBodega: 0, enCamino: 0, total: 0 },
+        pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0 },
+        valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0, total: 0 },
+        ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 },
+        paresPorPromedio: 0,
+        costoSinVenta: 0,
         modelos: 0,
         parte: 0,
         modelosVistos: new Set<string>(),
       };
     g.pares.enBodega += r.enBodega;
     g.pares.enCamino += r.enCamino;
+    g.pares.enFull += enFull;
+    g.pares.enFba += enFba;
+    g.pares.enTikTok += enTikTok;
     g.valor.enBodega += r.enBodega * c.costo;
     g.valor.enCamino += r.enCamino * c.costo;
+    g.valor.enFull += enFull * c.costo;
+    g.valor.enFba += enFba * c.costo;
+    g.valor.enTikTok += enTikTok * c.costo;
+    const neto = netoDeModelo(netoPorModelo, r.modelo);
+    if (neto == null) {
+      paresSinVenta += pares;
+      sinVentaModelos.add(r.modelo);
+      g.paresPorPromedio += pares;
+      g.costoSinVenta += pares * c.costo;
+    } else {
+      g.ganancia.pares += pares;
+      g.ganancia.deposito += pares * neto;
+      g.ganancia.costo += pares * c.costo;
+      g.ganancia.ganancia += pares * (neto - c.costo);
+    }
     g.modelosVistos.add(r.modelo);
     grupos.set(categoria, g);
   }
 
   const categorias = [...grupos.values()].map((g) => {
-    g.valor.total = g.valor.enBodega + g.valor.enCamino;
+    g.valor.total = g.valor.enBodega + g.valor.enCamino + g.valor.enFull + g.valor.enFba + g.valor.enTikTok;
     g.modelos = g.modelosVistos.size;
     return g;
   });
@@ -253,7 +321,35 @@ export function inversionPorCategoria(
   const total = {
     enBodega: categorias.reduce((a, g) => a + g.valor.enBodega, 0),
     enCamino: categorias.reduce((a, g) => a + g.valor.enCamino, 0),
+    enFull: categorias.reduce((a, g) => a + g.valor.enFull, 0),
+    enFba: categorias.reduce((a, g) => a + g.valor.enFba, 0),
+    enTikTok: categorias.reduce((a, g) => a + g.valor.enTikTok, 0),
     total: categorias.reduce((a, g) => a + g.valor.total, 0),
+  };
+  // Lo que no vende en MELI se estima con el promedio de lo que sí: cuántas
+  // veces su costo deposita MELI, sumando todos los modelos con venta.
+  const depositoReal = categorias.reduce((a, g) => a + g.ganancia.deposito, 0);
+  const costoReal = categorias.reduce((a, g) => a + g.ganancia.costo, 0);
+  const veces = costoReal > 0 ? depositoReal / costoReal : null;
+  let costoSinVenta = 0;
+  let depositoSinVenta = 0;
+  for (const g of categorias) {
+    costoSinVenta += g.costoSinVenta;
+    if (veces == null || g.paresPorPromedio === 0) continue;
+    const deposito = g.costoSinVenta * veces;
+    depositoSinVenta += deposito;
+    g.ganancia.pares += g.paresPorPromedio;
+    g.ganancia.deposito += deposito;
+    g.ganancia.costo += g.costoSinVenta;
+    g.ganancia.ganancia += deposito - g.costoSinVenta;
+  }
+  if (veces == null) for (const g of categorias) g.paresPorPromedio = 0;
+
+  const ganancia = {
+    pares: categorias.reduce((a, g) => a + g.ganancia.pares, 0),
+    deposito: categorias.reduce((a, g) => a + g.ganancia.deposito, 0),
+    costo: categorias.reduce((a, g) => a + g.ganancia.costo, 0),
+    ganancia: categorias.reduce((a, g) => a + g.ganancia.ganancia, 0),
   };
   for (const g of categorias) g.parte = total.total > 0 ? g.valor.total / total.total : 0;
 
@@ -261,11 +357,87 @@ export function inversionPorCategoria(
   categorias.sort((a, b) => b.valor.total - a.valor.total || a.categoria.localeCompare(b.categoria, "es"));
 
   return {
-    categorias: categorias.map(({ modelosVistos: _m, ...resto }) => resto),
+    categorias: categorias.map(({ modelosVistos: _m, costoSinVenta: _c, ...resto }) => resto),
     total,
+    ganancia,
+    sinVentaMeli: {
+      pares: paresSinVenta,
+      modelos: [...sinVentaModelos].sort(),
+      costo: costoSinVenta,
+      deposito: depositoSinVenta,
+      veces,
+    },
     sinCosto: { pares: paresSinCosto, modelos: [...sinCostoModelos].sort() },
     sinCategoria: sinCategoriaModelos.size,
   };
+}
+
+/**
+ * Lo que viene de China, recortado a lo que YA VA EN BARCO (dueño,
+ * 18-oct-2026: «lo que no está en barco no quiero tomarlo en cuenta ni para
+ * inversión porque ni lo he pagado ni para el cálculo de lo que voy a
+ * ganar»). `enCamino` del inventario cuenta TODO lo pedido que no ha
+ * llegado —esté en la fábrica o en un contenedor— y así lo necesitan
+ * Planificación China y el plan; solo Existencias lo recorta.
+ *
+ * Por MODELO: en barco = pares en contenedores aún no recibidos (de
+ * pedidos vivos), topado por lo que el inventario trae en camino; cada SKU
+ * del modelo se queda con esa misma proporción. Lo demás es fábrica.
+ * Función PURA.
+ */
+export function soloLoEmbarcado<R extends { modelo: string; enCamino: number }>(
+  renglones: R[],
+  barcoPorModelo: Map<string, number>,
+): { renglones: R[]; paresEnBarco: number; paresEnFabrica: number } {
+  const caminoPorModelo = new Map<string, number>();
+  for (const r of renglones) {
+    const k = r.modelo.toUpperCase();
+    caminoPorModelo.set(k, (caminoPorModelo.get(k) ?? 0) + Math.max(0, r.enCamino));
+  }
+  const factor = new Map<string, number>();
+  for (const [k, camino] of caminoPorModelo) {
+    const barco = Math.max(0, barcoPorModelo.get(k) ?? 0);
+    factor.set(k, camino > 0 ? Math.min(1, barco / camino) : 0);
+  }
+  let paresEnBarco = 0;
+  let paresEnFabrica = 0;
+  const salida = renglones.map((r) => {
+    const camino = Math.max(0, r.enCamino);
+    const enBarco = camino * (factor.get(r.modelo.toUpperCase()) ?? 0);
+    paresEnBarco += enBarco;
+    paresEnFabrica += camino - enBarco;
+    return { ...r, enCamino: enBarco };
+  });
+  return { renglones: salida, paresEnBarco, paresEnFabrica };
+}
+
+/**
+ * Pares por modelo en contenedores que todavía NO se reciben, de pedidos
+ * vivos: lo que ya va en el barco. Un contenedor en borrador también
+ * cuenta (su packing list ya dice que salió).
+ */
+export async function paresEnBarcoPorModelo(db: DB, accountId: string): Promise<Map<string, number>> {
+  const pedidos = await traerTodo<any>(
+    db,
+    "pedidos",
+    "pedido, estado, pedido_lineas(id, modelo, cajas, pares, contenedor_lineas(cajas, contenedores(estado)))",
+    (q) => q.eq("account_id", accountId).not("estado", "in", "(recibido,cancelado)"),
+  );
+  const r = new Map<string, number>();
+  for (const p of pedidos) {
+    for (const l of (p.pedido_lineas ?? []) as any[]) {
+      const cajas = Number(l.cajas) || 0;
+      const pares = Number(l.pares) || 0;
+      if (cajas <= 0 || pares <= 0) continue;
+      const enBarco = ((l.contenedor_lineas ?? []) as any[])
+        .filter((cl) => cl?.contenedores && cl.contenedores.estado !== "recibido")
+        .reduce((a, cl) => a + (Number(cl.cajas) || 0), 0);
+      if (enBarco <= 0) continue;
+      const k = String(l.modelo ?? "").trim().toUpperCase();
+      r.set(k, (r.get(k) ?? 0) + (enBarco * pares) / cajas);
+    }
+  }
+  return r;
 }
 
 export async function cargarInventario(
@@ -669,66 +841,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
   };
 }
 
-/** Una talla suelta dentro de una familia. */
-export interface TotalMexicoSku {
-  sku: string;
-  color: string;
-  talla: string;
-  /** pares en cajas cerradas, sumando TODAS las bodegas de México */
-  pares: number;
-}
-
-/** Una familia entera (GT114, GT128…) con todo lo que hay de ella en México. */
-export interface FamiliaMexico {
-  modelo: string;
-  /** cajas en bodega, contadas una sola vez */
-  cajas: number;
-  /** pares en cajas cerradas, todas las bodegas juntas */
-  pares: number;
-  /** cuántos colores distintos hay con existencia */
-  colores: number;
-  /** el desglose por talla y color, para abrir el renglón */
-  detalle: TotalMexicoSku[];
-}
-
-/**
- * Lo que ya está aterrizado en México, junto por familia: GT114 va todo
- * junto, GT128 va todo junto, sin importar talla ni color. Todas las bodegas
- * suman en un solo número y lo que viene de China no entra: todavía no se
- * puede mandar a ningún lado.
- *
- * Las cajas se cuentan una sola vez porque una caja de corrida, aunque traiga
- * varias tallas, es siempre de un solo modelo. Ese es justo el número que a
- * nivel talla no se puede dar.
- */
-export function familiasMexico(
-  renglones: RenglonInventario[],
-  cajasPorModelo: Record<string, number>,
-): FamiliaMexico[] {
-  const familias = new Map<string, FamiliaMexico>();
-
-  for (const r of renglones) {
-    if (r.enBodega <= 0) continue;
-    const modelo = r.modelo || "(sin modelo)";
-    const f =
-      familias.get(modelo) ??
-      { modelo, cajas: cajasPorModelo[modelo] ?? 0, pares: 0, colores: 0, detalle: [] };
-    f.pares += r.enBodega;
-    f.detalle.push({ sku: r.sku, color: r.color, talla: r.talla, pares: r.enBodega });
-    familias.set(modelo, f);
-  }
-
-  for (const f of familias.values()) {
-    f.colores = new Set(f.detalle.map((d) => d.color)).size;
-    // Dentro de la familia se lee por color y luego por talla, como está el
-    // producto en el rack: no por cantidad.
-    f.detalle.sort(
-      (a, b) =>
-        a.color.localeCompare(b.color, "es") ||
-        (Number(a.talla) || 0) - (Number(b.talla) || 0) ||
-        a.talla.localeCompare(b.talla, "es"),
-    );
-  }
-
-  return [...familias.values()].sort((a, b) => b.pares - a.pares);
-}
+// El total por familia vive en un módulo PURO para que la pantalla de Bodega
+// lo arme en el navegador desde los renglones (sin mandar otra copia de cada
+// SKU). Se reexporta aquí para quien ya lo importaba de este módulo.
+export { familiasMexico, type FamiliaMexico, type TotalMexicoSku } from "./familias-mexico";

@@ -180,6 +180,13 @@ export interface EntradaResumenOrden {
  * de lista y la bonificación de Full viene aparte—, y las tarifas solo en
  * reventa. Una vez leído, `envio_leido_en` evita reintentarlo sin fin.
  */
+/** Estados de Mercado Pago que ya no cambian solos (un pendiente sí puede traer cargos después). */
+const ESTADOS_PAGO_DEFINITIVOS = new Set(["approved", "refunded", "cancelled", "rejected", "charged_back"]);
+
+export function pagosDefinitivos(pagos: PagoMercadoPago[]): boolean {
+  return pagos.length > 0 && pagos.every((p) => p.estado != null && ESTADOS_PAGO_DEFINITIVOS.has(p.estado));
+}
+
 export async function resumirOrdenConMeli(cliente: MeliClient, e: EntradaResumenOrden): Promise<ResumenPagosMeli> {
   const ctx: ContextoOrden = { ...e.contexto, renglones: e.renglones };
   const resumir = () =>
@@ -190,6 +197,15 @@ export async function resumirOrdenConMeli(cliente: MeliClient, e: EntradaResumen
   const necesitaCostos = ctx.envioVendedor == null && ctx.shippingId != null && (r.tipoVenta === "reventa" || hayCargoEnvio);
   if (necesitaCostos) {
     ctx.envioVendedor = await e.tarifas.costoEnvio(ctx.shippingId!);
+    ctx.envioLeido = true;
+    r = resumir();
+  } else if (pagosDefinitivos(e.pagos)) {
+    // Con el pago ya definitivo y sin cargo de envío (ni reventa), no hay
+    // envío del vendedor que leer: queda RESUELTO. Antes `envio_leido_en`
+    // se quedaba vacío para siempre, la orden se volvía a pedir en cada
+    // barrido y llenaba los 150 lugares: el registro de órdenes del calzado
+    // se atoró en el 30-mar-2026 (1,086 corridas) y los netos de fundas
+    // releían las mismas ~1,000 órdenes cada 10 min (9-oct-2026).
     ctx.envioLeido = true;
     r = resumir();
   }

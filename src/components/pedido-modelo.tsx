@@ -1,10 +1,13 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { Ayuda } from "@/components/ui/pagina";
 
 interface Renglon {
   modelo: string;
   color: string;
+  /** familia de modelos que se piden juntos (GT117…GT122); los planes viejos no la traen */
+  familia?: string | null;
   cajasSugeridas: number;
   paresSugeridos: number;
   paresPorCaja: number | null;
@@ -68,9 +71,12 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
     // llevan cajas en este pedido. Antes solo se sumaban los colores con
     // cajas y el "vendido real" salía corto: el GT110 enseñaba la venta de 4
     // de sus colores y parecía que el sistema perdía ventas.
+    // Una FAMILIA (GT117…GT122, modelos que la fábrica hace como un solo
+    // zapato) se enseña como un solo modelo: cada número es un color más.
     for (const r of renglones) {
+      const nombre = r.familia || r.modelo;
       const m =
-        porModelo.get(r.modelo) ??
+        porModelo.get(nombre) ??
         { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, tiktok: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0, vTt: 0 };
       m.colores.push(r);
       m.cajas += r.cajasSugeridas;
@@ -85,7 +91,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       m.vReal += r.ventaMesReal ?? r.ventaMes;
       m.vAmzReal += r.ventaMesRealAmazon ?? r.ventaMesAmazon;
       m.vTt += r.ventaMesTikTok ?? 0;
-      porModelo.set(r.modelo, m);
+      porModelo.set(nombre, m);
     }
     return (
       [...porModelo.entries()]
@@ -94,12 +100,17 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         .filter((m) => m.cajas > 0)
         .map((m) => ({
           ...m,
-          // Los colores con cajas primero; los demás abajo, de referencia.
+          // Los colores con más pares primero; los sin cajas abajo, de referencia.
           colores: [...m.colores].sort(
-            (a, b) => b.cajasSugeridas - a.cajasSugeridas || a.color.localeCompare(b.color),
+            (a, b) =>
+              b.paresSugeridos - a.paresSugeridos ||
+              a.modelo.localeCompare(b.modelo, "en", { numeric: true }) ||
+              a.color.localeCompare(b.color),
           ),
         }))
-        .sort((a, b) => b.cajas - a.cajas)
+        // De más a menos PARES por pedir (dueño, 20-oct-2026); a pares
+        // iguales, más cajas primero.
+        .sort((a, b) => b.pares - a.pares || b.cajas - a.cajas)
     );
   }, [renglones]);
 
@@ -108,13 +119,16 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
   return (
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-4 hairline">
-        <h2 className="text-base font-semibold">Pedido por modelo</h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Cada modelo con todos sus colores, listo para negociar con la fábrica. La
-          corrida propuesta se calcula con lo que falta de cada talla — venta menos
-          stock completo — no con la corrida vieja. Una talla se separa como
-          unitalla cuando ella sola justifica 5+ cajas.
-        </p>
+        <h2 className="seccion-titulo">Pedido por modelo</h2>
+        <div className="mt-2">
+          <Ayuda titulo="¿Cómo se arma la corrida?">
+            <p>
+              La corrida propuesta se calcula con lo que falta de cada talla —venta menos stock
+              completo—, no con la corrida vieja. Una talla se separa como unitalla cuando ella
+              sola justifica 5+ cajas.
+            </p>
+          </Ayuda>
+        </div>
       </header>
 
       <div className="max-h-[36rem] overflow-auto">
@@ -170,17 +184,22 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 style={{ cursor: "pointer" }}
               >
                 <td className="font-semibold">
-                  <span aria-hidden="true" style={{ color: "var(--ink-muted)" }}>
+                  <span aria-hidden="true" className="texto-tenue">
                     {abierto === m.modelo ? "▾ " : "▸ "}
                   </span>
                   {m.modelo}
+                  {m.colores.some((c) => c.familia) ? (
+                    <span className="texto-tenue ml-2 text-xs font-normal">
+                      familia · {[...new Set(m.colores.map((c) => c.modelo))].join(", ")}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="num cifra">{m.colores.length}</td>
                 <td className="num cifra">{n(m.bodega)}</td>
                 <td className="num cifra">{n(m.meli)}</td>
                 <td className="num cifra">{n(m.amazon)}</td>
                 <td className="num cifra">{n(m.tiktok)}</td>
-                <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                <td className="texto-2 num cifra">
                   {m.china ? n(m.china) : "—"}
                 </td>
                 <td className="num cifra">{n(m.vReal)}</td>
@@ -222,8 +241,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                   <a
                     href={`/api/pedidos/excel?modelo=${encodeURIComponent(m.modelo)}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="rounded-lg px-3 py-1 text-xs font-medium text-white"
-                    style={{ background: "var(--acento)" }}
+                    className="boton boton-borde boton-chico"
                   >
                     Excel del pedido
                   </a>
@@ -231,7 +249,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
               </tr>
 
               {abierto === m.modelo
-                ? m.colores.map((c) => <DetalleColor key={c.color} r={c} />)
+                ? m.colores.map((c) => <DetalleColor key={`${c.modelo}|${c.color}`} r={c} />)
                 : null}
             </Fragment>
           ))}
@@ -252,11 +270,13 @@ function DetalleColor({ r }: { r: Renglon }) {
       <td colSpan={15} className="p-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="font-semibold">{r.color || "(sin color)"}</span>
+            <span className="font-semibold">
+              {r.familia ? `${r.modelo} ${r.color || "(sin color)"}` : r.color || "(sin color)"}
+            </span>
             <span className="cifra text-sm">
               {n(r.cajasSugeridas)} cajas · {n(r.paresSugeridos)} pares
             </span>
-            <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+            <span className="texto-2 text-xs">
               bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
               {n(r.enFba)} · TikTok {n(r.enTikTok ?? 0)} · de China {n(r.enCamino)} · vendió{" "}
               {n(r.ventaMesReal ?? r.ventaMes)} MELI + {n(r.ventaMesRealAmazon ?? r.ventaMesAmazon)} AMZ
@@ -289,7 +309,7 @@ function DetalleColor({ r }: { r: Renglon }) {
                 </thead>
                 <tbody>
                   <tr>
-                    <td style={{ color: "var(--ink-2)" }}>pares por caja</td>
+                    <td className="texto-2">pares por caja</td>
                     {tallas
                       .filter((t) => (r.corridaPropuesta?.[t] ?? 0) > 0)
                       .map((t) => (
@@ -304,7 +324,7 @@ function DetalleColor({ r }: { r: Renglon }) {
             </div>
           ) : null}
 
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 text-sm">
             {r.motivo}
           </p>
         </div>

@@ -2,9 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
+import { contenidoPorModelo, detalleModelos, resumenModelos, type OtroDelContenedor, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
+import { FotoProducto } from "./ui/foto-producto";
+import { cotejarConBl } from "@/lib/importar/bl";
+import { confirmar as preguntar } from "@/components/ui/confirmar";
+
+/** Miniaturas por renglón del contenedor; el resto se cuenta como «+N». */
+const FOTOS_POR_CONTENEDOR = 6;
+
+/** Una foto por modelo + color, los que más cajas traen primero. */
+function fotosDeModelos(modelos: Contenedor["modelos"]) {
+  return [...modelos].sort((a, b) => b.cajas - a.cajas);
+}
 
 interface Contenedor {
   id: string;
@@ -19,12 +30,17 @@ interface Contenedor {
   notas: string | null;
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
-  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+  modelos: { modelo: string; color: string; cajas: number; pares: number; foto?: string | null }[];
   pendientes?: PendientePacking[];
   /** colores en camino que MELI no tiene como los escribió la fábrica */
   sinSku?: ColorFantasma[];
   /** colores ya ligados a mano con MELI */
   ligados?: ColorLigado[];
+  /** cajas del BL (número de control) */
+  cajasBl?: number | null;
+  blArchivo?: string | null;
+  /** lo que viaja y no es calzado (bolsas de empaque…) */
+  otros?: OtroDelContenedor[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -55,6 +71,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   const [form, setForm] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [avisosBodega, setAvisosBodega] = useState<{ numero: string; avisos: string[] } | null>(null);
 
   function abrirEdicion(c: Contenedor) {
     setEditando(c.id);
@@ -120,12 +137,55 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     }
   }
 
+  /**
+   * Los dos archivos para avisarle a la bodega lo que llega: alta de
+   * PRODUCTOS (sin lo que ya viajó en otro contenedor) y PACKING LIST.
+   */
+  async function bajarBodega(c: Contenedor, archivo: "productos" | "packing") {
+    setOcupado(c.id);
+    setError(null);
+    setAvisosBodega(null);
+    try {
+      const r = await fetch(`/api/contenedores/${c.id}/bodega?archivo=${archivo}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo armar el archivo.");
+      const url = URL.createObjectURL(new Blob([j.csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = j.nombre;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (j.avisos?.length) setAvisosBodega({ numero: c.numero, avisos: j.avisos });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  /** Solo borradores: un contenedor que llegó de Drive por error (duplicado, proforma). */
+  async function borrar(c: Contenedor) {
+    if (!(await preguntar({ titulo: `¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)?`, mensaje: "Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.", confirmar: "Borrar", peligro: true }))) return;
+    setOcupado(c.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/contenedores?id=${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo borrar.");
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   async function confirmarLlegada(c: Contenedor) {
-    const seguro = window.confirm(
-      `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)? ` +
-        "No se suma inventario: las existencias llegan del API de Industher. " +
-        "Solo deja de contar como en camino.",
-    );
+    const seguro = await preguntar({
+      titulo: `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)?`,
+      mensaje: "No se suma inventario: las existencias llegan del API de Industher. Solo deja de contar como en camino.",
+      confirmar: "Confirmar llegada",
+    });
     if (!seguro) return;
     await mandar({ accion: "confirmarLlegada" }, c.id);
   }
@@ -133,9 +193,8 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   if (!contenedores.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          Todavía no hay contenedores. Se dan de alta desde Planificación China, con
-          el botón <strong>Contenedor</strong> de cada pedido.
+        <p className="texto-2 text-sm">
+          Todavía no hay contenedores.
         </p>
       </section>
     );
@@ -144,13 +203,23 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   return (
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-3 hairline">
-        <h2 className="text-sm font-semibold">Contenedores</h2>
+        <h2 className="seccion-titulo">Contenedores</h2>
       </header>
 
       {error ? (
         <p className="px-3 pt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
           {error}
         </p>
+      ) : null}
+      {avisosBodega ? (
+        <div className="px-3 pt-3 text-sm" style={{ color: "var(--estado-alerta)" }}>
+          <p className="font-medium">Archivo de bodega de {avisosBodega.numero}:</p>
+          <ul className="list-disc pl-5">
+            {avisosBodega.avisos.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="overflow-auto">
@@ -187,8 +256,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     {c.numero}
                     {c.notas && !abierto ? (
                       <div
-                        className="max-w-48 truncate text-[11px]"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="texto-tenue max-w-48 truncate text-[11px]"
                         title={c.notas}
                       >
                         {c.notas}
@@ -219,7 +287,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                       <>
                         {c.naviera || "—"}
                         {c.numeroNaviera ? (
-                          <div className="cifra text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                          <div className="texto-tenue cifra text-[11px]">
                             {c.numeroNaviera}
                           </div>
                         ) : null}
@@ -255,9 +323,65 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     )}
                   </td>
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
-                  <td className="num cifra">{n(c.cajas)}</td>
+                  <td className="num">
+                    <span className="cifra">{n(c.cajas)}</span>
+                    {cajasOtros(c) ? (
+                      <span className="block text-[11px] texto-tenue" title="Bolsas de empaque y otros artículos que no son calzado">
+                        + {n(cajasOtros(c))} otros
+                      </span>
+                    ) : null}
+                    <ContraBl cargadas={c.cajas + cajasOtros(c)} pendientes={(c.pendientes ?? []).reduce((a, p) => a + p.cajas, 0)} cajasBl={c.cajasBl} archivo={c.blArchivo} />
+                  </td>
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
+                    {/* Computadora: todo lo que viene, por modelo y color, sin abrir «Contenido». */}
+                    {c.modelos.length ? (
+                      <ul className="hidden min-w-72 flex-col gap-1.5 lg:flex">
+                        {contenidoPorModelo(c.modelos).map((m) => (
+                          <li key={m.modelo} className="flex items-start gap-2">
+                            <FotoProducto url={m.foto} alt={m.modelo} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{m.modelo}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(m.cajas)} cajas</span>
+                              <span className="block texto-2">
+                                {m.colores.map((x) => `${x.color || "—"} ${n(x.cajas)}`).join(" · ")}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                        {(c.otros ?? []).map((o) => (
+                          <li key={`otro|${o.descripcion}|${o.color}`} className="flex items-start gap-2">
+                            <FotoProducto url={null} alt={o.descripcion} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{nombreOtro(o)}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(o.cajas)} cajas</span>
+                              <span className="block texto-tenue">
+                                {o.piezas ? `${n(o.piezas)} piezas · ` : ""}no es calzado
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {/* Celular: una línea con fotos; el detalle en «Contenido». */}
+                    <div className="lg:hidden">
+                    {c.modelos.length ? (
+                      <div className="mb-1 flex flex-wrap items-center gap-1">
+                        {fotosDeModelos(c.modelos)
+                          .slice(0, FOTOS_POR_CONTENEDOR)
+                          .map((m) => (
+                            <FotoProducto
+                              key={`${m.modelo}|${m.color}`}
+                              url={m.foto}
+                              alt={`${m.modelo} ${m.color} · ${n(m.cajas)} cajas`}
+                              tamano={28}
+                            />
+                          ))}
+                        {c.modelos.length > FOTOS_POR_CONTENEDOR ? (
+                          <span className="texto-tenue">+{c.modelos.length - FOTOS_POR_CONTENEDOR}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {c.modelos.length ? (
                       <span
                         className="block max-w-56 cursor-help truncate"
@@ -266,8 +390,14 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         {resumenModelos(c.modelos)}
                       </span>
                     ) : (
-                      <span style={{ color: "var(--ink-muted)" }}>—</span>
+                      <span className="texto-tenue">—</span>
                     )}
+                    {(c.otros ?? []).length ? (
+                      <span className="block max-w-56 truncate texto-tenue">
+                        + {(c.otros ?? []).map((o) => `${nombreOtro(o)} ${n(o.cajas)}`).join(", ")}
+                      </span>
+                    ) : null}
+                    </div>
                     {c.sinSku?.length ? (
                       <button
                         onClick={() => setLigando(c)}
@@ -344,16 +474,14 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               )
                             }
                             disabled={ocupado === c.id}
-                            className="rounded-lg px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-                            style={{ background: "var(--acento)" }}
+                            className="boton boton-primario boton-chico disabled:opacity-50"
                           >
                             {ocupado === c.id ? "Guardando…" : "Guardar"}
                           </button>
                           <button
                             onClick={() => setEditando(null)}
                             disabled={ocupado === c.id}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Cancelar
                           </button>
@@ -362,15 +490,13 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         <>
                           <button
                             onClick={() => abrirEdicion(c)}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Editar
                           </button>
                           <button
                             onClick={() => setContenido(c)}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Contenido
                           </button>
@@ -395,16 +521,30 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           ) : null}
                           <a
                             href={`/api/contenedores/${c.id}/packing-list`}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Packing list
                           </a>
                           <button
+                            onClick={() => bajarBodega(c, "productos")}
+                            disabled={ocupado === c.id}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
+                            title="Alta de productos para la bodega (sin los que ya venían en un contenedor anterior)"
+                          >
+                            Bodega: productos
+                          </button>
+                          <button
+                            onClick={() => bajarBodega(c, "packing")}
+                            disabled={ocupado === c.id}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
+                            title="Lo que llega en este contenedor, para la bodega"
+                          >
+                            Bodega: llegada
+                          </button>
+                          <button
                             onClick={() => compartirDocumentos(c)}
                             disabled={ocupado === c.id}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
                             title="Abre un correo con los enlaces a los documentos de este embarque en Drive"
                           >
                             {ocupado === c.id ? "…" : "Compartir docs"}
@@ -413,11 +553,21 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                             <button
                               onClick={() => mandar({ estado: "en_transito" }, c.id)}
                               disabled={ocupado === c.id}
-                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                              className="boton boton-borde boton-chico disabled:opacity-50"
                               title="Lo revisaste y está bien: pasa a en tránsito"
                             >
                               {ocupado === c.id ? "…" : "Confirmar"}
+                            </button>
+                          ) : null}
+                          {c.estado === "borrador" ? (
+                            <button
+                              onClick={() => borrar(c)}
+                              disabled={ocupado === c.id}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                              style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
+                              title="Quita este borrador y sus renglones"
+                            >
+                              Borrar
                             </button>
                           ) : null}
                           {c.estado !== "recibido" ? (
@@ -468,6 +618,49 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   );
 }
 
+/**
+ * Las cajas cargadas contra el BL de la carpeta de Drive (idea del dueño,
+ * 11-oct-2026): si no cuadran se dice en rojo cuántas faltan o sobran y
+ * cuántas están por confirmar en Contenido.
+ */
+/** Cajas de lo que viaja y no es calzado (bolsas de empaque…): cuentan contra el BL. */
+function cajasOtros(c: { otros?: { cajas: number }[] }): number {
+  return (c.otros ?? []).reduce((a, o) => a + o.cajas, 0);
+}
+
+function nombreOtro(o: { descripcion: string; color: string }): string {
+  return `${o.descripcion}${o.color ? ` ${o.color}` : ""}`;
+}
+
+function ContraBl({
+  cargadas,
+  pendientes,
+  cajasBl,
+  archivo,
+}: {
+  cargadas: number;
+  pendientes: number;
+  cajasBl?: number | null;
+  archivo?: string | null;
+}) {
+  const c = cotejarConBl(cargadas, cajasBl);
+  if (c.estado === "sin_bl") return <span className="block text-[11px] texto-tenue">sin BL</span>;
+  const titulo = `BL: ${n(cajasBl ?? 0)} cajas${archivo ? ` (${archivo})` : ""}`;
+  if (c.estado === "cuadra") {
+    return (
+      <span className="block text-[11px]" style={{ color: "var(--exito-texto)" }} title={titulo}>
+        ✓ BL {n(cajasBl ?? 0)}
+      </span>
+    );
+  }
+  return (
+    <span className="block text-[11px] font-medium" style={{ color: "var(--estado-critico)" }} title={titulo}>
+      BL {n(cajasBl ?? 0)} · {c.estado === "faltan" ? `faltan ${n(-c.diferencia)}` : `sobran ${n(c.diferencia)}`}
+      {c.estado === "faltan" && pendientes > 0 ? <span className="block font-normal">{n(pendientes)} por confirmar</span> : null}
+    </span>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 
 interface LineaContenido {
@@ -482,6 +675,8 @@ interface LineaContenido {
   enOtros: number;
   /** color de la variante de MELI con la que amarra el renglón del pedido (null si no amarra) */
   colorMeli?: string | null;
+  /** foto del producto (fotos-producto) */
+  foto?: string | null;
 }
 
 /**
@@ -642,12 +837,22 @@ function ContenidoContenedor({
       aria-label={`Contenido del contenedor ${contenedor.numero}`}
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">Contenido de {contenedor.numero}</h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que viaja en este contenedor. Corrige las cajas si algo se capturó mal; pon{" "}
-          <strong>0</strong> para quitar un renglón.
-        </p>
-
+        <h3 className="titulo-seccion">Contenido de {contenedor.numero}</h3>
+        {(contenedor.otros ?? []).length ? (
+          <section className="mt-3 rounded-lg border p-3 text-xs" style={{ borderColor: "var(--borde)" }}>
+            <h4 className="text-sm font-semibold">Otros artículos (no son calzado)</h4>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {(contenedor.otros ?? []).map((o) => (
+                <li key={`${o.descripcion}|${o.color}`} className="flex flex-wrap gap-x-2">
+                  <span className="font-medium">{nombreOtro(o)}</span>
+                  <span className="cifra">{n(o.cajas)} cajas</span>
+                  {o.piezas ? <span className="cifra texto-tenue">{n(o.piezas)} piezas</span> : null}
+                  {o.pedido ? <span className="texto-tenue">{o.pedido}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {pendientes.length ? (
           <section
             className="mt-3 rounded-lg border p-3"
@@ -657,11 +862,6 @@ function ContenidoContenedor({
               {pendientes.length === 1 ? "1 renglón del packing list" : `${pendientes.length} renglones del packing list`} por
               confirmar
             </h4>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-              La fábrica escribió el color distinto al pedido. Por cada uno te digo cuál es casi seguro y
-              por qué; confirma y las cajas se suman a ese renglón. Si marcas «recordar», el próximo
-              embarque con ese nombre amarra solo.
-            </p>
             <ul className="mt-2 flex flex-col gap-2">
               {pendientes.map((p) => {
                 const k = claveP(p);
@@ -683,8 +883,9 @@ function ContenidoContenedor({
                     className="rounded-lg border p-2.5 text-xs"
                     style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
                   >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span style={{ color: "var(--ink-muted)" }}>Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <FotoProducto url={p.foto} alt={`${p.modelo} ${p.color}`} tamano={32} />
+                      <span className="texto-tenue">Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
                       <span className="font-semibold">
                         {p.modelo} {p.color}
                         {p.talla ? ` talla ${p.talla}` : ""}
@@ -693,11 +894,11 @@ function ContenidoContenedor({
                     </div>
 
                     {lineas === null ? (
-                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                      <div className="texto-tenue mt-1">
                         Cargando el pedido…
                       </div>
                     ) : !opciones.length ? (
-                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                      <div className="texto-tenue mt-1">
                         {sugerencia?.porQue ?? p.motivo}
                       </div>
                     ) : (
@@ -709,13 +910,13 @@ function ContenidoContenedor({
                               {sugerencia.renglon.modelo} {sugerencia.renglon.color}
                               {sugerencia.renglon.talla ? ` talla ${sugerencia.renglon.talla}` : ""}
                             </span>
-                            <span style={{ color: "var(--ink-2)" }}>
+                            <span className="texto-2">
                               del pedido {sugerencia.renglon.pedido} · {n(sugerencia.renglon.libres)} cajas sin barco
                             </span>
                           </div>
                         ) : (
                           <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <span style={{ color: "var(--ink-2)" }}>¿Cuál es?</span>
+                            <span className="texto-2">¿Cuál es?</span>
                             <select
                               value={elegidoId}
                               onChange={(ev) => setEleccion((e) => ({ ...e, [k]: ev.target.value }))}
@@ -733,7 +934,7 @@ function ContenidoContenedor({
                           </div>
                         )}
                         {sugerencia?.porQue ? (
-                          <div className="mt-0.5" style={{ color: "var(--ink-muted)" }}>
+                          <div className="texto-tenue mt-0.5">
                             {sugerencia.porQue}
                           </div>
                         ) : null}
@@ -741,30 +942,27 @@ function ContenidoContenedor({
                           <button
                             onClick={() => elegido && void confirmar(p, elegido.pedidoLineaId)}
                             disabled={!elegido}
-                            className="rounded-lg px-2.5 py-1 font-semibold text-white disabled:opacity-50"
-                            style={{ background: "var(--acento)" }}
+                            className="boton boton-primario boton-chico disabled:opacity-50"
                           >
                             Sí, es este
                           </button>
                           {sugerencia?.renglon && sugerencia.otras.length ? (
                             <button
                               onClick={() => setEligiendoOtro((e) => ({ ...e, [k]: !e[k] }))}
-                              className="rounded-lg border px-2 py-1"
-                              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                              className="boton boton-borde boton-chico"
                             >
                               {mostrarSelector ? "Volver a la sugerencia" : `Es otro (${sugerencia.otras.length} más)`}
                             </button>
                           ) : null}
                           <button
                             onClick={() => setPendientes((ps) => ps.filter((x) => claveP(x) !== k))}
-                            className="rounded-lg border px-2 py-1"
-                            style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                            className="boton boton-borde boton-chico"
                             title="No es ninguno: quítalo del aviso"
                           >
                             Descartar
                           </button>
                           {lineaElegida?.colorMeli && p.color ? (
-                            <label className="flex items-center gap-1" style={{ color: "var(--ink-2)" }}>
+                            <label className="texto-2 flex items-center gap-1">
                               <input
                                 type="checkbox"
                                 checked={recordar[k] ?? true}
@@ -794,8 +992,7 @@ function ContenidoContenedor({
           {fueraDelContenedor ? (
             <button
               onClick={() => setTodoElPedido((v) => !v)}
-              className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              className="boton boton-borde boton-chico"
               title="Los renglones de los mismos pedidos que este contenedor no trae"
             >
               {todoElPedido
@@ -809,6 +1006,7 @@ function ContenidoContenedor({
           <table className="datos">
             <thead>
               <tr>
+                <th className="w-12">Foto</th>
                 <th>Pedido</th>
                 <th>Modelo</th>
                 <th>Color</th>
@@ -824,11 +1022,14 @@ function ContenidoContenedor({
                 const valor = cajas[l.pedidoLineaId] ?? l.enEste;
                 return (
                   <tr key={l.pedidoLineaId}>
+                    <td>
+                      <FotoProducto url={l.foto} alt={`${l.modelo} ${l.color}`} />
+                    </td>
                     <td className="text-xs">{l.pedido}</td>
                     <td className="font-medium">{l.modelo}</td>
                     <td>{l.color}</td>
                     <td className="cifra">
-                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                      {l.talla || <span className="texto-tenue">corrida</span>}
                     </td>
                     <td className="num cifra">{l.cajasPedido}</td>
                     <td className="num cifra">{l.enOtros || "—"}</td>
@@ -860,7 +1061,7 @@ function ContenidoContenedor({
             </tbody>
           </table>
           {lineas === null ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Cargando contenido…
             </p>
           ) : null}
@@ -878,7 +1079,7 @@ function ContenidoContenedor({
         ))}
 
         <div className="mt-4 flex items-center gap-3">
-          <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2 text-sm">
             Quedan <strong className="cifra">{n(totalCajas)}</strong> cajas en este
             contenedor.
           </span>
@@ -886,16 +1087,14 @@ function ContenidoContenedor({
             <button
               onClick={onCerrar}
               disabled={guardando}
-              className="rounded-lg border px-3 py-2 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={guardando || lineas === null}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-50"
             >
               {guardando ? "Guardando…" : "Guardar cambios"}
             </button>

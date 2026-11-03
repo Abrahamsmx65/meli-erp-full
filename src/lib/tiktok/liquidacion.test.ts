@@ -222,3 +222,46 @@ describe("interpretarTransacciones", () => {
     expect(interpretarTransacciones({ sku_transactions: grupos.get("B") })!.pago).toBeCloseTo(4.94, 2);
   });
 });
+
+describe("desglose fino de los cargos (202501)", () => {
+  // Pedido real 586173086672716913 (20-sep-2026), recortado: cargo de
+  // servicio del 8 %, $6 por par, anuncios GMV Max, afiliado e impuestos.
+  const pedido = {
+    order_id: "586173086672716913",
+    revenue_amount: "171.99",
+    settlement_amount: "118.76",
+    fee_and_tax_amount: "-53.23",
+    sku_transactions: [
+      {
+        statement_id: "7691855658521528085",
+        revenue_amount: "171.99",
+        settlement_amount: "118.76",
+        fee_tax_amount: "-53.23",
+        shipping_cost_amount: "0",
+        fee_tax_breakdown: {
+          fee: {
+            sfp_service_fee_amount: "-13.76",
+            fee_per_item_sold_amount: "-6",
+            gmv_max_ad_fee_amount: "-6.04",
+            platform_commission_amount: "0",
+            affiliate_ads_commission_amount: "-11.86",
+          },
+          tax: { iva_amount: "-11.86", isr_amount: "-3.71" },
+        },
+      },
+    ],
+  };
+  it("separa servicio, cargo por par, comisión y anuncios", () => {
+    const t = interpretarTransacciones(pedido)!;
+    expect(t.ingreso).toBeCloseTo(171.99, 2);
+    expect(t.servicio).toBeCloseTo(13.76, 2);
+    expect(t.porPar).toBeCloseTo(6, 2);
+    expect(t.comisionTikTok).toBe(0);
+    expect(t.anuncios).toBeCloseTo(6.04, 2);
+    expect(t.comision).toBeCloseTo(19.76, 2);
+    expect(t.afiliado).toBeCloseTo(11.86, 2);
+    expect(t.ivaRetenido).toBeCloseTo(11.86, 2);
+    expect(t.isrRetenido).toBeCloseTo(3.71, 2);
+    expect(t.cargos).toBeCloseTo(53.23, 2);
+  });
+});

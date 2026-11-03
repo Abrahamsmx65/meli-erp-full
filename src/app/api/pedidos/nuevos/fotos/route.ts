@@ -4,7 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { revisarFotosDeNuevos } from "@/lib/servicios/productos-nuevos-revisar";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * Cuántas fotos tiene cada producto nuevo en MELI y en Amazon. Lo revisado

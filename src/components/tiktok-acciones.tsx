@@ -70,8 +70,7 @@ export function AccionesTikTok({ porPublicar }: { porPublicar: number }) {
         <button
           onClick={() => correr("sincronizar")}
           disabled={ocupado !== null}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario"
         >
           {ocupado === "sincronizar" ? "Sincronizando…" : "Sincronizar con TikTok"}
         </button>
@@ -79,14 +78,10 @@ export function AccionesTikTok({ porPublicar }: { porPublicar: number }) {
         <button
           onClick={() => correr("publicar")}
           disabled={ocupado !== null}
-          className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-60"
-          style={{ borderColor: "var(--grid)" }}
+          className="boton boton-borde"
+          title={porPublicar ? `${porPublicar} SKU por publicar` : undefined}
         >
-          {ocupado === "publicar"
-            ? "Publicando…"
-            : porPublicar
-              ? `Publicar disponibilidad (${porPublicar})`
-              : "Publicar disponibilidad"}
+          {ocupado === "publicar" ? "Publicando…" : "Publicar disponibilidad"}
         </button>
       </div>
 

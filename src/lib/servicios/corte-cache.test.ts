@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { corteNecesitaRefresco, obtenerConCachePorPeriodo } from "./corte-cache";
+
+const fondo = vi.hoisted(() => ({ llamadas: 0 }));
+vi.mock("next/server", () => ({
+  after: () => {
+    fondo.llamadas++;
+  },
+}));
 
 describe("obtenerConCachePorPeriodo", () => {
   const guardado = (datos: unknown, vigente: boolean) =>
@@ -65,6 +72,33 @@ describe("obtenerConCachePorPeriodo", () => {
     });
     expect(v).toBe(10);
     expect(calculos).toBe(0);
+  });
+});
+
+describe("obtenerConCachePorPeriodo: refresco de fondo", () => {
+  const viejo = async () => ({
+    estado: "encontrado" as const,
+    valor: { datos: 10, generadoEn: "2020-01-01T00:00:00Z", vigente: true },
+  });
+
+  it("por omisión, un renglón viejo lanza el recálculo de fondo", async () => {
+    fondo.llamadas = 0;
+    const v = await obtenerConCachePorPeriodo<number>({ periodo: "2026-08", leer: viejo, guardar: async () => undefined, calcular: async () => 99 });
+    expect(v).toBe(10);
+    expect(fondo.llamadas).toBe(1);
+  });
+
+  it("con refrescarEnFondo: false la visita solo sirve lo guardado", async () => {
+    fondo.llamadas = 0;
+    const v = await obtenerConCachePorPeriodo<number>({
+      periodo: "2026-08",
+      refrescarEnFondo: false,
+      leer: viejo,
+      guardar: async () => undefined,
+      calcular: async () => 99,
+    });
+    expect(v).toBe(10);
+    expect(fondo.llamadas).toBe(0);
   });
 });
 

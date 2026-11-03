@@ -7,6 +7,7 @@ import {
   validarValores,
   type ValoresFiscales,
 } from "@/lib/servicios/fiscal";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 
@@ -314,7 +315,7 @@ export async function POST(req: NextRequest) {
 
   const encolados = marcadas?.length ?? 0;
   if (encolados) {
-    const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+    const origen = origenDeLaApp(req);
     await dispararProcesoFiscal(origen, req.headers.get("cookie"));
   }
 

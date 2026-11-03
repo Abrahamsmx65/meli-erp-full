@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bloqueAmazon } from "./consolidado-amazon";
+import { bloqueAmazon, sinModelosOmitidos } from "./consolidado-amazon";
 import type { MonitorAmazon } from "./amazon-monitor";
+import type { BloqueCanal } from "./consolidado";
 
 function monitor(extra?: Partial<MonitorAmazon>): MonitorAmazon {
   return {
@@ -194,5 +195,56 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
     expect(b.fuenteNeto).not.toMatch(/Finances API/);
     expect(b.unidades).toBe(10);
     expect(b.avisos[0]).toMatch(/todavía no cubre desde el 2026-03-01/);
+  });
+});
+
+describe("sinModelosOmitidos", () => {
+  const base = (): BloqueCanal => ({
+    canal: "amazon",
+    unidades: 12,
+    ordenes: 12,
+    ventaBruta: 3000,
+    neto: 2000,
+    fuenteNeto: "x",
+    coberturaNeto: 1,
+    descuentos: [
+      { concepto: "Comisión de Amazon (referral)", monto: 500 },
+      { concepto: "Tarifa de FBA", monto: 400 },
+      { concepto: "Otras tarifas por renglón", monto: 100 },
+    ],
+    desglosePlataforma: { comision: 500, envio: 400, isr: 0, iva: 0, otros: 100 },
+    devoluciones: 0,
+    costoRecuperado: 0,
+    costoProducto: 600,
+    unidadesConCosto: 10,
+    adsPorModelo: 50,
+    adsGenerales: 0,
+    gastos: [],
+    porModelo: [
+      { modelo: "GT114", categoria: null, unidades: 10, importe: 2000, comision: 300, envio: 300, otros: 50, neto: 1350, costo: 600, ads: 40 },
+      { modelo: "TRONSMART", categoria: null, unidades: 2, importe: 1000, comision: 200, envio: 100, otros: 50, neto: 650, costo: null, ads: 10 },
+    ],
+    avisos: [],
+    exacto: true,
+  });
+
+  it("saca las bocinas Tronsmart y el canal sigue cuadrando", () => {
+    const b = sinModelosOmitidos(base());
+    expect(b.porModelo.map((f) => f.modelo)).toEqual(["GT114"]);
+    expect(b.unidades).toBe(10);
+    expect(b.ventaBruta).toBe(2000);
+    expect(b.neto).toBe(1350);
+    expect(b.adsPorModelo).toBe(40);
+    expect(b.desglosePlataforma).toMatchObject({ comision: 300, envio: 300, otros: 50 });
+    expect(b.descuentos.map((d) => d.monto)).toEqual([300, 300, 50]);
+    // venta − cargos = neto, igual que antes de sacarlas
+    expect(b.ventaBruta - 300 - 300 - 50).toBe(b.neto);
+    expect(b.avisos[0]).toMatch(/se dejan fuera del Estado de resultados 2 unidad\(es\) de TRONSMART/);
+  });
+
+  it("sin modelos omitidos el bloque no cambia", () => {
+    const b = base();
+    b.porModelo = b.porModelo.slice(0, 1);
+    expect(sinModelosOmitidos(b)).toBe(b);
   });
 });

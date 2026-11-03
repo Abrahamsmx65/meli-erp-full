@@ -83,7 +83,8 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
       dias: 30,
       catalogo,
       indiceMeli: indexarCatalogo(SKUS_MELI as any),
-      parametros: normalizarParametros({}),
+      // La regla VIEJA (mitad / 7 días), que sigue con el tope de hermanas en 0.
+      parametros: normalizarParametros({ corridaHermanasMaxDias: 0 }),
     });
     expect(plan.sinAmarre).toHaveLength(0);
     // faltante = ceil(31/30 × 37 − 30) = 9 pares, pero la caja trae 21 de
@@ -131,7 +132,8 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
       dias: 30,
       catalogo,
       indiceMeli: indexarCatalogo(SKUS_MELI as any),
-      parametros: normalizarParametros({}),
+      // La regla VIEJA (mitad / 7 días), que sigue con el tope de hermanas en 0.
+      parametros: normalizarParametros({ corridaHermanasMaxDias: 0 }),
     });
     // Corrida dispareja (hermanas sin venta en Amazon): en vez de los 39
     // pares de 37 días, solo la semana de venta = 8 pares. Lo recortado se
@@ -146,5 +148,48 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
     expect(plan.cajas[0].cantidad).toBe(3);
     expect(plan.sinCajaEnBodega).toHaveLength(0);
     expect(plan.faltanteConCaja).toHaveLength(0);
+  });
+
+  it("con la corrida por HERMANAS (la de Full): a la 26 le alcanza → no se fuerza la caja", () => {
+    const catalogo = construirCajas(EXISTENCIAS as any, CORRIDAS as any, {
+      indice: construirIndice(SKUS_MELI.map((s) => s.sku)),
+      mapeoManual: new Map(),
+      almacenes: ["Caseshop", "EnvioPack", "Industher"],
+    }).cajas;
+    const base: RenglonAmazon = {
+      sku: "GT114-LT BROWN-26-MX",
+      titulo: null,
+      asin: null,
+      unidades: 31,
+      ordenes: 28,
+      importe: 0,
+      disponible: 0,
+      enTransferencia: 30,
+      totalFba: 30,
+      cobertura: null,
+    };
+    const conCamino = planFbaConCajas({
+      renglones: [base],
+      dias: 30,
+      catalogo,
+      indiceMeli: indexarCatalogo(SKUS_MELI as any),
+      parametros: normalizarParametros({}),
+    });
+    // 30 pares a 1.03 al día = 29 días ≥ 15 + 7 de FBA: espera.
+    expect(conCamino.ajustesCorrida.map((a) => a.regla)).toEqual(["cobertura_suficiente"]);
+    expect(conCamino.cajas).toHaveLength(0);
+
+    // En cero: 21 de los 24 pares de la caja van a hermanas sin venta en
+    // Amazon (días infinitos) → GOTEO de una caja por envío.
+    const enCero = planFbaConCajas({
+      renglones: [{ ...base, enTransferencia: 0, totalFba: 0 }],
+      dias: 30,
+      catalogo,
+      indiceMeli: indexarCatalogo(SKUS_MELI as any),
+      parametros: normalizarParametros({}),
+    });
+    expect(enCero.ajustesCorrida.map((a) => a.regla)).toEqual(["goteo"]);
+    expect(enCero.cajas).toHaveLength(1);
+    expect(enCero.cajas[0].cantidad).toBe(1);
   });
 });

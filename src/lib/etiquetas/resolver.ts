@@ -6,7 +6,7 @@
  * decir exactamente lo mismo.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli, normalizarTalla } from "../importar/sku";
+import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli, normalizarTalla, numeroAlFrenteDelColor } from "../importar/sku";
 import { desglosarSku } from "../servicios/sync";
 
 export interface EtiquetaResuelta {
@@ -204,6 +204,15 @@ export function indexarCatalogo<T extends { sku: string }>(catalogo: T[]): Indic
     const lista = ix.porModelo.get(modelo) ?? [];
     lista.push({ fila: s, color, talla });
     ix.porModelo.set(modelo, lista);
+    // «GT104» + «1-BLK» también es el modelo «GT104-1» con color «BLK»:
+    // así lo escriben el pedido y el packing list (S267-2026).
+    const conNumero = numeroAlFrenteDelColor(color);
+    if (conNumero) {
+      const m2 = canonizar(`${modelo}-${conNumero.numero}`);
+      const l2 = ix.porModelo.get(m2) ?? [];
+      l2.push({ fila: s, color: conNumero.color, talla });
+      ix.porModelo.set(m2, l2);
+    }
   }
   return ix;
 }

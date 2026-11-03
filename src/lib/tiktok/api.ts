@@ -205,8 +205,19 @@ export function precioDeSku(price: any): number | null {
 }
 
 export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
+  return (await catalogoConEstado(c, tope)).skus;
+}
+
+/**
+ * El catálogo completo con la constancia de si se leyó ENTERO (`completo`):
+ * solo con la lectura entera se puede dar por desaparecida una variante que
+ * ya no viene (una página que TikTok no contestó o un catálogo más largo que
+ * `tope` páginas dejan `completo` en false y nadie se da de baja).
+ */
+export async function catalogoConEstado(c: Cliente, tope = 20): Promise<{ skus: SkuTikTok[]; completo: boolean }> {
   const salida: SkuTikTok[] = [];
   let token: string | undefined;
+  let completo = false;
 
   for (let pagina = 0; pagina < tope; pagina++) {
     const d = await c.llamar<any>("POST", "/product/202309/products/search", {
@@ -239,10 +250,13 @@ export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
     }
 
     token = d.next_page_token || undefined;
-    if (!token) break;
+    if (!token) {
+      completo = true;
+      break;
+    }
   }
 
-  return salida;
+  return { skus: salida, completo };
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,4 +1283,190 @@ export async function pedidosDeAfiliados(
   });
   if (!d) return null;
   return { crudo: d, siguiente: d?.next_page_token || undefined };
+}
+
+// ---------------------------------------------------------------------------
+// Estados de cuenta: lo que TikTok cobra o abona fuera de los pedidos
+// ---------------------------------------------------------------------------
+
+/**
+ * Una página de los estados de cuenta de la tienda con fecha en
+ * [desde, hasta) (segundos epoch). `GET /finance/202309/statements`, ruta y
+ * forma del SDK público de TikTok en npm: `sort_field` obligatorio
+ * (`statement_time`), `page_size` hasta 100, `page_token`; contesta
+ * `statements[]` con `id`, `statement_time`, `settlement_amount`,
+ * `revenue_amount`, `fee_amount`, `shipping_cost_amount`,
+ * `adjustment_amount` y `payment_status` (ver `tiktok/estados-cuenta.ts`).
+ * null si se acabó el tiempo de la función.
+ */
+export async function estadosDeCuenta(
+  c: Cliente,
+  opciones: { desde: number; hasta: number; pageToken?: string },
+): Promise<{ crudo: any; siguiente?: string } | null> {
+  const d = await c.llamar<any>("GET", "/finance/202309/statements", {
+    params: {
+      statement_time_ge: opciones.desde,
+      statement_time_lt: opciones.hasta,
+      page_size: 100,
+      page_token: opciones.pageToken,
+      sort_field: "statement_time",
+      sort_order: "ASC",
+    },
+  });
+  if (d == null) return null;
+  return { crudo: d, siguiente: d?.next_page_token || undefined };
+}
+
+/**
+ * La primera página de transacciones de UN estado de cuenta
+ * (`GET /finance/202501/statements/{id}/statement_transactions`). Solo se
+ * pide para dejar el crudo en la bitácora y saber qué TIPOS de ajuste trae
+ * (la forma no está documentada en el SDK); el dinero sale del total del
+ * estado.
+ */
+export async function transaccionesDeEstado(c: Cliente, estadoId: string): Promise<any> {
+  return c.llamar<any>("GET", `/finance/202501/statements/${encodeURIComponent(estadoId)}/statement_transactions`, {
+    params: { page_size: 100, sort_field: "order_create_time", sort_order: "DESC" },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Devoluciones (`/return_refund/202309/returns`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Las devoluciones de la tienda creadas en una ventana, crudas (snake_case,
+ * `return_orders[]` de `/returns/search`), página por página hasta `paginas`.
+ * `completo` dice si se llegó al final de la lista o se cortó por páginas o
+ * por tiempo. La ruta y la forma salen del SDK de TikTok en npm, como las
+ * demás de `return_refund`.
+ */
+export async function buscarDevoluciones(
+  c: Cliente,
+  opciones: { desdeMs: number; hastaMs?: number; estados?: string[]; paginas?: number },
+): Promise<{ devoluciones: any[]; completo: boolean; paginas: number }> {
+  const tope = opciones.paginas ?? 40;
+  const devoluciones: any[] = [];
+  let token: string | undefined;
+  let paginas = 0;
+  for (; paginas < tope; paginas++) {
+    const cuerpo: Record<string, unknown> = {
+      create_time_ge: Math.floor(opciones.desdeMs / 1000),
+      create_time_lt: Math.floor((opciones.hastaMs ?? Date.now()) / 1000),
+      locale: "es-MX",
+    };
+    if (opciones.estados?.length) cuerpo.return_status = opciones.estados;
+    const d = await c.llamar<any>("POST", "/return_refund/202309/returns/search", {
+      params: { page_size: 50, page_token: token, sort_field: "create_time", sort_order: "DESC" },
+      cuerpo,
+    });
+    if (!d) return { devoluciones, completo: false, paginas };
+    for (const x of d?.return_orders ?? []) devoluciones.push(x);
+    token = d?.next_page_token || undefined;
+    if (!token) return { devoluciones, completo: true, paginas: paginas + 1 };
+  }
+  return { devoluciones, completo: false, paginas };
+}
+
+/**
+ * Le dice a TikTok que el paquete devuelto ya llegó
+ * (`decision: APPROVE_RECEIVED_PACKAGE`): con eso TikTok le reembolsa al
+ * cliente. Contesta el crudo para guardarlo como constancia.
+ */
+export async function confirmarPaqueteDevuelto(c: Cliente, returnId: string): Promise<any> {
+  const d = await c.llamar<any>("POST", `/return_refund/202309/returns/${encodeURIComponent(returnId)}/approve`, {
+    cuerpo: { decision: "APPROVE_RECEIVED_PACKAGE" },
+  });
+  if (d === null) throw new Error("TikTok no contestó la confirmación (sin tiempo).");
+  return d ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// Promociones: ofertas relámpago desde el panel (dueño, 15-oct-2026)
+// ---------------------------------------------------------------------------
+
+/** Crea una actividad de promoción; el cuerpo lo arma `tiktok/promociones.ts`. Contesta `activity_id` y estado. */
+export async function crearActividad(c: Cliente, cuerpo: Record<string, unknown>): Promise<any> {
+  const d = await c.llamar<any>("POST", "/promotion/202309/activities", { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó la creación de la oferta (sin tiempo).");
+  if (!d?.activity_id) throw new ErrorTikTok(0, "/promotion/202309/activities", `sin activity_id en la respuesta: ${JSON.stringify(d).slice(0, 200)}`);
+  return d;
+}
+
+/**
+ * Cambia título, inicio o fin de una actividad que ya existe (UpdateActivity:
+ * «Change the title and the beginning and end time of the existing product
+ * discount or flash sale promotion activity»). Solo viaja lo que se manda.
+ */
+export async function actualizarActividad(c: Cliente, activityId: string, cambios: { title?: string; beginTime?: number; endTime?: number }): Promise<any> {
+  const cuerpo: Record<string, unknown> = { activity_id: activityId };
+  if (cambios.title) cuerpo.title = cambios.title;
+  if (cambios.beginTime) cuerpo.begin_time = cambios.beginTime;
+  if (cambios.endTime) cuerpo.end_time = cambios.endTime;
+  const d = await c.llamar<any>("PUT", `/promotion/202309/activities/${encodeURIComponent(activityId)}`, { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó el cambio de fechas de la oferta (sin tiempo).");
+  return d ?? {};
+}
+
+/** Mete (o edita) productos y variantes en una actividad: hasta 300 variantes por llamada. */
+export async function actualizarProductosDeActividad(c: Cliente, activityId: string, productos: Record<string, unknown>[]): Promise<any> {
+  const d = await c.llamar<any>("PUT", `/promotion/202309/activities/${encodeURIComponent(activityId)}/products`, {
+    cuerpo: { activity_id: activityId, products: productos },
+  });
+  if (d === null) throw new Error("TikTok no contestó al meter los productos a la oferta (sin tiempo).");
+  return d ?? {};
+}
+
+/** Quita productos o variantes de una actividad. */
+export async function quitarProductosDeActividad(c: Cliente, activityId: string, ids: { productIds?: string[]; skuIds?: string[] }): Promise<any> {
+  const cuerpo: Record<string, unknown> = { activity_id: activityId };
+  if (ids.productIds?.length) cuerpo.product_ids = ids.productIds;
+  if (ids.skuIds?.length) cuerpo.sku_ids = ids.skuIds;
+  // TikTok quita con DELETE sobre la misma ruta de productos, con cuerpo.
+  const d = await c.llamar<any>("DELETE", `/promotion/202309/activities/${encodeURIComponent(activityId)}/products`, { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó al quitar productos de la oferta (sin tiempo).");
+  return d ?? {};
+}
+
+/** Desactiva una actividad (ya no se enseña a los compradores). */
+export async function desactivarActividad(c: Cliente, activityId: string): Promise<any> {
+  const d = await c.llamar<any>("POST", `/promotion/202309/activities/${encodeURIComponent(activityId)}/deactivate`, { cuerpo: {} });
+  if (d === null) throw new Error("TikTok no contestó la desactivación (sin tiempo).");
+  return d ?? {};
+}
+
+/** Una actividad completa, con sus productos y variantes. */
+export async function actividad(c: Cliente, activityId: string): Promise<any | null> {
+  return c.llamar<any>("GET", `/promotion/202309/activities/${encodeURIComponent(activityId)}`);
+}
+
+/**
+ * Las actividades de la tienda por estado (una búsqueda por estado: el API
+ * filtra por UN estado a la vez). Hasta `paginas` páginas de 100 por estado.
+ */
+export async function buscarActividades(
+  c: Cliente,
+  opciones: { estados: string[]; tipo?: string; paginas?: number },
+): Promise<{ actividades: any[]; completo: boolean }> {
+  const tope = opciones.paginas ?? 3;
+  const salida: any[] = [];
+  let completo = true;
+  for (const estado of opciones.estados) {
+    let token: string | undefined;
+    for (let pagina = 0; pagina < tope; pagina++) {
+      // `page_size` y `page_token` van en el CUERPO, no en la URL (forma del
+      // SDK de npm): en la URL TikTok contesta 36009004 «param page_size type
+      // invalid. actual type:string, expected type:int32» (15-oct-2026).
+      const cuerpo: Record<string, unknown> = { status: estado, page_size: 100 };
+      if (token) cuerpo.page_token = token;
+      if (opciones.tipo) cuerpo.activity_type = opciones.tipo;
+      const d = await c.llamar<any>("POST", "/promotion/202309/activities/search", { cuerpo });
+      if (!d) return { actividades: salida, completo: false };
+      for (const a of d?.activities ?? []) salida.push(a);
+      token = d?.next_page_token || undefined;
+      if (!token) break;
+      if (pagina === tope - 1) completo = false;
+    }
+  }
+  return { actividades: salida, completo };
 }

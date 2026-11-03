@@ -26,6 +26,17 @@ export interface TransaccionesPedido {
   cargos: number | null;
   /** la comisión de TikTok propiamente (porcentaje + cargo por par), en positivo; 0 si la respuesta no la desglosa */
   comision: number;
+  /**
+   * El desglose de `comision` (11-oct-2026, dueño: «según yo pagamos 6 % de
+   * comisión, 8 % de envío y $6 de costo fijo»): el cargo de servicio del
+   * 8 % (`sfp_service_fee_amount`), el cargo fijo por par y la comisión en
+   * porcentaje (la de 6 %, que TikTok MX empezó a cobrar el 24-sep-2026).
+   */
+  servicio: number;
+  porPar: number;
+  comisionTikTok: number;
+  /** anuncios de TikTok cobrados en el pedido (GMV Max): son PUBLICIDAD, no plataforma */
+  anuncios: number;
   /** comisiones a afiliados/creadores (todas las variantes), en positivo */
   afiliado: number;
   /** envío a cargo del vendedor ya neto del subsidio de TikTok, en positivo */
@@ -63,7 +74,9 @@ const CAMPOS_AFILIADO = [
   "auto_post_shoppable_video_commission_fee",
 ];
 /** La comisión de TikTok propiamente (202501, `fee_tax_breakdown.fee`). */
-const CAMPOS_COMISION = ["sfp_service_fee_amount", "platform_commission_amount", "dynamic_commission_amount", "referral_fee_amount", "tsp_commission_amount"];
+const CAMPOS_COMISION_PCT = ["platform_commission_amount", "dynamic_commission_amount", "referral_fee_amount", "tsp_commission_amount"];
+/** Anuncios que TikTok cobra dentro del pedido (GMV Max y sus cupones). */
+const CAMPOS_ANUNCIOS = ["gmv_max_ad_fee_amount", "gmv_max_coupon_fee", "tap_shop_ads_commission"];
 
 function numeroEn(t: any, ruta: string[]): number | null {
   let x = t;
@@ -121,7 +134,12 @@ export function interpretarTransacciones(d: any): TransaccionesPedido | null {
   const estados = [...new Set(lista.map((t) => String(t?.status ?? t?.settlement_status ?? "").trim().toUpperCase()).filter(Boolean))];
   const liquidado = lista.every(esLiquidada);
   const afiliado = CAMPOS_AFILIADO.reduce((a, c) => a + (sumaDe(lista, c) ?? 0), 0);
-  const comision = CAMPOS_COMISION.reduce((a, c) => a + (sumaDe(lista, c) ?? 0), 0) + (sumaDe(lista, "fee_per_item_sold_amount") ?? 0);
+  const sumaCampos = (campos: string[]) => campos.reduce((a, c) => a + (sumaDe(lista, c) ?? 0), 0);
+  const servicio = sumaDe(lista, "sfp_service_fee_amount") ?? 0;
+  const porPar = sumaDe(lista, "fee_per_item_sold_amount") ?? 0;
+  const comisionTikTok = sumaCampos(CAMPOS_COMISION_PCT);
+  const anuncios = sumaCampos(CAMPOS_ANUNCIOS);
+  const comision = servicio + porPar + comisionTikTok;
   // Envío: la 202501 lo trae ya neto del subsidio en `shipping_cost_amount`;
   // la 202309 en bruto (fbm) más el descuento.
   const envio202501 = sumaDe(lista, "shipping_cost_amount");
@@ -146,6 +164,10 @@ export function interpretarTransacciones(d: any): TransaccionesPedido | null {
     ingreso: sumaDe(lista, "customer_payment_amount") ?? numero(d?.revenue_amount) ?? sumaDe(lista, "revenue_amount"),
     cargos: cargos == null ? null : Math.abs(cargos),
     comision: Math.abs(comision),
+    servicio: Math.abs(servicio),
+    porPar: Math.abs(porPar),
+    comisionTikTok: Math.abs(comisionTikTok),
+    anuncios: Math.abs(anuncios),
     afiliado: Math.abs(afiliado),
     envio: Math.abs(envio),
     ivaRetenido: Math.abs(iva),

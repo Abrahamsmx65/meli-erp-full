@@ -1,11 +1,16 @@
 import { clienteServidor } from "@/lib/supabase/server";
+import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { cargarPanelTikTok, DIAS_VENTA } from "@/lib/servicios/tiktok-panel";
+import { cargarPanelTikTok, DIAS_VENTA, type RenglonTikTok } from "@/lib/servicios/tiktok-panel";
 import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
 import { InventarioTikTok } from "@/components/inventario-tiktok";
+import { FamiliasTikTok } from "@/components/familias-tiktok";
+import { armarFamiliasTikTok } from "@/lib/tiktok/familias";
 import { Ficha } from "@/components/tiles";
+import { Pestanas } from "@/components/ui/pestanas";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -47,77 +52,66 @@ export default async function TikTok({
   const sp = await searchParams;
 
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          TikTok Shop cuelga de la misma cuenta del ERP: el catálogo de SKUs con el que se
-          amarran sus publicaciones sale de ahí.
-        </p>
-      </div>
-    );
-  }
+  const [cuenta, sesion] = await Promise.all([cuentaActiva(supabase), supabase.auth.getUser()]);
+  // Retirar inventario del almacén es del DUEÑO; el rol de TikTok solo ve.
+  const esDueno = rolDeSesion(sesion.data.user) === "dueño";
+  // TikTok cuelga de la cuenta de MELI del ERP: sin ella no hay catálogo con
+  // qué amarrar sus publicaciones.
+  if (!cuenta) return <SinCuenta titulo="Inventario TikTok" />;
 
-  const p = await cargarPanelTikTok(supabase, cuenta.id);
-  const aliasRaw = await traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) =>
-    q.eq("account_id", cuenta.id),
-  );
+  // Las dos lecturas son independientes: van a la par.
+  const [p, aliasRaw] = await Promise.all([
+    cargarPanelTikTok(supabase, cuenta.id),
+    traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) => q.eq("account_id", cuenta.id)),
+  ]);
   const alias = (aliasRaw ?? []).map((a: any) => ({ modelo: a.modelo, colorTikTok: a.color_tiktok, colorAmazon: a.color_amazon }));
+  // Stock en la bodega sin NINGUNA publicación en TikTok: se avisa arriba con
+  // la lista (lo apagado o en borrador NO se avisa: dueño, 15-oct-2026).
+  const conStock = p.renglones.filter((r) => r.saldo > 0);
+  const sinPublicacion = conStock.filter((r) => !r.tienePublicacion);
+
+  // Por familia: el mismo inventario y las ventas de TikTok juntos por
+  // modelo (dueño, 20-oct-2026: «uno que esté en la sección de inventario
+  // TikTok aparte»).
+  const familias = armarFamiliasTikTok({ renglones: p.renglones, ventas: p.ventasPorSku, dias30: DIAS_VENTA });
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="titulo-pagina">Almacén TikTok Shop</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Envío propio. Lo que entra a la bodega TikTok de Industher entra solo; un pedido pagado
-            aparta y el envío confirmado descuenta. El disponible se le escribe a TikTok. Última
-            sincronización: {cuando(p.ultimaSync)}.
-          </p>
-        </div>
-        {p.conectado ? <AccionesTikTok porPublicar={p.totales.porPublicar} /> : null}
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Inventario TikTok"
+        descripcion={`Kardex de la bodega TikTok y lo que se le publica a la tienda. Última sincronización: ${cuando(p.ultimaSync)}.`}
+        acciones={p.conectado ? <AccionesTikTok porPublicar={p.totales.porPublicar} /> : null}
+        ayuda={
+          <>
+            <p>
+              Envío propio. Lo que entra a la bodega TikTok de Industher entra solo; un pedido pagado aparta y el envío
+              confirmado descuenta. El disponible se le escribe a TikTok.
+            </p>
+            <p>
+              Es el único canal donde el ERP no lee el inventario, sino que lo LLEVA: lo que aquí diga es lo que TikTok le
+              ofrece a un comprador.
+            </p>
+          </>
+        }
+      />
 
-      {sp.ok ? (
-        <p className="rounded-lg px-3 py-2 text-sm" style={{ background: "var(--acento-suave)" }}>
-          {sp.ok}
-        </p>
-      ) : null}
-      {sp.error ? (
-        <p
-          className="rounded-lg px-3 py-2 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)" }}
-        >
-          {sp.error}
-        </p>
-      ) : null}
+      {sp.ok ? <Aviso tono="bien">{sp.ok}</Aviso> : null}
+      {sp.error ? <Aviso tono="critico">{sp.error}</Aviso> : null}
 
       {!p.conectado ? (
-        <section className="tarjeta p-5">
-          <h2 className="text-sm font-semibold">TikTok Shop no está conectado</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-            El kardex ya funciona sin conexión: puedes capturar entradas y llevar el saldo. Lo que
-            falta al conectar es lo importante — que el disponible se le escriba a TikTok solo, y
-            que los envíos confirmados descuenten sin capturarlos.
-          </p>
-          <p className="mt-2 text-sm font-medium">
-            La conexión se inicia SOLO desde este botón. Si autorizas desde el panel de
-            TikTok (partner.tiktokshop.com), TikTok te regresa sin forma de amarrarlo a tu
-            sesión y no queda conectado.
-          </p>
-          <a
-            href="/api/tiktok/conectar"
-            className="mt-3 inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: "var(--acento)" }}
-          >
+        <Seccion titulo="TikTok Shop no está conectado">
+          <Aviso tono="alerta">
+            La conexión se inicia SOLO desde este botón. Si autorizas desde el panel de TikTok (partner.tiktokshop.com),
+            TikTok te regresa sin forma de amarrarlo a tu sesión y no queda conectado.
+          </Aviso>
+          <a href="/api/tiktok/conectar" className="boton boton-primario mt-3">
             Conectar TikTok Shop
           </a>
-        </section>
+        </Seccion>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha titulo="SKUs" valor={p.totales.skus} nota="con movimiento" />
         <Ficha titulo="En almacén" valor={n(p.totales.saldo)} nota="pares físicos" />
         <Ficha
@@ -133,78 +127,117 @@ export default async function TikTok({
           nota="TikTok no lo sabe aún"
           tono={p.totales.porPublicar ? "critico" : "bien"}
         />
-      </div>
+      </Cifras>
 
       {p.totales.enRojo ? (
-        <section
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)" }}
-        >
-          {p.totales.enRojo} SKU con saldo negativo: se vendieron pares que nunca se capturaron
-          como entrada. Captura la entrada que falta o haz un ajuste por conteo.
-        </section>
+        <Aviso tono="critico">
+          {p.totales.enRojo} SKU con saldo negativo: se vendieron pares que nunca se capturaron como entrada. Captura la
+          entrada que falta o haz un ajuste por conteo.
+        </Aviso>
       ) : null}
 
-      <AliasAmazonTikTok alias={alias} />
+      {sinPublicacion.length ? (
+        // Stock en la bodega que NO tiene publicación en TikTok: no hay dónde
+        // venderlo (dueño, 15-oct-2026: «que me salga un aviso y cuáles son»).
+        <Aviso tono="alerta" titulo={`${sinPublicacion.length} SKU con stock en la bodega TikTok sin ninguna publicación (${n(sinPublicacion.reduce((a, r) => a + r.saldo, 0))} pares)`}>
+          <ListaSkusSinPublicacion renglones={sinPublicacion} />
+        </Aviso>
+      ) : null}
 
-      <EntradasTikTok />
+      <Pestanas
+        pestanas={[
+          {
+            id: "inventario",
+            titulo: "Inventario",
+            cuenta: p.renglones.length,
+            contenido: <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} esDueno={esDueno} />,
+          },
+          {
+            id: "familias",
+            titulo: "Por familia",
+            cuenta: familias.filter((f) => f.saldo > 0 || f.apartado > 0).length,
+            contenido: <FamiliasTikTok familias={familias} diasVenta={DIAS_VENTA} ventasDesde={p.ventasDesde} />,
+          },
+          {
+            id: "movimientos",
+            titulo: "Movimientos",
+            contenido: (
+              <Seccion titulo="Últimos movimientos" sinRelleno>
+                <Tabla vacia={!p.movimientos.length} textoVacio="Sin movimientos todavía.">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>Cuándo</th>
+                        <th>SKU</th>
+                        <th>Movimiento</th>
+                        <th className="num">Pares</th>
+                        <th>Motivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.movimientos.map((m) => (
+                        <tr key={m.id}>
+                          <td className="texto-2">{cuando(m.fecha)}</td>
+                          <td className="font-medium">{m.sku}</td>
+                          <td>{NOMBRE_TIPO[m.tipo] ?? m.tipo}</td>
+                          <td
+                            className="num cifra"
+                            style={{
+                              color:
+                                m.tipo === "salida" || m.tipo === "merma"
+                                  ? "var(--estado-critico)"
+                                  : m.tipo === "ajuste"
+                                    ? "var(--ink-1)"
+                                    : "var(--exito-texto)",
+                            }}
+                          >
+                            {m.tipo === "ajuste" ? "=" : m.tipo === "salida" || m.tipo === "merma" ? "−" : "+"}
+                            {n(m.cantidad)}
+                          </td>
+                          <td className="texto-2">
+                            {m.motivo ?? "—"}
+                            {m.referencia ? ` · pedido ${m.referencia}` : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Tabla>
+              </Seccion>
+            ),
+          },
+          {
+            id: "corregir",
+            titulo: "Corregir y colores",
+            contenido: (
+              <>
+                <EntradasTikTok />
+                <AliasAmazonTikTok alias={alias} />
+              </>
+            ),
+          },
+        ]}
+      />
+    </Pagina>
+  );
+}
 
-      <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />
-
-      <section className="tarjeta overflow-hidden">
-        <h2 className="px-4 pt-4 text-sm font-semibold">Últimos movimientos</h2>
-        <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
-          Cada par que entró o salió, con su motivo. Es lo que deja auditar un saldo sin creerle a
-          nadie.
-        </p>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
-                <th className="px-4 py-2 font-semibold">Cuándo</th>
-                <th className="px-4 py-2 font-semibold">SKU</th>
-                <th className="px-4 py-2 font-semibold">Movimiento</th>
-                <th className="px-4 py-2 text-right font-semibold">Pares</th>
-                <th className="px-4 py-2 font-semibold">Motivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.movimientos.map((m) => (
-                <tr key={m.id} className="hairline">
-                  <td className="px-4 py-2" style={{ color: "var(--ink-2)" }}>{cuando(m.fecha)}</td>
-                  <td className="px-4 py-2 font-medium">{m.sku}</td>
-                  <td className="px-4 py-2">{NOMBRE_TIPO[m.tipo] ?? m.tipo}</td>
-                  <td
-                    className="num px-4 py-2 text-right"
-                    style={{
-                      color:
-                        m.tipo === "salida" || m.tipo === "merma"
-                          ? "var(--estado-critico)"
-                          : m.tipo === "ajuste"
-                            ? "var(--ink-1)"
-                            : "var(--exito-texto)",
-                    }}
-                  >
-                    {m.tipo === "ajuste" ? "=" : m.tipo === "salida" || m.tipo === "merma" ? "−" : "+"}
-                    {n(m.cantidad)}
-                  </td>
-                  <td className="px-4 py-2" style={{ color: "var(--ink-2)" }}>
-                    {m.motivo ?? "—"}
-                    {m.referencia ? ` · pedido ${m.referencia}` : ""}
-                  </td>
-                </tr>
-              ))}
-              {!p.movimientos.length ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-sm" colSpan={5} style={{ color: "var(--ink-2)" }}>
-                    Sin movimientos todavía.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+/** La lista corta de SKUs con stock sin publicación (o con la publicación apagada), con sus pares. */
+function ListaSkusSinPublicacion({ renglones }: { renglones: RenglonTikTok[] }) {
+  const TOPE = 40;
+  return (
+    <div className="mt-1 text-xs">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {renglones.slice(0, TOPE).map((r) => (
+          <span key={r.sku} className="cifra">
+            {r.sku} <b>×{r.saldo}</b>
+          </span>
+        ))}
+        {renglones.length > TOPE ? <span className="texto-2">y {renglones.length - TOPE} más</span> : null}
+      </div>
+      <p className="mt-1 texto-2">
+        En la tabla, marca «Solo con stock sin publicación activa» para verlos con sus sugerencias de publicación para ligar.
+      </p>
     </div>
   );
 }

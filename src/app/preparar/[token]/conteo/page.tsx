@@ -3,6 +3,7 @@ import { cuentaPorTokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { catalogoParaConteo } from "@/lib/servicios/tiktok-conteo";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { ConteoTikTok } from "@/components/conteo-tiktok";
+import { Aviso, Encabezado, Pagina } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -11,25 +12,28 @@ export default async function ConteoPublico({ params }: { params: Promise<{ toke
   const { token } = await params;
   const cuenta = await cuentaPorTokenPreparar(token);
   if (!cuenta) {
-    return <div className="tarjeta mx-auto max-w-lg p-8 text-center">Este link ya no sirve.</div>;
+    return (
+      <Pagina>
+        <Aviso tono="critico" titulo="Este link ya no sirve">Pide el link nuevo a quien administra el despacho.</Aviso>
+      </Pagina>
+    );
   }
 
   const productos = await catalogoParaConteo(clienteAdmin(), cuenta.id);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="titulo-pagina">Conteo cíclico · TikTok</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Escanea el FNSKU de cada par. Si cuentas un modelo completo, elígelo arriba.
-          </p>
-        </div>
-        <Link href={`/preparar/${token}`} className="text-sm underline" style={{ color: "var(--ink-2)" }}>
-          ← Cortes
-        </Link>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Conteo cíclico · TikTok"
+        descripcion="Escanea el FNSKU de cada par. Si cuentas un modelo completo, elígelo arriba."
+        acciones={
+          <Link href={`/preparar/${token}`} className="boton boton-fantasma">
+            ← Cortes
+          </Link>
+        }
+      />
       <ConteoTikTok productos={productos} urlGuardar={`/api/preparar-publico/${token}/conteo`} />
-    </div>
+    </Pagina>
   );
 }

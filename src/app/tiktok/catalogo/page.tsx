@@ -3,6 +3,12 @@ import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { CLAVE_CATALOGO_AMAZON } from "@/lib/servicios/catalogo-amazon";
 import type { ProductoCatalogo } from "@/lib/tienda/catalogo-amazon";
 import { BackCatalogo } from "@/components/back-catalogo";
+import { CATEGORIA_FUNDAS, normalizarCategoria } from "@/lib/categoria";
+import { Encabezado, Pagina, SinCuenta, Vacio } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
+import { GuiasVideoBack } from "@/components/guias-video-back";
+import { hayLlaveGuias, leerGuias } from "@/lib/servicios/guias-ia";
+import { TOPE_MENSUAL_USD } from "@/lib/tienda/guia-ia";
 
 export const dynamic = "force-dynamic";
 
@@ -15,48 +21,76 @@ export const dynamic = "force-dynamic";
 export default async function CatalogoCreadores() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Catálogo para creadores" />;
   const admin = clienteAdmin();
-  const [{ data }, config] = await Promise.all([
+  const [{ data }, config, guias] = await Promise.all([
     admin.from("app_cache").select("datos, generado_en").eq("account_id", cuenta.id).eq("clave", CLAVE_CATALOGO_AMAZON).maybeSingle(),
     traerTodo<any>(admin, "productos_config", "categoria", (q) => q.eq("account_id", cuenta.id).not("categoria", "is", null)),
+    leerGuias(admin, cuenta.id),
   ]);
   const datos = (data as any)?.datos ?? {};
   const productos: ProductoCatalogo[] = Array.isArray(datos.productos) ? datos.productos : [];
   const categorias = [
-    ...new Set([...(config ?? []).map((c: any) => String(c.categoria).trim()), ...productos.map((p) => p.categoria)].filter((c) => c && c !== "Fundas")),
+    ...new Set([...(config ?? []).map((c: any) => normalizarCategoria(c.categoria)), ...productos.map((p) => normalizarCategoria(p.categoria))].filter((c): c is string => !!c && c !== CATEGORIA_FUNDAS)),
   ].sort((a, b) => a.localeCompare(b, "es"));
-  const urlTienda = (process.env.TIENDA_URL ?? "https://getac-tienda-getac.vercel.app").replace(/\/+$/, "");
+  const urlTienda = (process.env.TIENDA_URL ?? "https://getac-tienda.vercel.app").replace(/\/+$/, "");
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="titulo-seccion">Catálogo para creadores</h1>
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          Todo el calzado de Amazon con fotos (desde el GT101). Aquí decides qué se ve en{" "}
-          <a href={`${urlTienda}/catalogo`} target="_blank" rel="noopener noreferrer" className="underline">
-            la página del catálogo
-          </a>{" "}
-          y en qué categoría sale. La categoría se guarda en Productos y costos. El precio es el de{" "}
-          <a href="/tiktok/precios" className="underline">
-            Precios para TikTok
-          </a>{" "}
-          (relámpago normal en la página; «Mi precio» manda). El total suma la bodega y lo que viene de China (en el mar y
-          los pedidos, de la vista de inventario) más la bodega de TikTok; la página solo enseña ese total. Datos de {(data as any)?.generado_en ? new Date((data as any).generado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" }) : "—"};
-          se actualizan cada hora y al guardar un cambio.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Catálogo para creadores"
+        descripcion="Qué modelos se ven en la página del catálogo, su categoría y cuántos pares hay."
+        frescura={(data as any)?.generado_en ?? null}
+        acciones={
+          <a href={`${urlTienda}/catalogo`} target="_blank" rel="noopener noreferrer" className="boton boton-borde">
+            Abrir el catálogo ↗
+          </a>
+        }
+        ayuda={
+          <>
+            <p>
+              Todo el calzado de Amazon con fotos (desde el GT101). Aquí decides qué se ve en{" "}
+              <a href={`${urlTienda}/catalogo`} target="_blank" rel="noopener noreferrer" className="enlace">
+                la página del catálogo
+              </a>{" "}
+              y en qué categoría sale. La categoría se guarda en Productos y costos.
+            </p>
+            <p>
+              El precio es el de{" "}
+              <a href="/tiktok/precios" className="enlace">
+                Precios para TikTok
+              </a>{" "}
+              (relámpago normal en la página; «Mi precio» manda).
+            </p>
+            <p>
+              «Ideas para video» las escribe Claude mirando las fotos, el título y los textos de cada modelo, una sola vez
+              por modelo (se rehace sola si cambian sus fotos o su título). Usa la llave ANTHROPIC_API_KEY_GUIAS, que solo
+              sirve para esto, con un tope de ${TOPE_MENSUAL_USD} USD al mes. Lo que corrijas a mano ya no se pisa.
+            </p>
+            <p>
+              El total suma la bodega y lo que viene de China (en el mar y los pedidos, de la vista de inventario) más la
+              bodega de TikTok; la página solo enseña ese total. Los datos se actualizan cada hora y al guardar un cambio.
+            </p>
+          </>
+        }
+      />
       {productos.length ? (
-        <BackCatalogo productos={productos} categorias={categorias} />
+        <Pestanas
+          pestanas={[
+            { id: "modelos", titulo: "Modelos", cuenta: productos.length, contenido: <BackCatalogo productos={productos} categorias={categorias} /> },
+            {
+              id: "ideas",
+              titulo: "Ideas para video",
+              cuenta: Object.keys(guias.guias).length,
+              alerta: !hayLlaveGuias(),
+              contenido: <GuiasVideoBack productos={productos} inicial={guias} hayLlave={hayLlaveGuias()} tope={TOPE_MENSUAL_USD} />,
+            },
+          ]}
+        />
       ) : (
-        <div className="tarjeta p-6 text-sm">El catálogo todavía no se arma: corre solo cada hora en la actualización de la tienda.</div>
+        <Vacio>El catálogo todavía no se arma.</Vacio>
       )}
-    </div>
+    </Pagina>
   );
 }

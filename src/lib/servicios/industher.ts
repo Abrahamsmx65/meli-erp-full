@@ -13,6 +13,7 @@
  * auditar la primera sincronización real y ajustar si hace falta.
  */
 import { canonizar, normalizarTalla } from "../importar/sku";
+import { rescatarFilaMalCapturada } from "../importar/cajas";
 import type { FilaExistencia } from "../importar/excel";
 import { reemplazarExistencias, type DB } from "../datos/repos";
 import { invalidar } from "./cache";
@@ -488,9 +489,15 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
 
   // La tabla tiene llave única (almacén, SKU, talla, contenedor): si el API
   // repite un renglón hay que fusionarlo, o el upsert de Postgres truena.
+  // Antes, una caja capturada con el SKU revuelto («IN10057-24-GT114-BLK»
+  // como modelo IN10057 + color 24-GT114-BLK) se endereza para que cuente
+  // como GT114 BLK talla 24 del IN10057.
   const porClave = new Map<string, FilaExistencia>();
   let duplicadas = 0;
-  for (const f of filas) {
+  let rescatadas = 0;
+  for (const cruda of filas) {
+    const f = rescatarFilaMalCapturada(cruda);
+    if (f !== cruda) rescatadas++;
     const clave = [f.almacen, f.skuCaja, f.talla, f.contenedor].map(canonizar).join("|");
     const previa = porClave.get(clave);
     if (!previa) {
@@ -504,6 +511,9 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
     previa.cajasDisponibles += f.cajasDisponibles;
     previa.paresDisponibles += f.paresDisponibles;
     previa.paresPorCaja = previa.paresPorCaja || f.paresPorCaja;
+  }
+  if (rescatadas > 0) {
+    avisos.push(`${rescatadas} renglones venían con el SKU revuelto (pedido como modelo o la talla dentro del color) y se enderezaron.`);
   }
   if (duplicadas > 0) {
     filas.length = 0;

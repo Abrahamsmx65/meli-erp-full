@@ -35,6 +35,12 @@ export interface RenglonInventarioYz {
   enCamino: number;
   enBodega: number;
   enCaminoChina: number;
+  /**
+   * De `enCaminoChina`, lo de pedidos marcados «en camino» (ya salieron de
+   * la fábrica). Existencias solo cuenta esto como dinero (dueño,
+   * 18-oct-2026). Falta en renglones guardados antes de ese día = 0.
+   */
+  enCaminoChinaEmbarcado?: number;
   vendidas30: number;
   skusBodega: string[];
 }
@@ -68,11 +74,15 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
     mapaCostosUnificado(db, { yzAccountId: accountId }),
   ]);
 
-  const china = await cargarPedidosEnCamino(db, accountId, {
+  const amarreChina = {
     indice: construirIndice(skus.map((s) => s.sku)),
     manual: new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli])),
     porBodega: new Map(inv.renglones.map((r) => [r.skuBodega, r.skuMeli])),
-  });
+  };
+  const [china, chinaEmbarcado] = await Promise.all([
+    cargarPedidosEnCamino(db, accountId, amarreChina),
+    cargarPedidosEnCamino(db, accountId, amarreChina, ["en_camino"]),
+  ]);
 
   // Las publicaciones gemelas (462-A57 y N-462-A57) salen como UN renglón,
   // el de la principal, con todo sumado. La bodega ya viene atribuida a la
@@ -92,6 +102,7 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
     camino.set(k, (camino.get(k) ?? 0) + c.unidades);
   }
   const chinaPor = sumarPorPrincipal(gemelas, china);
+  const chinaEmbarcadoPor = sumarPorPrincipal(gemelas, chinaEmbarcado);
   const vendPor = sumarPorPrincipal(gemelas, vend);
   const bodegaPor = sumarPorPrincipal(gemelas, inv.porSkuMeli);
   const bodegaSkus = new Map<string, string[]>();
@@ -111,6 +122,7 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
       enCamino: camino.get(s.sku) ?? 0,
       enBodega: bodegaPor.get(s.sku) ?? 0,
       enCaminoChina: chinaPor.get(s.sku) ?? 0,
+      enCaminoChinaEmbarcado: chinaEmbarcadoPor.get(s.sku) ?? 0,
       vendidas30: vendPor.get(s.sku) ?? 0,
       skusBodega: bodegaSkus.get(s.sku) ?? [],
       };

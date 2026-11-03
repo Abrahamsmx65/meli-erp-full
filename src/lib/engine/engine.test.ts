@@ -386,6 +386,8 @@ describe("tallas que nunca tuvieron stock", () => {
       buckets: [],
       tasaPonderada: 0,
       factorTendencia: 1,
+      tasaSurtida: null,
+      diasSurtidos: 0,
       demandaDiaria: 0,
       sigmaDiaria: 0,
       coefVariacion: 0,

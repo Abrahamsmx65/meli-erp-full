@@ -3,6 +3,8 @@ import { leerCacheYzGuardado } from "./cache";
 import {
   derivadasDeCompras,
   detalleDesdeCompras,
+  multiploDeDiseno,
+  redondearPedido,
   obtenerCompras,
   obtenerDetalleCompras,
   obtenerResumenCompras,
@@ -47,8 +49,9 @@ const compras: ComprasCalculadas = {
   diasVenta: 30,
   descontinuados: { activo: true, historialDesde: "2026-03-01", disenos: ["654"] },
   variantes: [
-    variante("499-I13", "499", { vendidas30: 30, ventaDiaria: 1, sugerido: 120 }),
-    variante("499-I14", "499", { descontinuada: true }),
+    variante("499-I13", "499", { vendidas30: 30, ventaDiaria: 1, sugerido: 120, enFull: 10, enTransferencia: 5, enCaminoFull: 20, enBodega: 40, enCaminoChina: 300, posicionTotal: 375 }),
+    variante("499-I14", "499", { descontinuada: true, enBodega: 999 }),
+    variante("499-I15", "499", { enBodega: 60, enCaminoChina: 100, posicionTotal: 160 }),
     // Diseño retirado completo: hasta la variante nueva viene marcada.
     variante("654-I13", "654", { descontinuada: true }),
     variante("654-I15PRO", "654", { descontinuada: true }),
@@ -94,7 +97,12 @@ describe("resumenDesdeCompras", () => {
   it("un diseño retirado completo no sale; el que sigue vendiendo sí, sin sus variantes muertas", () => {
     const r = resumenDesdeCompras(compras);
     expect(r.disenos.map((d) => d.diseno)).toEqual(["499"]);
-    expect(r.disenos[0]).toMatchObject({ variantes: 1, descontinuadas: 1, vendidas30: 30, sugerido: 120 });
+    expect(r.disenos[0]).toMatchObject({ variantes: 2, descontinuadas: 1, vendidas30: 30, sugerido: 120 });
+  });
+
+  it("suma por diseño lo que hay en MELI, en bodega y pedido a China, sin las variantes descontinuadas", () => {
+    const r = resumenDesdeCompras(compras);
+    expect(r.disenos[0]).toMatchObject({ enMeli: 35, enBodega: 100, enCaminoChina: 400, posicionTotal: 535 });
     expect(r.descontinuados).toEqual({ skus: 3, disenos: 1, activo: true, historialDesde: "2026-03-01" });
   });
 });
@@ -108,7 +116,7 @@ describe("detalleDesdeCompras", () => {
   it("el diseño vivo trae sus variantes vivas y lista las descontinuadas aparte", () => {
     const d = detalleDesdeCompras(compras, " 499 ")!;
     expect(d.diseno).toBe("499");
-    expect(d.variantes.map((v) => v.skuMeli)).toEqual(["499-I13"]);
+    expect(d.variantes.map((v) => v.skuMeli)).toEqual(["499-I13", "499-I15"]);
     expect(d.descontinuadas).toEqual(["499-I14"]);
     expect(d.sugerido).toBe(120);
   });
@@ -118,5 +126,40 @@ describe("derivadasDeCompras", () => {
   it("guarda el resumen y un renglón por diseño vivo, nada más", () => {
     const filas = derivadasDeCompras(compras);
     expect(filas.map((f) => f.clave)).toEqual(["compras:resumen", "compras:d:499"]);
+  });
+});
+
+describe("redondearPedido: mínimo de 50 y múltiplos cerrados hacia arriba", () => {
+  const general = { minimo: 50, multiplo: 10 };
+  it.each([
+    [0, 0],
+    [-5, 0],
+    [49, 0],
+    [50, 50],
+    [51, 60],
+    [123, 130],
+    [200, 200],
+  ])("falta %i → pide %i", (necesidad, esperado) => {
+    expect(redondearPedido(necesidad, general)).toBe(esperado);
+  });
+
+  it("el 662 va de 20 en 20: una falta de 50 se pide como 60, no 50", () => {
+    const del662 = { minimo: 50, multiplo: 20 };
+    expect(redondearPedido(50, del662)).toBe(60);
+    expect(redondearPedido(61, del662)).toBe(80);
+    expect(redondearPedido(40, del662)).toBe(0);
+  });
+
+  it("un múltiplo inválido no rompe: cuenta como 1", () => {
+    expect(redondearPedido(57, { minimo: 50, multiplo: 0 })).toBe(57);
+  });
+});
+
+describe("multiploDeDiseno", () => {
+  const p = { pedidoMultiplo: 10, pedidoMultiplos: { "662": 20 } };
+  it("usa el del diseño cuando la fábrica lo hace distinto y el general para los demás", () => {
+    expect(multiploDeDiseno("662", p)).toBe(20);
+    expect(multiploDeDiseno(" 662 ", p)).toBe(20);
+    expect(multiploDeDiseno("499", p)).toBe(10);
   });
 });

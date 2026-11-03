@@ -17,7 +17,10 @@
  *
  * La cuenta, por modelo+color:
  *
- *   demanda diaria      = suma de la demanda corregida de sus SKUs
+ *   demanda diaria      = suma de lo que cada SKU VENDE CON STOCK (días
+ *                         surtidos ponderados por recencia, sin tope ni
+ *                         tendencia; `engine/demanda-surtida.ts`); sin 14
+ *                         días surtidos, la demanda del plan de Full
  *   cobertura           = inventario total / demanda diaria
  *   objetivo            = demanda × (días de fábrica + días de barco + días
  *                                    de aduana + meses de piso)
@@ -31,6 +34,10 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
+import { desglosarSku } from "./sync";
+import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
+import { familiaDe, type MapaFamilias } from "../pedidos-china/familias";
+import { cargarFamilias } from "./familias-modelos";
 import type { LineaGuardada } from "./cache";
 import type { TikTokCompraSku } from "./tiktok-compras";
 
@@ -144,10 +151,18 @@ export const UNITALLA_MIN_CAJAS = 5;
 export interface RenglonCompra {
   modelo: string;
   color: string;
+  /**
+   * Familia a la que pertenece el modelo (`modelos_familias`): varios
+   * números que la fábrica hace como un solo zapato y se piden juntos
+   * (GT117…GT122). La pantalla y el Excel agrupan por ella; null = va solo.
+   */
+  familia: string | null;
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
-  /** venta mensual de MELI (demanda corregida × 30) */
+  /** tallas que no tienen 14 días surtidos y usan la demanda del plan de Full */
+  tallasConRespaldo: number;
+  /** venta mensual de MELI (demanda con stock × 30) */
   ventaMes: number;
   /** venta mensual REALMENTE observada en MELI (últimos 30 días, sin corrección) */
   ventaMesReal: number;
@@ -203,6 +218,8 @@ export interface RenglonCompra {
   unitallas: { talla: string; cajas: number }[];
   /** faltante por talla, la base de todo el reparto */
   faltantePorTalla: Record<string, number>;
+  /** sin receta de este color: de dónde salió la caja que se supuso (null = receta real) */
+  cajaSupuesta: OrigenCajaSupuesta | null;
   /**
    * La OTRA opción de pedido: solo según la venta, SIN descontar ningún
    * inventario. La demanda por talla ya viene corregida por agotamientos
@@ -262,12 +279,185 @@ export interface SugerenciaCompra {
     cajas: number;
     pares: number;
     enQuiebre: number;
+    /** con faltante y sin NINGUNA caja que suponer (ni del modelo ni estándar) */
     sinCorrida: number;
+    /** con faltante y receta de otro color o estándar en vez de la propia */
+    conCajaSupuesta: number;
   };
 }
 
 function clave(modelo: string, color: string): string {
   return `${modelo.trim().toUpperCase()}|${color.trim().toUpperCase()}`;
+}
+
+/**
+ * Con qué claves se reconoce una corrida (o se busca), para que el modelo +
+ * color del SKU de MELI y el de la receta del pedido se encuentren aunque
+ * estén escritos distinto. Hasta el 9-oct-2026 la búsqueda era por texto
+ * exacto y 98 modelos salían «sin corrida» teniendo receta:
+ *   - separador: la corrida dice «BLK/GREY» y el SKU «BLK-GREY» (GT204,
+ *     YH816, G650, GT110 GREY-BLUE);
+ *   - modelo con guion: la corrida es GT104-2 | GREY y el catálogo parte el
+ *     SKU como GT104 | 2-GREY (todo el GT104);
+ *   - anotación: «BLK (NEGRO)» contra «BLK»;
+ *   - amarre a mano del color (`alias-color.ts`): la receta vive bajo el
+ *     color de la fábrica («NAVY (AZUL MARINO)») y el SKU bajo el de MELI
+ *     («BLUE»).
+ * Todo cae en la clave APLASTADA de modelo + color (sin separadores, con
+ * sinónimos), más la variante sin paréntesis y la traducida por el alias.
+ */
+export function clavesDeCorrida(modelo: string, color: string, alias?: MapaAlias | null): string[] {
+  const m = (modelo || "").trim();
+  const c = (color || "").trim();
+  const sinAnotacion = c.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const claves = [claveAplastada(`${m}-${c}`), claveAplastada(`${m}-${sinAnotacion}`)];
+  if (alias?.size) {
+    const traducido = colorEfectivo(alias, m, c);
+    if (traducido !== c) claves.push(claveAplastada(`${m}-${traducido}`));
+    const traducidoSinAnotacion = colorEfectivo(alias, m, sinAnotacion);
+    if (traducidoSinAnotacion !== sinAnotacion) claves.push(claveAplastada(`${m}-${traducidoSinAnotacion}`));
+  }
+  return [...new Set(claves.filter(Boolean))];
+}
+
+export interface CorridaIndexada {
+  tallas: Record<string, number>;
+  total: number;
+  pedido: string;
+}
+
+/** La corrida más reciente (pedido más alto) de cada modelo + color, por todas sus claves. */
+export function indexarCorridas(
+  corridas: { pedido?: unknown; modelo?: unknown; color?: unknown; tallas?: unknown; total?: unknown }[],
+  alias?: MapaAlias | null,
+): Map<string, CorridaIndexada> {
+  const indice = new Map<string, CorridaIndexada>();
+  for (const c of corridas) {
+    const tallas = (c.tallas ?? {}) as Record<string, number>;
+    const total = Number(c.total) || Object.values(tallas).reduce((a: number, b: unknown) => a + Number(b), 0);
+    if (!total) continue;
+    const pedido = String(c.pedido ?? "");
+    for (const k of clavesDeCorrida(String(c.modelo ?? ""), String(c.color ?? ""), alias)) {
+      const previa = indice.get(k);
+      // Empatan por pedido: el número de pedido más alto es el más nuevo.
+      // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
+      if (!previa || numeroDePedido(pedido) > numeroDePedido(previa.pedido)) {
+        indice.set(k, { tallas, total, pedido });
+      }
+    }
+  }
+  return indice;
+}
+
+export function buscarCorrida(
+  indice: Map<string, CorridaIndexada>,
+  modelo: string,
+  color: string,
+): CorridaIndexada | undefined {
+  for (const k of clavesDeCorrida(modelo, color)) {
+    const c = indice.get(k);
+    if (c) return c;
+  }
+  return undefined;
+}
+
+export type OrigenCajaSupuesta = "modelo" | "unitalla" | "estandar";
+
+/** Una caja de UNA sola talla de un pedido cargado: pares por caja del modelo + color. */
+export interface CajaUnitalla {
+  pedido: string;
+  modelo: string;
+  color: string;
+  paresPorCaja: number;
+}
+
+/**
+ * Pares por caja cuando NO hay receta de ese modelo + color (dueño,
+ * 18-oct-2026: «¿para qué necesitas la proforma para poder calcular qué hay
+ * que pedir?»): la caja del MISMO MODELO en otro color (la receta más
+ * reciente) y, si el modelo nunca se ha pedido, la caja ESTÁNDAR de la
+ * fábrica (la más frecuente entre todas las recetas de la cuenta). La
+ * corrida se propone por venta, como siempre; el renglón declara qué caja
+ * se supuso. Sin ninguna receta en la cuenta, null.
+ */
+export function cajaDeRespaldo(
+  corridas: { pedido?: unknown; modelo?: unknown; color?: unknown; tallas?: unknown; total?: unknown }[],
+  modelo: string,
+  unitallas: CajaUnitalla[] = [],
+): { paresPorCaja: number; origen: OrigenCajaSupuesta } | null {
+  const m = claveAplastada(modelo || "");
+  let delModelo: { total: number; pedido: string } | null = null;
+  const frecuencia = new Map<number, number>();
+  for (const c of corridas) {
+    const tallas = (c.tallas ?? {}) as Record<string, number>;
+    const total = Number(c.total) || Object.values(tallas).reduce((a: number, b: unknown) => a + Number(b), 0);
+    if (!total) continue;
+    const caja = paresPorCajaNormalizado(total);
+    frecuencia.set(caja, (frecuencia.get(caja) ?? 0) + 1);
+    const pedido = String(c.pedido ?? "");
+    if (m && claveAplastada(String(c.modelo ?? "")) === m) {
+      if (!delModelo || numeroDePedido(pedido) > numeroDePedido(delModelo.pedido)) delModelo = { total, pedido };
+    }
+  }
+  if (delModelo) return { paresPorCaja: paresPorCajaNormalizado(delModelo.total), origen: "modelo" };
+  // Un modelo que solo se ha pedido en cajas de UNA talla («SOLID SIZE 16
+  // PRS», GT180 y GT181) no tiene corrida, pero sí caja: la del pedido más
+  // reciente (dueño, 20-oct-2026: «ahora que está la orden confirmada, ¿se
+  // aumenta en el sistema cuál es la corrida?»).
+  let unitalla: CajaUnitalla | null = null;
+  for (const u of unitallas) {
+    if (!(u.paresPorCaja > 0) || !m || claveAplastada(u.modelo) !== m) continue;
+    if (!unitalla || numeroDePedido(u.pedido) > numeroDePedido(unitalla.pedido)) unitalla = u;
+  }
+  if (unitalla) return { paresPorCaja: unitalla.paresPorCaja, origen: "unitalla" };
+  let mejor: { caja: number; veces: number } | null = null;
+  for (const [caja, veces] of frecuencia) {
+    if (!mejor || veces > mejor.veces || (veces === mejor.veces && caja > mejor.caja)) mejor = { caja, veces };
+  }
+  return mejor ? { paresPorCaja: mejor.caja, origen: "estandar" } : null;
+}
+
+/** Las cajas de una sola talla de los pedidos cargados de la cuenta (pares por caja por modelo + color). */
+export async function cajasUnitallaDePedidos(db: DB, accountId: string): Promise<CajaUnitalla[]> {
+  // Las pruebas pasan un `db` de mentira sin tablas: sin cajas unitalla.
+  if (typeof (db as { from?: unknown }).from !== "function") return [];
+  const filas = await traerTodo<{
+    modelo: string;
+    color: string;
+    talla: string | null;
+    pares_por_caja: number | null;
+    pedidos: { pedido: string } | { pedido: string }[] | null;
+  }>(db, "pedido_lineas", "id, modelo, color, talla, pares_por_caja, pedidos!inner(pedido, account_id)", (q) =>
+    q.eq("pedidos.account_id", accountId).not("talla", "is", null),
+  );
+  return filas
+    .map((f) => {
+      const p = Array.isArray(f.pedidos) ? f.pedidos[0] : f.pedidos;
+      return { pedido: String(p?.pedido ?? ""), modelo: String(f.modelo ?? ""), color: String(f.color ?? ""), paresPorCaja: Number(f.pares_por_caja) || 0 };
+    })
+    .filter((u) => u.modelo && u.paresPorCaja > 0);
+}
+
+/**
+ * Un SKU que no está en el catálogo de MELI (Amazon con `-MX`, un color ya
+ * descontinuado) se parte con `desglosarSku`, que sabe de sufijos de sitio.
+ * Antes se partía a mano y «GT100-MINT-23-MX» quedaba como color «MINT-23»
+ * y talla «MX»: un grupo fantasma por talla, sin corrida.
+ */
+/**
+ * La demanda de MELI que usa el pedido a China por talla: lo que vende
+ * cuando TIENE stock (`engine/demanda-surtida.ts`); sin 14 días surtidos
+ * en la ventana (producto nuevo, o agotado casi todo el tiempo), la demanda
+ * del plan de Full, como antes. Decisión del dueño (11-oct-2026): «calcular
+ * según el stock alto», sin ajustes a mano.
+ */
+export function demandaChinaDeLinea(l: { demandaDiaria: number; demandaSurtida?: number | null }): number {
+  return l.demandaSurtida ?? l.demandaDiaria;
+}
+
+export function partesDeSkuSuelto(sku: string): { modelo: string; color: string; talla: string } {
+  const d = desglosarSku(sku);
+  return { modelo: d.modelo ?? sku, color: d.color ?? "", talla: d.talla ?? "" };
 }
 
 /**
@@ -334,10 +524,13 @@ export function armarPedidoColor(
     // Las cajas de una sola talla se miden con el faltante EXACTO: es
     // caja completa, sin corrida que cuidar, y el número debe ser exacto.
     const exacto = faltanteExactoPorTalla[talla] ?? 0;
-    const cajas = Math.floor(exacto / paresPorCaja);
-    if (cajas >= UNITALLA_MIN_CAJAS) {
-      unitallas.push({ talla, cajas });
-      restante[talla] = Math.max(0, restante[talla] - cajas * paresPorCaja);
+    if (Math.floor(exacto / paresPorCaja) >= UNITALLA_MIN_CAJAS) {
+      // Una talla que va unitalla va SOLO unitalla (decisión del dueño,
+      // 18-oct-2026: «muchas veces me pides del mismo modelo y talla caja
+      // unitalla y caja de corrida; mejor dame solo unitalla»): su faltante
+      // completo se redondea a cajas hacia arriba y sale de la corrida.
+      unitallas.push({ talla, cajas: Math.ceil(exacto / paresPorCaja) });
+      restante[talla] = 0;
     }
   }
   unitallas.sort((a, b) => Number(a.talla) - Number(b.talla));
@@ -393,8 +586,14 @@ function compararCorrida(
 
 
 /** "IN10160" → 10160, para comparar pedidos por número y no por texto. */
+/**
+ * El número del pedido para saber cuál es más nuevo: el PRIMER grupo de
+ * dígitos («IN10160» → 10160). Una corrida de caja de una talla se guarda
+ * como «IN10057-24» (pedido-talla, como en el sheet): con todos los dígitos
+ * pegados salía 1005724 y le ganaba a cualquier pedido posterior.
+ */
 export function numeroDePedido(pedido: string): number {
-  const n = Number(pedido.replace(/\D+/g, ""));
+  const n = Number(pedido.match(/\d+/)?.[0] ?? "");
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -427,30 +626,30 @@ export async function sugerirCompra(
 
   // La página de pedidos ya leyó estas dos tablas para el inventario:
   // volver a pedirlas duplicaba los viajes a la base en cada clic.
-  const [corridasRaw, skusRaw] = precargado
-    ? [precargado.corridas, precargado.skus]
-    : await Promise.all([
-        traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
-          q.eq("account_id", accountId),
-        ),
-        traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
-          q.eq("account_id", accountId).eq("activo", true),
-        ),
-      ]);
+  const [[corridasRaw, skusRaw], aliasColores, familias] = await Promise.all([
+    precargado
+      ? Promise.resolve([precargado.corridas, precargado.skus] as [any[], any[]])
+      : Promise.all([
+          traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
+            q.eq("account_id", accountId),
+          ),
+          traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
+            q.eq("account_id", accountId).eq("activo", true),
+          ),
+        ]),
+    // Colores del pedido ligados a mano con MELI: la receta se encuentra
+    // también bajo el color de MELI.
+    cargarAliasColores(db, accountId).catch(() => new Map() as MapaAlias),
+    // Modelos que se piden JUNTOS (GT117…GT122 = un zapato en seis colores).
+    cargarFamilias(db, accountId).catch(() => new Map() as MapaFamilias),
+  ]);
+  // Las cajas de UNA talla de los pedidos cargados: receta de respaldo para
+  // el modelo que nunca se ha pedido en corrida.
+  const unitallas = await cajasUnitallaDePedidos(db, accountId).catch(() => [] as CajaUnitalla[]);
 
-  // La corrida más reciente de cada modelo+color es la que la fábrica usa hoy.
-  const corridaDe = new Map<string, { tallas: Record<string, number>; total: number; pedido: string }>();
-  for (const c of corridasRaw) {
-    const k = clave(c.modelo ?? "", c.color ?? "");
-    const previa = corridaDe.get(k);
-    const total = c.total ?? Object.values(c.tallas ?? {}).reduce((a: number, b: any) => a + Number(b), 0);
-    if (!total) continue;
-    // Empatan por pedido: el número de pedido más alto es el más nuevo.
-    // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
-    if (!previa || numeroDePedido(String(c.pedido ?? "")) > numeroDePedido(previa.pedido)) {
-      corridaDe.set(k, { tallas: c.tallas ?? {}, total, pedido: String(c.pedido ?? "") });
-    }
-  }
+  // La corrida más reciente de cada modelo+color es la que la fábrica usa
+  // hoy, reconocible por todas sus escrituras (`clavesDeCorrida`).
+  const corridaDe = indexarCorridas(corridasRaw, aliasColores);
 
   // Cómo se descompone cada SKU. Se prefiere el catálogo directo; si no
   // está (los SKUs de AMAZON traen sufijo -MX y a veces la talla antes del
@@ -468,12 +667,7 @@ export async function sugerirCompra(
       indiceMeli.aplastado.get(claveAplastada(sku)) ??
       indiceMeli.ordenado.get(claveOrdenada(sku));
     if (i?.modelo) return { modelo: i.modelo, color: i.color ?? "", talla: i.talla ?? "" };
-    const t = sku.split("-");
-    return {
-      modelo: t[0] ?? sku,
-      color: t.length >= 3 ? t.slice(1, -1).join("-") : (t[1] ?? ""),
-      talla: t.length >= 3 ? (t[t.length - 1] ?? "") : "",
-    };
+    return partesDeSkuSuelto(sku);
   }
 
   // --- Agrupar por modelo + color -----------------------------------------
@@ -482,6 +676,7 @@ export async function sugerirCompra(
     color: string;
     skus: Set<string>;
     demandaDiaria: number;
+    tallasConRespaldo: number;
     ventaMes: number;
     ventaMesReal: number;
     ventaMesAmazon: number;
@@ -538,6 +733,7 @@ export async function sugerirCompra(
         color: color.toUpperCase(),
         skus: new Set(),
         demandaDiaria: 0,
+        tallasConRespaldo: 0,
         ventaMes: 0,
         ventaMesReal: 0,
         ventaMesAmazon: 0,
@@ -564,8 +760,11 @@ export async function sugerirCompra(
 
     const g = grupo(modelo, color);
     g.skus.add(l.sku);
-    g.demandaDiaria += l.demandaDiaria;
-    g.ventaMes += l.demandaDiaria * 30;
+    // Lo que vende con stock; sin dato, la demanda del plan de Full.
+    const demandaLinea = demandaChinaDeLinea(l);
+    if (l.demandaSurtida == null) g.tallasConRespaldo += 1;
+    g.demandaDiaria += demandaLinea;
+    g.ventaMes += demandaLinea * 30;
     // Lo REALMENTE vendido en los últimos 30 días, sin corrección ni
     // tendencia: la referencia para que el usuario verifique cuánto está
     // estirando el cálculo. El promedio de 90 días (tasa observada × 30)
@@ -577,12 +776,12 @@ export async function sugerirCompra(
     const real30 = l.unidades30 ?? (l.tasaObservada ?? l.demandaDiaria) * 30;
     g.ventaMesReal += real30;
     if (talla) {
-      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
+      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + demandaLinea);
     }
 
     const d = filaDetalle(l.sku, modelo, color, talla || "");
     d.sku = l.sku; // el nombre real de MELI gana sobre uno construido
-    d.ventaMesMeli += l.demandaDiaria * 30;
+    d.ventaMesMeli += demandaLinea * 30;
     d.ventaMesRealMeli += real30;
   }
 
@@ -697,10 +896,14 @@ export async function sugerirCompra(
     const objetivo = demanda * horizonte;
     const faltante = Math.max(0, objetivo - inventarioTotal);
 
-    const c = corridaDe.get(clave(g.modelo, g.color));
+    const c = buscarCorrida(corridaDe, g.modelo, g.color);
     // La fábrica solo arma cajas de 12/24/36/48: el total histórico se lleva
     // al tamaño real más cercano (la corrida interna cambia, el total no).
-    const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : null;
+    // Sin receta de este color, la caja del modelo en otro color o la
+    // estándar de la fábrica (`cajaDeRespaldo`): la proforma no hace falta
+    // para decir cuántas cajas son.
+    const respaldo = c ? null : cajaDeRespaldo(corridasRaw, g.modelo, unitallas);
+    const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : (respaldo?.paresPorCaja ?? null);
 
     // El faltante por talla, exacto: demanda del horizonte menos el stock
     // completo de esa talla.
@@ -757,7 +960,7 @@ export async function sugerirCompra(
     } else if (totalFaltanteTallas <= 0) {
       motivo = `Con ${Math.round(inventarioTotal)} pares aguanta ${Math.round(cobertura ?? 0)} días; el ciclo completo son ${horizonte}. No hace falta pedir.`;
     } else if (!paresPorCaja) {
-      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay ninguna receta cargada en la cuenta, así que no puedo decir cuántas cajas son.`;
     } else if (faltante <= 0) {
       const tallasCortas = Object.keys(faltantePorTalla).sort((a, b) => Number(a) - Number(b));
       motivo = `En total parece alcanzar, pero por talla no: faltan ${Math.round(totalFaltanteTallas)} pares en ${tallasCortas.join(", ")} (el sobrante de otras tallas no las tapa).`;
@@ -767,6 +970,18 @@ export async function sugerirCompra(
         llegada < 0
           ? `Si pides hoy, llega ${Math.abs(llegada)} días DESPUÉS de quedarte sin producto.`
           : `Aguanta ${Math.round(cobertura ?? 0)} días y el pedido tarda ${ciclo}. Te quedan ${llegada} días de margen.`;
+    }
+    if (respaldo && paresPorCaja) {
+      motivo += ` No hay receta de este color: se supone la caja de ${paresPorCaja} pares ${
+        respaldo.origen === "modelo"
+          ? "del mismo modelo en otro color"
+          : respaldo.origen === "unitalla"
+            ? "de una sola talla con que se ha pedido este modelo"
+            : "estándar de tus pedidos"
+      } y la corrida va propuesta por venta.`;
+    }
+    if (g.tallasConRespaldo > 0 && g.skus.size > 0) {
+      motivo += ` ${g.tallasConRespaldo} de ${g.skus.size} tallas no llevan 14 días surtidas en la ventana: usan la demanda del plan de Full.`;
     }
     if (cajasSugeridas > 0) {
       motivo +=
@@ -778,8 +993,10 @@ export async function sugerirCompra(
     renglones.push({
       modelo: g.modelo,
       color: g.color,
+      familia: familiaDe(familias, g.modelo),
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
+      tallasConRespaldo: g.tallasConRespaldo,
       ventaMes: Math.round(g.ventaMes),
       ventaMesReal: Math.round(g.ventaMesReal),
       ventaMesAmazon: Math.round(g.ventaMesAmazon),
@@ -799,7 +1016,8 @@ export async function sugerirCompra(
       paresPorCaja,
       cajasSugeridas,
       paresSugeridos: cajasSugeridas * (paresPorCaja ?? 0),
-      tieneCorrida: Boolean(paresPorCaja),
+      tieneCorrida: Boolean(c),
+      cajaSupuesta: respaldo?.origen ?? null,
       corridaPedido: c?.pedido ?? null,
       urgencia,
       regimen,
@@ -850,7 +1068,8 @@ export async function sugerirCompra(
       cajas: aPedir.reduce((a, r) => a + r.cajasSugeridas, 0),
       pares: aPedir.reduce((a, r) => a + r.paresSugeridos, 0),
       enQuiebre: renglones.filter((r) => r.urgencia === "quiebre" || r.urgencia === "urgente").length,
-      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.tieneCorrida).length,
+      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.paresPorCaja).length,
+      conCajaSupuesta: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && r.cajaSupuesta).length,
     },
   };
 }

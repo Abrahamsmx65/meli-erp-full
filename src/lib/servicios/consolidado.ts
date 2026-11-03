@@ -137,7 +137,7 @@ export interface Consolidado {
    * pantalla lo sirvió como bueno. Al subir el número, lo que escribió un
    * build que no conoce estas reglas se descarta y se vuelve a calcular.
    */
-  versionContable: 7;
+  versionContable: 10;
   periodo: string;
   desde: string;
   hasta: string;
@@ -191,6 +191,52 @@ const p = (cent: number): number => Math.round(cent) / 100;
  * Los gastos empresariales son una capa liviana sobre el consolidado pesado:
  * permite combinarlos al leer la caché sin recalcular los tres canales.
  */
+/** Un monto repartido entre unidades vendidas; sin unidades no hay reparto (null, nunca cero). */
+export function porUnidad(monto: number, unidades: number): number | null {
+  return unidades > 0 ? Math.round((monto / unidades) * 100) / 100 : null;
+}
+
+/** Las unidades de los canales que SÍ se calculan: el denominador de los repartos del total. */
+export function unidadesCalculables(cns: Pick<Consolidado, "canales">): number {
+  return cns.canales.filter((k) => k.calculable !== false).reduce((s, k) => s + k.unidades, 0);
+}
+
+/** La publicidad del total que sí quedó amarrada a un modelo (la general ya va en gastos generales). */
+export function adsPorModeloTotal(cns: Pick<Consolidado, "canales" | "total">): number {
+  return Math.round((cns.total.publicidad - cns.canales.reduce((a, k) => a + k.adsGenerales, 0)) * 100) / 100;
+}
+
+/**
+ * Los repartos por unidad del corte: publicidad por modelo, gastos generales
+ * y los dos juntos, por canal y en el total (pedido del dueño, 7-oct-2026:
+ * «aquí no se divide el total de publicidad y gastos generales entre
+ * unidades»). Se calculan al enseñar, a partir de lo ya guardado: un corte
+ * masticado antes de este cambio los trae igual.
+ */
+export function repartosPorUnidad(cns: Pick<Consolidado, "canales" | "total">): {
+  canal: Record<Canal, { publicidad: number | null; general: number | null; ambos: number | null }>;
+  total: { publicidad: number | null; general: number | null; ambos: number | null };
+} {
+  const canal = {} as Record<Canal, { publicidad: number | null; general: number | null; ambos: number | null }>;
+  for (const k of cns.canales) {
+    canal[k.canal] = {
+      publicidad: porUnidad(k.adsPorModelo, k.unidades),
+      general: porUnidad(k.gastosGenerales, k.unidades),
+      ambos: porUnidad(k.adsPorModelo + k.gastosGenerales, k.unidades),
+    };
+  }
+  const u = unidadesCalculables(cns);
+  const ads = adsPorModeloTotal(cns);
+  return {
+    canal,
+    total: {
+      publicidad: porUnidad(ads, u),
+      general: porUnidad(cns.total.gastosGenerales, u),
+      ambos: porUnidad(ads + cns.total.gastosGenerales, u),
+    },
+  };
+}
+
 export function aplicarGastosEmpresariales(consolidado: Consolidado, gastos: GastoEmpresarial[]): Consolidado {
   const totalGastos = gastos.reduce((s, g) => s + c(g.monto), 0);
   const utilidadAntes = c(consolidado.total.utilidadAntesGastosEmpresariales ?? consolidado.total.utilidadNeta);
@@ -506,7 +552,7 @@ export function armarConsolidado(entrada: {
 
   const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto) && canalesSinCalcular.length === 0;
   return aplicarGastosEmpresariales({
-    versionContable: 7,
+    versionContable: 10,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,

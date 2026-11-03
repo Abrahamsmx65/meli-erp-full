@@ -1,4 +1,5 @@
 import { Ficha } from "@/components/tiles";
+import { Ayuda, Cifras } from "@/components/ui/pagina";
 import type { Comparada, ComparacionMensual } from "@/lib/servicios/consolidado-comparar";
 
 function n(x: number): string {
@@ -14,7 +15,7 @@ function cambioTexto(c: Comparada): string {
 }
 function colorCambio(c: Comparada): string {
   if (c.cambio == null || Math.abs(c.cambio) < 0.0005) return "var(--ink-muted)";
-  return c.cambio > 0 ? "var(--exito-texto)" : "var(--estado-critico)";
+  return c.cambio > 0 ? "var(--exito-texto)" : "var(--critico-texto)";
 }
 function tono(c: Comparada): "bien" | "critico" | "neutro" {
   if (c.cambio == null || Math.abs(c.cambio) < 0.0005) return "neutro";
@@ -25,7 +26,7 @@ function Celda({ c, formato }: { c: Comparada; formato: (x: number) => string })
   return (
     <>
       <td className="num cifra">{formato(c.actual)}</td>
-      <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{formato(c.anterior)}</td>
+      <td className="num cifra texto-tenue">{formato(c.anterior)}</td>
       <td className="num cifra font-semibold" style={{ color: colorCambio(c) }}>{cambioTexto(c)}</td>
     </>
   );
@@ -41,21 +42,28 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
   const columnaAnterior = comp.base === "mismos-dias" ? `${nombreAnterior} 1–${comp.hastaAnterior}` : nombreAnterior;
   return (
     <section className="tarjeta overflow-hidden">
-      <header className="border-b p-4 hairline">
-        <h2 className="text-base font-semibold">
+      <header className="seccion-cabeza">
+        <div className="min-w-0">
+        <h2 className="seccion-titulo">
           Contra {nombreAnterior}
           {comp.base === "mismos-dias" ? ` · del 1 al ${comp.hastaAnterior}` : ""}
         </h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          {comp.base === "mismos-dias"
-            ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
-            : comp.enCurso
-              ? `${nombreActual} va en curso y los mismos días de ${nombreAnterior} todavía se están calculando por atrás (unos minutos): mientras, la comparación justa es el ritmo por día.`
-              : `Mes completo contra mes completo.`}{" "}
-          La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.
-        </p>
+      </div>
       </header>
-      <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
+      <div className="px-4 pt-3">
+        <Ayuda titulo="¿Contra qué se compara?">
+          <p>
+            {comp.base === "mismos-dias"
+              ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
+              : comp.enCurso
+                ? `${nombreActual} va en curso y los mismos días de ${nombreAnterior} todavía se están calculando por atrás (unos minutos): mientras, la comparación justa es el ritmo por día.`
+                : `Mes completo contra mes completo.`}{" "}
+            La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.
+          </p>
+        </Ayuda>
+      </div>
+      <div className="p-4">
+        <Cifras columnas={4}>
         {comp.ritmo ? (
           <>
             <Ficha titulo="Unidades por día" valor={n(comp.ritmo.unidades.actual)} nota={`${cambioTexto(comp.ritmo.unidades)} · antes ${n(comp.ritmo.unidades.anterior)} al día`} tono={tono(comp.ritmo.unidades)} />
@@ -64,8 +72,9 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
         ) : null}
         <Ficha titulo={comp.ritmo ? "Unidades en el mes (hasta hoy)" : "Unidades"} valor={n(total.unidades.actual)} nota={`${cambioTexto(total.unidades)} · ${n(total.unidades.diferencia)} vs ${n(total.unidades.anterior)}`} tono={comp.ritmo ? "neutro" : tono(total.unidades)} />
         <Ficha titulo={comp.ritmo ? "Utilidad neta (hasta hoy)" : "Utilidad neta final"} valor={pesos(comp.utilidadNeta.actual)} nota={`${cambioTexto(comp.utilidadNeta)} · antes ${pesos(comp.utilidadNeta.anterior)}`} tono={comp.ritmo ? "neutro" : tono(comp.utilidadNeta)} />
+        </Cifras>
       </div>
-      <div className="overflow-x-auto">
+      <div className="tabla-caja">
         <table className="datos">
           <thead>
             <tr>

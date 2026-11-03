@@ -8,6 +8,8 @@ import type {
   ItemListado,
   ResultadoUnificacion,
 } from "@/lib/servicios/listados";
+import { Aviso } from "@/components/ui/pagina";
+import { confirmar } from "@/components/ui/confirmar";
 
 /**
  * Buscador de agrupadores + comparador de atributos + unificación.
@@ -29,7 +31,7 @@ function ChipEstado({ estado }: { estado: string | null }) {
   const e = (estado && ESTADOS[estado]) || { texto: estado ?? "—", color: "var(--ink-muted)" };
   return (
     <span
-      className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+      className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
       style={{ background: "color-mix(in oklab, currentColor 12%, transparent)", color: e.color }}
     >
       {e.texto}
@@ -79,9 +81,11 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
     const valor = libre || eleccion[k] || "";
     if (!valor || valor === SIN_DATO) return;
 
-    const seguro = confirm(
-      `Se va a poner "${d.nombre}" = "${valor}" en las ${grupo.items.length} publicaciones del agrupador ${grupo.agrupador}. Esto escribe directo en Mercado Libre. ¿Continuar?`,
-    );
+    const seguro = await confirmar({
+      titulo: `¿Poner "${d.nombre}" = "${valor}"?`,
+      mensaje: `Se va a poner en las ${grupo.items.length} publicaciones del agrupador ${grupo.agrupador}. Esto escribe directo en Mercado Libre.`,
+      confirmar: "Escribir en MELI",
+    });
     if (!seguro) return;
 
     setAplicando(k);
@@ -99,6 +103,46 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
       if (!r.ok && !j?.resultados) throw new Error(j?.error ?? "No se pudo unificar.");
       setResultados((prev) => ({ ...prev, [k]: j.resultados as ResultadoUnificacion[] }));
       // Releer para que la pantalla muestre la foto nueva de MELI.
+      await buscar(grupo.agrupador);
+    } catch (err) {
+      setResultados((prev) => ({
+        ...prev,
+        [k]: [{ itemId: "—", estado: "error", niveles: [], detalle: (err as Error).message }],
+      }));
+    } finally {
+      setAplicando(null);
+    }
+  };
+
+  // RENOMBRAR un valor (un color): solo en las publicaciones que hoy lo traen.
+  const [renombrar, setRenombrar] = useState<{ clave: string; desde: string; nuevo: string } | null>(null);
+
+  const aplicarRenombre = async (d: Diferencia, desde: string, donde: string[]) => {
+    if (!grupo || !renombrar) return;
+    const nuevo = renombrar.nuevo.trim();
+    if (!nuevo || nuevo === desde) return;
+    const itemIds = [...new Set(donde.map((x) => x.match(/^ML[A-Z]\d+/)?.[0]).filter((x): x is string => !!x))];
+    if (!itemIds.length) return;
+    const k = `${claveDif(d)}|${desde}`;
+
+    const seguro = await confirmar({
+      titulo: `¿Cambiar "${d.nombre}" de "${desde}" a "${nuevo}"?`,
+      mensaje: `Solo en lo que hoy dice "${desde}" (${itemIds.length} publicación${itemIds.length === 1 ? "" : "es"}). Esto escribe directo en Mercado Libre.`,
+      confirmar: "Escribir en MELI",
+    });
+    if (!seguro) return;
+
+    setAplicando(k);
+    try {
+      const r = await fetch("/api/listados/atributo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ atributoId: d.atributoId, valor: nuevo, desde, itemIds }),
+      });
+      const j = await r.json();
+      if (!r.ok && !j?.resultados) throw new Error(j?.error ?? "No se pudo renombrar.");
+      setResultados((prev) => ({ ...prev, [k]: j.resultados as ResultadoUnificacion[] }));
+      setRenombrar(null);
       await buscar(grupo.agrupador);
     } catch (err) {
       setResultados((prev) => ({
@@ -139,8 +183,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           <button
             type="submit"
             disabled={cargando || !busqueda.trim()}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
           >
             {cargando ? "Leyendo MELI…" : "Buscar"}
           </button>
@@ -153,16 +196,16 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           </datalist>
         </form>
         {error ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+          <Aviso tono="critico" className="mt-3">
             {error}
-          </p>
+          </Aviso>
         ) : null}
       </section>
 
       {grupo ? (
         <>
-          <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: "var(--ink-2)" }}>
-            <span className="text-base font-semibold" style={{ color: "var(--ink-1)" }}>
+          <div className="flex flex-wrap items-center gap-3 text-sm texto-2">
+            <span className="seccion-titulo">
               {grupo.agrupador}
             </span>
             <span>
@@ -177,20 +220,15 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           </div>
 
           {raras.length === 0 ? (
-            <section className="tarjeta p-4 text-sm" style={{ color: "var(--exito-texto)" }}>
-              Sin diferencias raras: fuera de talla, color y códigos, todas las publicaciones
-              del agrupador traen los mismos atributos.
-            </section>
+            <Aviso tono="bien">
+              Sin diferencias.
+            </Aviso>
           ) : (
             <section className="tarjeta overflow-hidden">
-              <header className="border-b p-4 hairline">
-                <h2 className="text-sm font-semibold">
+              <header className="border-b px-4 py-3.5 hairline">
+                <h2 className="seccion-titulo">
                   Diferencias que parten el selector ({raras.length})
                 </h2>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-                  Elige el valor correcto y unifícalo: se escribe en todas las publicaciones
-                  del agrupador, en el nivel donde viva el atributo (publicación o variante).
-                </p>
               </header>
 
               <div className="flex flex-col divide-y" style={{ borderColor: "var(--borde)" }}>
@@ -202,7 +240,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold">{d.nombre}</span>
                         <span
-                          className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                          className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase"
                           style={{
                             background: "var(--acento-suave)",
                             color: "var(--acento)",
@@ -212,7 +250,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                         </span>
                         {d.esMaterial ? (
                           <span
-                            className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                            className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase"
                             style={{
                               background: "color-mix(in oklab, var(--ambar) 20%, transparent)",
                               color: "var(--ink-1)",
@@ -221,7 +259,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             material
                           </span>
                         ) : null}
-                        <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <span className="cifra text-xs texto-tenue">
                           {d.atributoId}
                         </span>
                       </div>
@@ -246,12 +284,12 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             <span className={v.valor === SIN_DATO ? "italic" : ""}>
                               {v.valor}
                             </span>
-                            <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                            <span className="cifra text-xs texto-tenue">
                               ×{v.veces}
                             </span>
                             <span
-                              className="min-w-0 flex-1 truncate text-xs"
-                              style={{ color: "var(--ink-muted)" }}
+                              className="min-w-0 flex-1 truncate text-xs texto-tenue"
+                             
                             >
                               {v.donde.join(", ")}
                             </span>
@@ -264,7 +302,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             checked={!!(otro[k] ?? "").trim()}
                             onChange={() => setEleccion((p) => ({ ...p, [k]: "" }))}
                           />
-                          <span style={{ color: "var(--ink-2)" }}>Otro valor:</span>
+                          <span className="texto-2">Otro valor:</span>
                           <input
                             type="text"
                             value={otro[k] ?? ""}
@@ -284,8 +322,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             cargando ||
                             !((otro[k] ?? "").trim() || (eleccion[k] && eleccion[k] !== SIN_DATO))
                           }
-                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-                          style={{ background: "var(--acento)" }}
+                          className="boton boton-primario boton-chico"
                         >
                           {aplicando === k
                             ? "Escribiendo en MELI…"
@@ -300,10 +337,10 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                               <span className="cifra">{r.itemId}</span>
                               {r.estado === "actualizado" ? (
                                 <span style={{ color: "var(--exito-texto)" }}>
-                                  ✓ actualizado ({r.niveles.join(" y ")})
+                                  ✓ actualizado ({r.niveles.join(" y ").replace("user_product", "user product")})
                                 </span>
                               ) : r.estado === "sin_cambio" ? (
-                                <span style={{ color: "var(--ink-muted)" }}>ya estaba bien</span>
+                                <span className="texto-tenue">ya estaba bien</span>
                               ) : (
                                 <span style={{ color: "var(--estado-critico)" }}>
                                   ✗ {r.detalle ?? "error"}
@@ -323,8 +360,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           {medidas.length ? (
             <details className="tarjeta p-4">
               <summary className="cursor-pointer text-sm font-semibold">
-                Medidas del paquete ({medidas.length}): MELI las mide por publicación, no
-                parten el selector
+                Medidas del paquete ({medidas.length})
               </summary>
               <ListaValores diferencias={medidas} />
             </details>
@@ -333,9 +369,88 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           {esperadas.length ? (
             <details className="tarjeta p-4">
               <summary className="cursor-pointer text-sm font-semibold">
-                Diferencias esperadas ({esperadas.length}): talla, color, códigos
+                Diferencias esperadas ({esperadas.length})
               </summary>
-              <ListaValores diferencias={esperadas} />
+              <div className="mt-3 flex flex-col gap-3 text-sm">
+                {esperadas.map((d) => {
+                  const kd = claveDif(d);
+                  const sePuede = /COLOR/.test(d.atributoId);
+                  return (
+                    <div key={kd} className="flex flex-col gap-1.5">
+                      <span className="font-medium">{d.nombre}:</span>
+                      {d.valores.map((v) => {
+                        const k = `${kd}|${v.valor}`;
+                        const abierto = renombrar?.clave === kd && renombrar.desde === v.valor;
+                        const res = resultados[k];
+                        return (
+                          <div key={v.valor} className="flex flex-col gap-1 pl-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className="rounded-full border px-2 py-0.5 text-xs"
+                                style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                                title={v.donde.join("\n")}
+                              >
+                                {v.valor} <span className="cifra">×{v.veces}</span>
+                              </span>
+                              {sePuede && v.valor !== SIN_DATO && !abierto ? (
+                                <button
+                                  className="boton boton-chico"
+                                  disabled={aplicando !== null || cargando}
+                                  onClick={() => setRenombrar({ clave: kd, desde: v.valor, nuevo: v.valor })}
+                                >
+                                  Renombrar
+                                </button>
+                              ) : null}
+                              {abierto ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={renombrar.nuevo}
+                                    onChange={(e) => setRenombrar({ ...renombrar, nuevo: e.target.value })}
+                                    className="min-w-[12rem] rounded-lg border px-2 py-1 text-sm"
+                                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                                  />
+                                  <button
+                                    className="boton boton-primario boton-chico"
+                                    disabled={
+                                      aplicando !== null ||
+                                      !renombrar.nuevo.trim() ||
+                                      renombrar.nuevo.trim() === v.valor
+                                    }
+                                    onClick={() => void aplicarRenombre(d, v.valor, v.donde)}
+                                  >
+                                    {aplicando === k ? "Escribiendo en MELI…" : "Cambiar en MELI"}
+                                  </button>
+                                  <button className="boton boton-chico" onClick={() => setRenombrar(null)}>
+                                    Cancelar
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                            {res ? (
+                              <ul className="flex flex-col gap-0.5 text-xs">
+                                {res.map((r, i) => (
+                                  <li key={`${r.itemId}-${i}`} className="flex items-baseline gap-2">
+                                    <span className="cifra">{r.itemId}</span>
+                                    {r.estado === "actualizado" ? (
+                                      <span style={{ color: "var(--exito-texto)" }}>✓ actualizado</span>
+                                    ) : r.estado === "sin_cambio" ? (
+                                      <span className="texto-tenue">ya estaba bien</span>
+                                    ) : (
+                                      <span style={{ color: "var(--estado-critico)" }}>✗ {r.detalle ?? "error"}</span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </details>
           ) : null}
 
@@ -407,7 +522,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
           </span>
         ) : null}
         <ChipEstado estado={item.estado} />
-        <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="cifra text-xs texto-tenue">
           {item.itemId}
         </span>
         {item.precio != null ? (
@@ -429,7 +544,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
                 style={{ borderColor: "var(--borde)", ...(difiere ? resalte : {}) }}
                 title={difiere ? "Distinto al valor mayoritario del agrupador" : undefined}
               >
-                <span style={{ color: "var(--ink-2)" }}>{d.nombre}:</span>{" "}
+                <span className="texto-2">{d.nombre}:</span>{" "}
                 <span className={propio === SIN_DATO ? "italic" : "font-medium"}>{propio}</span>
               </span>
             );
@@ -457,7 +572,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
                 <tr key={v.variationId}>
                   <td className="cifra font-medium">{v.talla ?? "—"}</td>
                   <td className="cifra text-xs">{v.sku ?? "—"}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                  <td className="text-xs texto-2">
                     {v.combinacion || "—"}
                   </td>
                   <td className="num cifra">{v.stock ?? "—"}</td>
@@ -483,7 +598,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
           </table>
         </div>
       ) : (
-        <p className="p-4 text-sm" style={{ color: "var(--ink-muted)" }}>
+        <p className="p-4 text-sm texto-tenue">
           Publicación sin variantes.
         </p>
       )}

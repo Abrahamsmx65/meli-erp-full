@@ -5,7 +5,8 @@ import { obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla"
 import { Ficha } from "@/components/tiles";
 import { BotonSheets } from "@/components/yapanizcel/acciones";
 import { TablaInventarioYz, type RenglonInv } from "@/components/yapanizcel/tabla-inventario";
-import { Encabezado, Frescura, SinCuenta, n } from "@/components/yapanizcel/comunes";
+import { n } from "@/components/yapanizcel/comunes";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export const maxDuration = 120;
 export default async function InventarioYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Existencias de fundas" />;
 
   // La pantalla vive masticada en yz_cache; solo la ficha del sheet se lee
   // fresca (es un renglón y cambia con cada lectura del sheet).
@@ -28,36 +29,45 @@ export default async function InventarioYz() {
   const ultima = sync.data;
 
   return (
-    <div className="flex flex-col gap-6">
-      <Encabezado titulo="Bodega · YAPANIZCEL" texto="Lo que dice el sheet de inventario, amarrado a cada SKU de Mercado Libre, junto con lo que hay en Full y lo que viene en camino.">
-        <div className="text-right text-xs" style={{ color: "var(--ink-muted)" }}>
-          {ultima ? `Sheet leído ${new Date(ultima.corrido_en).toLocaleString("es-MX")} · ${ultima.hojas} pestañas · ${n(ultima.renglones)} SKUs` : "El sheet todavía no se ha leído."}
-        </div>
-      </Encabezado>
+    <Pagina>
+      <Encabezado
+        ceja="Fundas"
+        titulo="Existencias de fundas"
+        descripcion="El sheet de inventario amarrado a cada SKU de Mercado Libre, con lo que hay en Full y en camino."
+        frescura={pantalla.generadoEn}
+        ayuda={
+          <p>
+            Una pestaña por diseño. Se lee a diario en el cron y cuando lo pides aquí; cada lectura reemplaza la bodega
+            completa. Solo cuentan las pestañas cuyo nombre empieza con número (el diseño).
+          </p>
+        }
+      />
 
-      <div className="tarjeta p-4">
+      <Seccion
+        titulo="Sheet de inventario"
+        descripcion={ultima ? `Leído ${new Date(ultima.corrido_en).toLocaleString("es-MX")} · ${ultima.hojas} pestañas · ${n(ultima.renglones)} SKUs` : "El sheet todavía no se ha leído."}
+      >
         <BotonSheets configurado={Boolean(configuracionSheets())} />
-      </div>
-      <Frescura generadoEn={pantalla.generadoEn} />
+      </Seccion>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="Unidades en bodega (amarradas)" valor={n(totalBodega)} nota={`${inv.porSkuMeli.size} SKUs de MELI`} />
         <Ficha titulo="Sin amarrar" valor={n(inv.sinAmarrar.unidades)} nota={`${inv.sinAmarrar.renglones} SKUs de bodega`} tono={inv.sinAmarrar.renglones ? "alerta" : "bien"} />
         <Ficha titulo="Con sugerencia" valor={inv.sugeridos} nota="Confirmar en SKUs" tono={inv.sugeridos ? "alerta" : "neutro"} />
         <Ficha titulo="En Full" valor={n(renglones.reduce((a, r) => a + r.enFull, 0))} nota={`${n(renglones.reduce((a, r) => a + r.enTransferencia, 0))} en transferencia`} />
-      </div>
+      </Cifras>
 
       {inv.sinAmarrar.renglones ? (
-        <p className="text-sm">
+        <Aviso tono="alerta">
           Hay {inv.sinAmarrar.renglones} SKUs de bodega ({n(inv.sinAmarrar.unidades)} unidades) que el sistema no supo a qué publicación corresponden.{" "}
-          <Link href="/yapanizcel/skus" className="underline" style={{ color: "var(--acento)" }}>
+          <Link href="/yapanizcel/skus" className="enlace">
             Resolverlos en SKUs
           </Link>
           .
-        </p>
+        </Aviso>
       ) : null}
 
       <TablaInventarioYz renglones={renglones} />
-    </div>
+    </Pagina>
   );
 }

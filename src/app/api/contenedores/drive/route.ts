@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 }
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /**
  * Botón "Traer de Drive ahora": la misma sincronización del cron, a mano.
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   const forzar = req.nextUrl.searchParams.get("forzar") === "1";
   try {
-    const r = await sincronizarPackingListsDrive(clienteAdmin(), cuenta.id, { finMs: Date.now() + 100_000, forzar });
+    const r = await sincronizarPackingListsDrive(clienteAdmin(), cuenta.id, { finMs: Date.now() + 270_000, forzar });
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

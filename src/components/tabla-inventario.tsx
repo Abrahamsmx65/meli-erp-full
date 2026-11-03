@@ -89,12 +89,15 @@ export function TablaInventario({
   return (
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-col gap-3 border-b p-4 hairline">
+        <div>
+          <h2 className="seccion-titulo">Por SKU</h2>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por SKU, modelo, color o número de pedido…"
+            placeholder="Buscar SKU, modelo, color o número de pedido…"
             className="min-w-[18rem] flex-1"
             aria-label="Buscar en el inventario"
           />
@@ -130,7 +133,7 @@ export function TablaInventario({
           </BotonDescarga>
         </div>
 
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           <strong className="cifra">{filtrados.length}</strong> SKUs · bodega{" "}
           <span className="cifra">{n(totales.enBodega)}</span> · en camino de China{" "}
           <span className="cifra">{n(totales.enCamino)}</span>
@@ -163,23 +166,22 @@ export function TablaInventario({
                     <td className="text-sm">{r.color}</td>
                     <td className="num cifra text-sm">{r.talla}</td>
                     <td className="num cifra">{r.enBodega ? n(r.enBodega) : "—"}</td>
-                    <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                    <td className="num cifra texto-2">
                       {r.enCamino ? n(r.enCamino) : "—"}
                     </td>
                     <td className="num cifra font-semibold">{n(r.enBodega + r.enCamino)}</td>
                     <td className="text-xs">
                       {r.pedidos.length === 0 ? (
-                        <span style={{ color: "var(--ink-muted)" }}>—</span>
+                        <span className="texto-tenue">—</span>
                       ) : r.pedidos.length === 1 ? (
-                        <span style={{ color: "var(--ink-2)" }}>
+                        <span className="texto-2">
                           {r.pedidos[0].pedido} · {r.pedidos[0].almacen}
                         </span>
                       ) : (
                         <button
                           onClick={() => setExpandido(abierto ? null : r.sku)}
                           aria-expanded={abierto}
-                          className="underline"
-                          style={{ color: "var(--acento)" }}
+                          className="enlace"
                         >
                           {r.pedidos.length} pedidos {abierto ? "▴" : "▾"}
                         </button>
@@ -190,10 +192,10 @@ export function TablaInventario({
                   {abierto
                     ? r.pedidos.map((p) => (
                         <tr key={`${r.sku}-${p.pedido}-${p.almacen}`}>
-                          <td colSpan={3} className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td colSpan={3} className="pl-8 text-xs texto-2">
                             Pedido <strong>{p.pedido}</strong> · {p.almacen}
                           </td>
-                          <td colSpan={3} className="text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td colSpan={3} className="text-xs texto-2">
                             {n(p.cajas)} cajas
                           </td>
                           <td className="num cifra text-xs">{n(p.pares)} pares</td>
@@ -208,7 +210,7 @@ export function TablaInventario({
       </div>
 
       {filtrados.length > 500 ? (
-        <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+        <footer className="border-t p-3 text-xs hairline texto-tenue">
           Se muestran los primeros 500 de {filtrados.length}. Afina la búsqueda para ver el resto;
           el Excel de esta vista los trae todos.
         </footer>

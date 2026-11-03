@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  numeroDeTalla,
+  unificarTallas,
   agruparProductosAmazon,
   agruparPublicacionesMeli,
   agruparVariantesMeli,
   armarCuerpoProducto,
+  armarSkusParaAgregar,
+  variantesDelProducto,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
   elegirImagenesPrincipales,
@@ -60,6 +64,7 @@ describe("nombreColorEspanol", () => {
     expect(nombreColorEspanol("NAVY / RED").nombre).toBe("Azul marino / Rojo");
     expect(nombreColorEspanol("BLK-RED").nombre).toBe("Negro / Rojo");
     expect(nombreColorEspanol("BLK / BLK").nombre).toBe("Negro");
+    expect(nombreColorEspanol("BLK GREY").nombre).toBe("Negro / Gris");
   });
   it("lo desconocido se queda tal cual y lo avisa", () => {
     expect(nombreColorEspanol("ZANAHORIA X")).toEqual({ nombre: "Zanahoria x", traducido: false });
@@ -158,6 +163,108 @@ describe("agruparProductosAmazon", () => {
     // Un borrador en TikTok también cuenta: publicarlo otra vez lo duplica.
     expect(p[1].coloresPorPublicar).toEqual([]);
     expect(p[1].coloresActivosPorPublicar).toEqual([]);
+  });
+
+  it("sabe a qué producto ACTIVO de TikTok agregarle los colores que faltan, y a qué precio", () => {
+    const p = agruparProductosAmazon(filas, {
+      enTikTok: [
+        { sellerSku: "GT134-BLK-24-MX", skuInterno: "GT134-BLK-24-MX", productId: "P1", estado: "ACTIVATE", precio: 399 },
+        { sellerSku: "GT134-BLK-25-MX", skuInterno: "GT134-BLK-25-MX", productId: "P1", estado: "ACTIVATE", precio: 399 },
+        { sellerSku: "GT134-BLK-26-MX", skuInterno: null, productId: "P9", estado: "ACTIVATE", precio: 450 },
+        { sellerSku: "GT150-GREY-23-MX", skuInterno: null, productId: "P4", estado: "DRAFT" },
+      ],
+    });
+    expect(p[0].productoTikTok).toBe("P1");
+    expect(p[0].precioTikTok).toBe(399);
+    expect(p[0].coloresPorPublicar).toEqual(["RED"]);
+    // Un borrador no es un producto al que se le pueda agregar nada.
+    expect(p[1].productoTikTok).toBeNull();
+    expect(p[1].precioTikTok).toBeNull();
+  });
+});
+
+describe("armarSkusParaAgregar", () => {
+  const plantilla = plantillaDesdeProducto(productoCrudo);
+  const datos = {
+    precio: 399,
+    moneda: "MXN",
+    warehouseId: "W1",
+    colores: [
+      { color: "BLK", imagenUri: "u-blk", tallas: [{ talla: "24", sellerSku: "GT134-BLK-24-MX", cantidad: 3 }] },
+      { color: "RED", imagenUri: "u-red", tallas: [{ talla: "26", sellerSku: "GT134-RED-26-MX", cantidad: 1 }, { talla: "27", sellerSku: "GT134-RED-27-MX", cantidad: 0 }] },
+    ],
+  };
+
+  const actuales = [{ id: "S1", seller_sku: "GT134-BLK-24-MX", price: { amount: "399", currency: "MXN" } }];
+
+  it("manda la lista COMPLETA: las variantes que ya tiene con su id y luego las nuevas sin id", () => {
+    const r = armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"], skusActuales: actuales });
+    expect(r.saltados).toEqual(["BLK"]);
+    // La edición parcial BORRA toda variante que no venga en `skus` (GT125, 15-oct-2026).
+    expect(r.skus.map((s: any) => s.seller_sku)).toEqual(["GT134-BLK-24-MX", "GT134-RED-26-MX", "GT134-RED-27-MX"]);
+    expect((r.skus[0] as any).id).toBe("S1");
+    expect(r.nuevas.map((s: any) => s.seller_sku)).toEqual(["GT134-RED-26-MX", "GT134-RED-27-MX"]);
+    const s = r.nuevas[0] as any;
+    expect(s.id).toBeUndefined();
+    expect(s.sales_attributes[0]).toMatchObject({ id: plantilla.atributoColor!.id, value_name: "Rojo", sku_img: { uri: "u-red" } });
+    expect(s.sales_attributes[1]).toMatchObject({ id: plantilla.atributoTalla!.id, value_name: "26" });
+    expect(s.price).toEqual({ amount: "399.00", currency: "MXN" });
+    expect(s.inventory).toEqual([{ warehouse_id: "W1", quantity: 1 }]);
+  });
+
+  it("sin nada nuevo o pasando de 100 variantes, lanza", () => {
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: [], coloresNombre: ["Negro", "Rojo"], skusActuales: [] })).toThrow(/ya tiene/);
+    const muchos = Array.from({ length: 99 }, (_, i) => `X-${i}`);
+    const muchosActuales = muchos.map((m) => ({ id: m, seller_sku: m }));
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: muchos, coloresNombre: [], skusActuales: muchosActuales })).toThrow(/100 variantes/);
+  });
+
+  it("si no se leyeron completas las variantes actuales, no manda nada: mandar menos las borraría", () => {
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"], skusActuales: [] })).toThrow(/no se agrega nada/);
+  });
+
+  it("lee del producto crudo sus seller_sku, sus colores y sus fotos principales", () => {
+    const v = variantesDelProducto({
+      main_images: [{ uri: "m1" }, { uri: "m2" }],
+      skus: [
+        { seller_sku: "GT134-BLK-24-MX", sales_attributes: [{ name: "Color", value_name: "Negro" }, { name: "Talla", value_name: "24" }] },
+        { seller_sku: "GT134-BLK-25-MX", sales_attributes: [{ name: "Color", value_name: "Negro" }, { name: "Talla", value_name: "25" }] },
+      ],
+    });
+    expect(v.sellerSkus).toEqual(["GT134-BLK-24-MX", "GT134-BLK-25-MX"]);
+    expect(v.coloresNombre).toEqual(["Negro"]);
+    expect(v.mainImages).toEqual(["m1", "m2"]);
+    // sin id no hay variante actual que devolver
+    expect(v.skusActuales).toEqual([]);
+  });
+
+  it("devuelve las variantes actuales en la forma de la edición parcial (id, seller_sku, precio, atributos con foto, inventario)", () => {
+    const v = variantesDelProducto({
+      skus: [
+        {
+          id: "S1",
+          seller_sku: "GT134-BLK-24-MX",
+          price: { currency: "MXN", sale_price: "300.00", tax_exclusive_price: "258.62" },
+          inventory: [{ warehouse_id: "W1", quantity: 7 }],
+          sales_attributes: [
+            { id: "100000", name: "Color", value_id: "7001", value_name: "Negro", sku_img: { uri: "img-blk", urls: ["https://x"] } },
+            { id: "100007", name: "Talla", value_name: "24" },
+          ],
+        },
+      ],
+    });
+    expect(v.skusActuales).toEqual([
+      {
+        id: "S1",
+        seller_sku: "GT134-BLK-24-MX",
+        price: { amount: "300.00", currency: "MXN" },
+        sales_attributes: [
+          { id: "100000", name: "Color", value_id: "7001", value_name: "Negro", sku_img: { uri: "img-blk" } },
+          { id: "100007", name: "Talla", value_name: "24" },
+        ],
+        inventory: [{ warehouse_id: "W1", quantity: 7 }],
+      },
+    ]);
   });
 });
 
@@ -349,5 +456,78 @@ describe("publicaciones de MELI con varios modelos", () => {
     ) as any;
     expect(cuerpo.skus[0].sales_attributes[0].value_name).toBe("GT117 Café");
     expect(cuerpo.save_mode).toBe("AS_DRAFT");
+  });
+});
+
+describe("numeroDeTalla", () => {
+  it("lee la talla como la escribe TikTok", () => {
+    expect(numeroDeTalla("23")).toBe("23");
+    expect(numeroDeTalla("23 MX")).toBe("23");
+    expect(numeroDeTalla("MX24")).toBe("24");
+    expect(numeroDeTalla(" 23.5 MX ")).toBe("23.5");
+    expect(numeroDeTalla("Negro")).toBeNull();
+    expect(numeroDeTalla("")).toBeNull();
+  });
+});
+
+describe("unificarTallas: las nuevas se escriben como las que ya tiene el producto", () => {
+  const T = "100007";
+  const talla = (value_name: string, value_id?: string) => (value_id ? { id: T, name: "Talla", value_name, value_id } : { id: T, name: "Talla", value_name });
+  const viejas = [
+    { id: "1737000000000000001", seller_sku: "A-23", sales_attributes: [{ id: "100000", name: "Color", value_name: "Negro" }, talla("23 MX", "v23")] },
+    { id: "1737000000000000002", seller_sku: "A-24", sales_attributes: [{ id: "100000", name: "Color", value_name: "Negro" }, talla("24 MX", "v24")] },
+  ];
+  const nuevas = [
+    { seller_sku: "B-23", sales_attributes: [{ id: "100000", name: "Color", value_name: "Gris" }, talla("23")] },
+    { seller_sku: "B-25", sales_attributes: [{ id: "100000", name: "Color", value_name: "Gris" }, talla("25")] },
+  ];
+
+  it("toma el formato «# MX» y el value_id de la talla que ya existe; una talla nueva sigue el formato sin value_id", () => {
+    const r = unificarTallas(viejas, nuevas, T);
+    expect(r.formato).toBe("# MX");
+    expect(r.cambiados).toBe(2);
+    expect((r.skus[0] as any).sales_attributes[1]).toEqual({ id: T, name: "Talla", value_name: "23 MX", value_id: "v23" });
+    expect((r.skus[1] as any).sales_attributes[1]).toEqual({ id: T, name: "Talla", value_name: "25 MX" });
+    expect((r.skus[0] as any).sales_attributes[0].value_name).toBe("Gris");
+  });
+
+  it("si ya van iguales no toca nada", () => {
+    const r = unificarTallas(viejas, viejas, T);
+    expect(r.cambiados).toBe(0);
+    expect(r.skus).toEqual(viejas);
+  });
+
+  it("en un empate gana el formato de la variante más vieja (GT150: 15 «23 MX» contra 15 «23»)", () => {
+    const todas = [...viejas, ...nuevas.map((n, i) => ({ ...n, id: `173800000000000000${i + 1}` }))];
+    const r = unificarTallas(todas, todas, T);
+    expect(r.formato).toBe("# MX");
+    expect(r.cambiados).toBe(2);
+    expect(r.skus.map((s: any) => s.sales_attributes[1].value_name)).toEqual(["23 MX", "24 MX", "23 MX", "25 MX"]);
+  });
+
+  it("sin talla en la referencia no cambia nada", () => {
+    const r = unificarTallas([{ id: "1", sales_attributes: [{ id: "100000", value_name: "Negro" }] }], nuevas, T);
+    expect(r.cambiados).toBe(0);
+    expect(r.formato).toBeNull();
+  });
+});
+
+describe("armarSkusParaAgregar escribe la talla como las hermanas", () => {
+  it("con el producto en «24 MX», las nuevas salen «26 MX» y «27 MX»", () => {
+    const plantilla = plantillaDesdeProducto(productoCrudo);
+    const T = plantilla.atributoTalla!.id;
+    const actuales = [
+      { id: "S1", seller_sku: "GT134-BLK-24-MX", sales_attributes: [{ id: plantilla.atributoColor!.id, name: "Color", value_name: "Negro" }, { id: T, name: "Talla", value_name: "24 MX", value_id: "v24" }] },
+    ];
+    const datos = {
+      precio: 399,
+      moneda: "MXN",
+      warehouseId: "W1",
+      colores: [{ color: "RED", imagenUri: "u-red", tallas: [{ talla: "24", sellerSku: "GT134-RED-24-MX", cantidad: 1 }, { talla: "27", sellerSku: "GT134-RED-27-MX", cantidad: 0 }] }],
+    };
+    const r = armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"], skusActuales: actuales });
+    const tallas = r.nuevas.map((s: any) => s.sales_attributes.find((a: any) => a.id === T));
+    expect(tallas[0]).toEqual({ id: T, name: "Talla", value_name: "24 MX", value_id: "v24" });
+    expect(tallas[1]).toEqual({ id: T, name: "Talla", value_name: "27 MX" });
   });
 });

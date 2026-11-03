@@ -1,5 +1,8 @@
 {
   "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ]; then exit 1; else exit 0; fi",
+  "regions": [
+    "iad1"
+  ],
   "crons": [
     {
       "path": "/api/cron/sync",
@@ -22,6 +25,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/tiktok-ciclicos",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/plan",
       "schedule": "*/10 * * * *"
     },
@@ -42,6 +49,18 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/sheets-finanzas",
+      "schedule": "41 * * * *"
+    },
+    {
+      "path": "/api/cron/nuevos-fotos",
+      "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/cron/guias-video",
+      "schedule": "41 * * * *"
+    },
+    {
       "path": "/api/cron/packing-lists",
       "schedule": "0 13 * * *"
     },
@@ -54,8 +73,44 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/amazon-pantallas",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/resumen-diario",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/confirmacion-pedidos",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/relampagos",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/relampagos",
+      "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/ofertas-meli",
+      "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "5 16 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=promos",
+      "schedule": "35 6 * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel-ofertas?que=aporte",
+      "schedule": "50 * * * *"
+    },
+    {
+      "path": "/api/cron/publicidad-correo",
+      "schedule": "15 14 * * 1,4"
     },
     {
       "path": "/api/cron/reparar-ordenes",

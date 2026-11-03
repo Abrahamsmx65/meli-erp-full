@@ -6,6 +6,9 @@ import {
   type ClaveTablaVentas,
   type PaginaTablaVentas,
 } from "@/lib/servicios/ventas-tabla";
+import { Aviso } from "@/components/ui/pagina";
+import { ModeloConFoto } from "@/components/ui/foto-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 
 /**
  * La tabla "Por modelo" del monitor de ventas, con buscador, filtro por
@@ -41,10 +44,13 @@ export function TablaModelosVentas({
   desde,
   hasta,
   inicial,
+  fotos,
 }: {
   desde: string;
   hasta: string;
   inicial: PaginaTablaVentas;
+  /** MODELO → foto (`fotos-producto`, ya masticado); sin él, la tabla va sin fotos. */
+  fotos?: Record<string, string> | null;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -90,6 +96,7 @@ export function TablaModelosVentas({
   }, [desde, hasta, busquedaDiferida, categoria, orden, pagina]);
 
   const renderizadas = useMemo(() => datos.filas.map(expandirFilaModelo), [datos.filas]);
+  const mapaFotos = useMemo(() => (fotos ? { modelos: fotos, colores: {} } : null), [fotos]);
   const { paginas, totales } = datos;
   const paginaSegura = datos.pagina;
 
@@ -98,7 +105,7 @@ export function TablaModelosVentas({
     setOrden((o) => (o.clave === clave ? { clave, desc: !o.desc } : { clave, desc: clave !== "modelo" && clave !== "categoria" }));
   };
 
-  const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--estado-critico)" : "var(--ink-muted)");
+  const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--critico-texto)" : "var(--ink-muted)");
 
   return (
     <div>
@@ -132,7 +139,7 @@ export function TablaModelosVentas({
             </option>
           ))}
         </select>
-        <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-auto text-xs texto-tenue">
           {busqueda !== busquedaDiferida || cargando ? "Actualizando… · " : ""}
           {datos.totalFiltrado} de {datos.totalCatalogo} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
           {orden.desc ? "↓" : "↑"}
@@ -163,12 +170,14 @@ export function TablaModelosVentas({
               const delta = f.unidades7 - f.unidades7Prev;
               return (
                 <tr key={f.modelo}>
-                  <td className="font-medium">{f.modelo}</td>
+                  <td className="font-medium">
+                    {mapaFotos ? <ModeloConFoto modelo={f.modelo} url={fotoDeProducto(mapaFotos, f.modelo)} /> : f.modelo}
+                  </td>
                   <td style={{ color: f.categoria ? "var(--ink-2)" : "var(--ink-muted)" }}>{f.categoria ?? "Sin categoría"}</td>
                   <td className="num cifra">{f.colores}</td>
                   <td className="num cifra">{n(f.unidadesHoy)}</td>
                   <td className="num cifra font-semibold">{n(f.unidades7)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+                  <td className="num cifra texto-tenue">
                     {n(f.unidades7Prev)}
                   </td>
                   <td className="num cifra" style={{ color: colorDelta(delta) }}>
@@ -176,10 +185,10 @@ export function TablaModelosVentas({
                   </td>
                   <td className="num cifra">{pesos(f.importe7)}</td>
                   <td className="num cifra">{pesos(f.neto7)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  <td className="num cifra texto-2">
                     {f.publicidad7 == null ? "—" : pesos(f.publicidad7)}
                   </td>
-                  <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--estado-critico)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
+                  <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--critico-texto)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
                     {f.ganancia7 == null ? "sin costo" : pesos(f.ganancia7)}
                   </td>
                 </tr>
@@ -187,7 +196,7 @@ export function TablaModelosVentas({
             })}
             {datos.totalFiltrado === 0 ? (
               <tr>
-                <td colSpan={COLUMNAS.length} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={COLUMNAS.length} className="p-4 text-sm texto-2">
                   Ningún modelo coincide con el filtro.
                 </td>
               </tr>
@@ -201,7 +210,7 @@ export function TablaModelosVentas({
                   Total de lo filtrado
                 </td>
                 <td className="num cifra font-semibold">{n(totales.unidades7)}</td>
-                <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+                <td className="num cifra texto-tenue">
                   {n(totales.unidades7Prev)}
                 </td>
                 <td className="num cifra" style={{ color: colorDelta(totales.unidades7 - totales.unidades7Prev) }}>
@@ -218,16 +227,16 @@ export function TablaModelosVentas({
         </table>
       </div>
       {error ? (
-        <p className="border-t p-3 text-sm hairline" role="alert" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
+        <div className="border-t p-3 hairline">
+          <Aviso tono="critico">{error}</Aviso>
+        </div>
       ) : null}
       {paginas > 1 ? (
         <nav
           aria-label="Páginas de modelos"
           className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
         >
-          <span style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2">
             Mostrando {(paginaSegura - 1) * datos.filasPorPagina + 1}–
             {Math.min(paginaSegura * datos.filasPorPagina, datos.totalFiltrado)} de {datos.totalFiltrado}
           </span>
@@ -236,8 +245,7 @@ export function TablaModelosVentas({
               type="button"
               disabled={paginaSegura === 1}
               onClick={() => setPagina((p) => Math.max(1, p - 1))}
-              className="rounded-lg border px-3 py-1 disabled:opacity-40"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde boton-chico"
             >
               Anterior
             </button>
@@ -248,8 +256,7 @@ export function TablaModelosVentas({
               type="button"
               disabled={paginaSegura === paginas}
               onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
-              className="rounded-lg border px-3 py-1 disabled:opacity-40"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde boton-chico"
             >
               Siguiente
             </button>

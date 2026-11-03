@@ -27,6 +27,13 @@ import { resolverAdvertiser, traerAnunciosAds, type AnuncioAds } from "./publici
 export const DIAS_RESYNC_ADS = 3;
 /** Hasta dónde se rellena la historia (cubre un año de cortes con margen). */
 export const DIAS_HISTORIA_ADS = 400;
+/**
+ * MELI no da métricas de más de 90 días atrás («You cannot request metrics
+ * with a date greater than 90 days»): pedirlas tronaba cada hora (687
+ * errores del 8-sep al 9-oct-2026) y el estado «error» tapaba fallas reales.
+ * Lo que ya se guardó de antes se queda; hacia atrás solo se rellena hasta aquí.
+ */
+export const DIAS_API_ADS = 89;
 /** Tope de días por corrida, para no comerse el latido completo. */
 const MAX_DIAS_POR_CORRIDA = 14;
 
@@ -112,7 +119,7 @@ export async function sincronizarPublicidadDiaria(
     .maybeSingle();
 
   const hoy = fechaMx(0);
-  const limiteHistoria = sumarDias(hoy, -(DIAS_HISTORIA_ADS - 1));
+  const limiteHistoria = [sumarDias(hoy, -(DIAS_HISTORIA_ADS - 1)), sumarDias(hoy, -DIAS_API_ADS)].sort()[1];
   let est: EstadoAds | null = estRaw ? { desde: estRaw.desde, hasta: estRaw.hasta } : null;
 
   let sincronizados = 0;

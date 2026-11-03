@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detalleModelos, leerPendientes, modelosDeContenedor, resumenModelos } from "./contenedores";
+import { detalleModelos, leerPendientes, modelosDeContenedor, resumenModelos } from "./contenedores-vista";
 
 describe("una línea por contenedor", () => {
   const modelos = [

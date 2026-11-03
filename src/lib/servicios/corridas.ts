@@ -10,7 +10,8 @@
  * queda aquí es ver lo que hay y tapar los huecos viejos.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { esAlmacenTikTok } from "../importar/cajas";
+import { esAlmacenTikTok, rescatarFilaMalCapturada } from "../importar/cajas";
+import type { FilaExistencia } from "../importar/excel";
 
 export interface CorridaVista {
   pedido: string;
@@ -78,13 +79,26 @@ export async function cargarCorridas(db: DB, accountId: string): Promise<Resumen
 
   const existeCorrida = new Set(corridasRaw.map((c) => k(c.pedido ?? "", c.modelo ?? "", c.color ?? "")));
 
-  for (const e of existRaw) {
+  for (const cruda of existRaw) {
+    // Una caja capturada con el SKU revuelto se endereza igual que en el plan.
+    const r = rescatarFilaMalCapturada({
+      pedido: cruda.pedido ?? "",
+      modelo: cruda.modelo ?? "",
+      color: cruda.color ?? "",
+      talla: cruda.talla ?? "",
+    } as FilaExistencia);
+    const e = { ...cruda, pedido: r.pedido, modelo: r.modelo, color: r.color, talla: r.talla };
     // La bodega de TikTok es inventario de esa tienda, no cajas de calzado.
     if (esAlmacenTikTok(e.almacen)) continue;
     const cajas = e.cajas_disponibles ?? 0;
     if (cajas <= 0) continue;
 
-    const clave = k(e.pedido ?? "", e.modelo ?? "", e.color ?? "");
+    // Una caja de UNA talla cuelga de la corrida que lleva la talla pegada
+    // al color («TABACO BROWN-25», como en el sheet); si no la hay, de la
+    // del color a secas.
+    const esUnitalla = Boolean(e.talla) && !/CORRIDA/i.test(String(e.talla));
+    const claveTalla = esUnitalla ? k(e.pedido ?? "", e.modelo ?? "", `${e.color ?? ""}-${e.talla}`) : null;
+    const clave = claveTalla && existeCorrida.has(claveTalla) ? claveTalla : k(e.pedido ?? "", e.modelo ?? "", e.color ?? "");
 
     if (existeCorrida.has(clave)) {
       const u = uso.get(clave) ?? { cajas: 0, pares: 0, almacenes: new Set<string>() };

@@ -109,6 +109,21 @@ export function etiquetaDeModelos(modelos: string[] | null | undefined): string 
   return `solo ${m.slice(0, -1).join(", ")} y ${m[m.length - 1]}`;
 }
 
+/**
+ * Corte de MUESTRAS (dueño, 22-oct-2026: «si no se ocupa, se revuelven igual
+ * con los cortes normales, pero es por si quiero dar prioridad a muestras
+ * cuando tengo muchos pedidos»): con el filtro solo entran las muestras
+ * gratis; sin él, todo (las muestras revueltas, como siempre).
+ */
+export function pedidosDeMuestras<T extends { esMuestra?: boolean }>(pendientes: T[], soloMuestras: boolean): T[] {
+  return soloMuestras ? pendientes.filter((p) => p.esMuestra === true) : pendientes;
+}
+
+/** Cuántos pendientes son muestras gratis (lo que enseña el botón «Corte muestras»). */
+export function contarMuestras(pendientes: { esMuestra?: boolean }[]): number {
+  return pendientes.reduce((a, p) => a + (p.esMuestra === true ? 1 : 0), 0);
+}
+
 /** Dos filtros son el mismo corte: misma lista (o los dos sin filtro). */
 export function mismoFiltro(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
   const x = normalizarModelos(a);

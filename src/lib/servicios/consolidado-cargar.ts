@@ -10,14 +10,17 @@ import { obtenerMonitorAmazon } from "./amazon-monitor";
 import { cuentaAmazon } from "./amazon";
 import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
+import { periodosDelEjercicio, sumarAnio } from "./consolidado-anio";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { bloqueTikTok, cargarVentasTikTok, rangoTikTok } from "./consolidado-tiktok";
+import { leerEstadosGuardados } from "./tiktok-estados";
 import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo, rangoRecortado } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { fechaMx } from "./ventas-monitor";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 import { listarGastosEmpresariales } from "./gastos-empresariales";
+import { marcarRefrescando } from "./marca-refresco";
 
 /** Abre cortes históricos sin inventar el desglose que todavía no se guardaba. */
 export function compatibilidadGastosEmpresariales(consolidado: Consolidado): Consolidado {
@@ -140,8 +143,12 @@ export async function cargarConsolidado(
       const r = rangoTikTok({ desde, hasta });
       if (!r) return null;
       try {
-        const [ventas, config] = await Promise.all([cargarVentasTikTok(db, cuenta.id, r.desde, r.hasta), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
-        return bloqueTikTok(ventas, config, { desde, hasta });
+        const [ventas, config, estados] = await Promise.all([
+          cargarVentasTikTok(db, cuenta.id, r.desde, r.hasta),
+          mapaCostosUnificado(db, { meliAccountId: cuenta.id }),
+          leerEstadosGuardados(db, cuenta.id).catch(() => null),
+        ]);
+        return bloqueTikTok(ventas, config, { desde, hasta }, estados?.estados ?? null);
       } catch (err) {
         fallo("TikTok Shop", err);
         return null;
@@ -273,6 +280,8 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
       // mes (recarga de pagos, netos de fundas, Finances de Amazon).
       if (data && corteNecesitaRefresco(periodo, data.generado_en, data.vigente ?? true)) {
         try {
+          // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+          marcarRefrescando();
           const { after } = await import("next/server");
           after(async () => {
             try {
@@ -550,7 +559,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 7
+    consolidado.versionContable !== 10
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)
@@ -645,4 +654,21 @@ export function normalizarConsolidadoCache(datos: unknown): Consolidado {
       canalesSinCalcular: Array.isArray(totalAnterior.canalesSinCalcular) ? totalAnterior.canalesSinCalcular : [],
     },
   } as Consolidado;
+}
+
+/**
+ * El AÑO de mayo a abril (dueño, 15-oct-2026: «ver cómo va el año en total»):
+ * lee el estado de resultados GUARDADO de cada mes del ejercicio (no calcula
+ * nada; el cron del corte general los mantiene) y los suma con `sumarAnio`.
+ * Los meses antes de `PRIMER_PERIODO_CORTES` o después de hoy no se leen.
+ */
+export async function leerAnio(db: DB, cuenta: Cuenta, ejercicio: number) {
+  const hoy = periodoActual();
+  const estados = await Promise.all(
+    periodosDelEjercicio(ejercicio).map(async (periodo) => ({
+      periodo,
+      cns: periodo >= PRIMER_PERIODO_CORTES && periodo <= hoy ? await leerConsolidadoGuardado(db, cuenta, periodo) : null,
+    })),
+  );
+  return sumarAnio(ejercicio, estados, hoy);
 }

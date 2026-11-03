@@ -23,6 +23,25 @@ import { amarrar, construirIndice, desglosar, esCalzado, type IndiceSkus } from 
 /** Días que se quieren cubrir con un pedido: producción + tránsito + piso. */
 export const DIAS_OBJETIVO_PEDIDO = 30 + 30 + 60;
 
+/**
+ * Lo que se le pide a la fábrica a partir de lo que FALTA (objetivo −
+ * posición): nada si falta menos del mínimo (50: un pedido chico no vale el
+ * viaje) y, si no, el múltiplo cerrado hacia ARRIBA (10 en 10; el 662 de 20
+ * en 20, así una falta de 50 se pide como 60). Decisión del dueño,
+ * 21-oct-2026: «solamente modelos que necesitan mínimo 50 unidades y todo
+ * con números cerrados redondeando hacia arriba».
+ */
+export function redondearPedido(necesidad: number, regla: { minimo: number; multiplo: number }): number {
+  if (!(necesidad > 0) || necesidad < regla.minimo) return 0;
+  const m = regla.multiplo >= 1 ? Math.round(regla.multiplo) : 1;
+  return Math.ceil(necesidad / m) * m;
+}
+
+/** El múltiplo del diseño: el suyo si la fábrica lo hace distinto, si no el general. */
+export function multiploDeDiseno(diseno: string, p: { pedidoMultiplo: number; pedidoMultiplos: Record<string, number> }): number {
+  return p.pedidoMultiplos[diseno.trim().toUpperCase()] ?? p.pedidoMultiplo;
+}
+
 export interface VarianteCompra {
   skuMeli: string;
   titulo: string | null;
@@ -39,6 +58,9 @@ export interface VarianteCompra {
   posicionTotal: number;
   cobertura: number;
   objetivo: number;
+  /** Lo que FALTA para el objetivo (antes del mínimo y del múltiplo). */
+  necesidad?: number;
+  /** Lo que se pide: la falta llevada al múltiplo cerrado, o 0 si no llega al mínimo. */
   sugerido: number;
   costoUnitario: number | null;
   /** Publicaciones gemelas (la vieja sin N-) cuyos números van sumados en este renglón. */
@@ -61,7 +83,21 @@ export interface DisenoCompra {
 export interface ResumenDisenos {
   /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
   generadoEn?: string;
-  disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
+  disenos: {
+    diseno: string;
+    variantes: number;
+    descontinuadas: number;
+    vendidas30: number;
+    /** Lo que hay en MELI (Full + transferencia + envíos en camino), sumado. */
+    enMeli?: number;
+    /** En la bodega (sheet), sumado por diseño. */
+    enBodega?: number;
+    /** Pedido a China y sin recibir, sumado por diseño. */
+    enCaminoChina?: number;
+    posicionTotal: number;
+    sugerido: number;
+    cobertura: number;
+  }[];
   descontinuados: {
     /** SKUs sin venta en 180 días (de diseños que siguen y de los retirados). */
     skus: number;
@@ -131,12 +167,14 @@ export async function cargarPedidosEnCamino(
   db: DB,
   accountId: string,
   amarre: { indice: IndiceSkus; manual: Map<string, string>; porBodega: Map<string, string | null> },
+  /** Por omisión todo lo vivo; ["en_camino"] = solo lo que ya salió de la fábrica. */
+  estados: string[] = ["creado", "en_camino"],
 ): Promise<Map<string, number>> {
   const { data: cab } = await db
     .from("yz_pedidos")
     .select("id")
     .eq("account_id", accountId)
-    .in("estado", ["creado", "en_camino"]);
+    .in("estado", estados);
   const ids = (cab ?? []).map((c) => c.id);
   if (!ids.length) return new Map();
 
@@ -293,7 +331,7 @@ export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: s
 
 /** El resumen por diseño, derivado del cálculo guardado (puro). */
 export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
-  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; enMeli: number; enBodega: number; enCaminoChina: number; posicionTotal: number; sugerido: number }>();
   let descontinuadas = 0;
 
   for (const v of c.variantes) {
@@ -301,7 +339,7 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
-    const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
+    const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, enMeli: 0, enBodega: 0, enCaminoChina: 0, posicionTotal: 0, sugerido: 0 };
     // Un SKU descontinuado no se pide, pero su familia sigue saliendo.
     if (v.descontinuada) {
       acc.descontinuadas++;
@@ -310,6 +348,9 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
     }
     acc.variantes++;
     acc.vendidas30 += v.vendidas30;
+    acc.enMeli += v.enFull + v.enTransferencia + v.enCaminoFull;
+    acc.enBodega += v.enBodega;
+    acc.enCaminoChina += v.enCaminoChina;
     acc.posicionTotal += v.posicionTotal;
     acc.sugerido += v.sugerido;
     porDiseno.set(d, acc);
@@ -359,7 +400,8 @@ function calcularVariante(
   const gemelas = b.gemelas.absorbidas.get(s.sku);
   const posicionTotal = enFull + enTransferencia + enCaminoFull + enBodega + enCaminoChina;
   const objetivo = ventaDiaria * DIAS_OBJETIVO_PEDIDO;
-  const sugerido = Math.max(0, Math.ceil(objetivo - posicionTotal));
+  const necesidad = Math.max(0, Math.ceil(objetivo - posicionTotal));
+  const sugerido = redondearPedido(necesidad, { minimo: b.p.pedidoMinimo, multiplo: multiploDeDiseno(diseno, b.p) });
 
   return {
     diseno,
@@ -377,6 +419,7 @@ function calcularVariante(
     posicionTotal,
     cobertura: ventaDiaria > 0 ? posicionTotal / ventaDiaria : Infinity,
     objetivo,
+    necesidad,
     sugerido,
     costoUnitario: costoDeSku(s.sku, b.costos),
     ...(gemelas?.length ? { gemelas } : {}),

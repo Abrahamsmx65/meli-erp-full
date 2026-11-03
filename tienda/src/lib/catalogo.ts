@@ -4,6 +4,7 @@ import { config } from "./config";
 import { db } from "./db";
 import { armarProducto, type Producto, type ProductoVista, type Variante } from "./tienda";
 import { armarCatalogoInfluencers, type ProductoInfluencer } from "./influencers";
+import type { GuiaIA } from "./guia-contenido";
 
 async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Variante & { product_id: string })[] }> {
   const cuenta = config.cuenta();
@@ -201,3 +202,34 @@ async function leerCatalogoCompleto(): Promise<{ productos: ProductoInfluencer[]
 
 // Dos minutos: un cambio en el back (ocultar, categoría) se ve pronto.
 export const catalogoCompleto = unstable_cache(leerCatalogoCompleto, ["catalogo-completo"], { revalidate: 120 });
+
+/**
+ * Las ideas para el video que escribió Claude mirando las fotos, por modelo
+ * (ERP: `servicios/guias-ia.ts`, `app_cache` clave `guias-video`). La
+ * ventana de ideas la pide al abrirse; sin guía usa las reglas.
+ */
+async function leerGuiasVideo(): Promise<Record<string, GuiaIA>> {
+  const { data } = await db()
+    .from("app_cache")
+    .select("datos")
+    .eq("account_id", config.cuenta())
+    .eq("clave", "guias-video")
+    .maybeSingle();
+  const guias = ((data as any)?.datos?.guias ?? {}) as Record<string, GuiaIA & { huella?: string; costoUsd?: number }>;
+  const salida: Record<string, GuiaIA> = {};
+  for (const [modelo, g] of Object.entries(guias)) {
+    if (!g?.puntosFuertes?.length) continue;
+    salida[modelo] = {
+      resumen: g.resumen ?? "",
+      puntosFuertes: g.puntosFuertes,
+      ideas: g.ideas ?? [],
+      ganchos: g.ganchos ?? [],
+      paraQuien: g.paraQuien ?? [],
+      evitar: g.evitar ?? [],
+    };
+  }
+  return salida;
+}
+
+// Dos minutos, como el catálogo: una guía corregida en el back se ve pronto.
+export const guiasVideo = unstable_cache(leerGuiasVideo, ["guias-video"], { revalidate: 120 });

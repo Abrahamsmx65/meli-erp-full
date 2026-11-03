@@ -3,6 +3,7 @@ import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizarPackingListsDrive } from "@/lib/servicios/drive-packing";
 import { avisarContenedores } from "@/lib/servicios/avisos-contenedor";
 import { avisarSalud } from "@/lib/servicios/salud";
+import { recalcularCosteo } from "@/lib/servicios/costeo";
 import { cuentaActiva as cuentaYz } from "@/lib/yapanizcel/cuenta";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 import type { DB } from "@/lib/datos/repos";
@@ -57,7 +58,12 @@ export async function GET(req: NextRequest) {
       // los cortes esté mal sin notarse, sale por correo en vez de esperar a
       // que el dueño lo cache pantalla por pantalla.
       const salud = await revisarYAvisar(admin, c.id);
-      resultados.push({ cuenta: c.nickname, ...r, avisos, salud });
+      // El costeo real por contenedor: vuelve a leer el sheet de cuentas
+      // (solo lectura) y los packing lists del día. Nunca tumba el cron.
+      const costeo = await recalcularCosteo(admin, c.id)
+        .then((x) => ({ costeados: x.contenedores.filter((k) => k.cuenta).length }))
+        .catch((err) => ({ error: (err as Error).message.slice(0, 200) }));
+      resultados.push({ cuenta: c.nickname, ...r, avisos, salud, costeo });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, error: (err as Error).message.slice(0, 300) });
     }

@@ -1,10 +1,11 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { obtenerPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
+import { servirPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -44,31 +45,35 @@ export default async function PublicidadAmazon({
 
   const supabase = await clienteServidor();
   const cuenta = await cuentaAmazon(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Amazon no está conectado</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          No hay ninguna cuenta de Amazon asociada a este usuario.
-        </p>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Publicidad Amazon" servicio="amazon" />;
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const p = await obtenerPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const servida = await servirPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const p = servida.datos;
   const t = p.totales;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Publicidad Amazon</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Ads por modelo en Amazon {cuenta.pais}: qué se vendió y cuánto costó la
-          publicidad —total, por unidad y como % de la venta— en el periodo ({dias}{" "}
-          días · {rango.desde} → {rango.hasta}). La ganancia vive en Ventas Amazon.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Amazon"
+        titulo="Publicidad Amazon"
+        descripcion={`Gasto de ads por modelo en Amazon ${cuenta.pais}: total, por unidad y % de la venta.`}
+        frescura={servida.generadoEn}
+        ayuda={
+          <>
+            <p>
+              Qué se vendió y cuánto costó la publicidad —total, por unidad y como % de la
+              venta— en el periodo. La ganancia vive en Ventas Amazon.
+            </p>
+            <p>
+              El gasto sale del reporte de economía por SKU (Data Kiosk), que llega con unos
+              días de retraso. Venta y unidades son TODAS las ventas del periodo; el gasto por
+              unidad y el % se calculan sobre esas mismas unidades y venta, para que siempre
+              cuadren con lo que ves.
+            </p>
+          </>
+        }
+      />
 
       <FiltroFechas
         base="/amazon/publicidad"
@@ -78,21 +83,15 @@ export default async function PublicidadAmazon({
       />
 
       {p.aviso ? (
-        <div
-          className="tarjeta border p-4 text-sm"
-          style={{ borderColor: "var(--estado-alerta)" }}
-        >
-          <div className="font-semibold">Sin datos de publicidad en el rango</div>
-          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
-            {p.aviso}
-          </p>
-        </div>
+        <Aviso tono="alerta" titulo="Sin datos de publicidad en el rango">
+          {p.aviso}
+        </Aviso>
       ) : null}
 
       {/* Decisión del dueño: esta pantalla NO enseña ganancia (esa vive en
           Ventas Amazon con la definición del corte). Solo lo de ads: unidades,
           venta, gasto, gasto por unidad y % sobre LA MISMA venta mostrada. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha
           titulo="Unidades vendidas"
           valor={n(t.unidades)}
@@ -115,27 +114,16 @@ export default async function PublicidadAmazon({
           valor={!p.aviso && t.importe > 0 ? pct(t.gastoAds / t.importe) : "—"}
           nota="Gasto ÷ la misma venta de arriba"
         />
-      </div>
+      </Cifras>
 
       {p.economiaHasta && p.economiaHasta < rango.hasta ? (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-          La economía por SKU tiene datos hasta el {p.economiaHasta}; los días
-          posteriores del rango aún no traen gasto de publicidad.
+        <p className="texto-tenue text-xs">
+          La economía por SKU tiene datos hasta el {p.economiaHasta}.
         </p>
       ) : null}
 
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todas las tallas de cada modelo, juntas. Venta y unidades son TODAS las
-            ventas del periodo; el gasto viene del reporte de economía por SKU, y el
-            gasto por unidad y el % se calculan sobre esas mismas unidades y venta,
-            para que siempre cuadren con lo que ves. La ganancia vive en Ventas
-            Amazon.
-          </p>
-        </header>
-        <div className="max-h-[40rem] overflow-auto">
+      <Seccion titulo="Por modelo" sinRelleno>
+        <Tabla alta>
           <table className="datos">
             <thead>
               <tr>
@@ -160,8 +148,8 @@ export default async function PublicidadAmazon({
                       {gasto > 0 && f.unidades > 0 ? pesosFinos(gasto / f.unidades) : "—"}
                     </td>
                     <td
-                      className="num cifra"
-                      style={gasto > 0 && f.importe > 0 && gasto / f.importe > 0.3 ? { color: "var(--estado-critico)" } : { color: "var(--ink-2)" }}
+                      className="num cifra texto-2"
+                      style={gasto > 0 && f.importe > 0 && gasto / f.importe > 0.3 ? { color: "var(--estado-critico)" } : undefined}
                     >
                       {gasto > 0 && f.importe > 0 ? pct(gasto / f.importe) : "—"}
                     </td>
@@ -170,15 +158,15 @@ export default async function PublicidadAmazon({
               })}
               {p.filas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+                  <td colSpan={6} className="texto-2 p-4 text-sm">
                     Sin ventas ni publicidad en el periodo.
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
-        </div>
-      </section>
-    </div>
+        </Tabla>
+      </Seccion>
+    </Pagina>
   );
 }

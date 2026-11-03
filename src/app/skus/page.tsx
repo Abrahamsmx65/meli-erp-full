@@ -3,6 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaActiva as cuentaFundas } from "@/lib/yapanizcel/cuenta";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
+import { Aviso, Encabezado, Pagina } from "@/components/ui/pagina";
 import { resumenCatalogos, type Canal, type ResumenCanal } from "@/lib/servicios/catalogo-skus";
 
 export const dynamic = "force-dynamic";
@@ -49,57 +50,37 @@ function fecha(iso: string | null): string {
 function Tarjeta({ r }: { r: ResumenCanal }) {
   return (
     <section className="tarjeta flex flex-col gap-4 p-5">
-      <div>
-        <h2 className="text-base font-semibold">{r.nombre}</h2>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          {NOTAS[r.canal]}
-        </p>
-      </div>
+      <h2 className="seccion-titulo">{r.nombre}</h2>
 
       {r.conectado ? (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          <dt style={{ color: "var(--ink-muted)" }}>SKUs</dt>
+          <dt className="texto-tenue">SKUs</dt>
           <dd className="cifra font-medium">{n(r.skus)}</dd>
           {r.conFnsku !== null ? (
             <>
-              <dt style={{ color: "var(--ink-muted)" }}>Con FNSKU</dt>
+              <dt className="texto-tenue">Con FNSKU</dt>
               <dd className="cifra font-medium">{n(r.conFnsku)}</dd>
             </>
           ) : null}
-          <dt style={{ color: "var(--ink-muted)" }}>Última sincronización</dt>
+          <dt className="texto-tenue">Última sincronización</dt>
           <dd>{fecha(r.actualizadoEn)}</dd>
         </dl>
       ) : (
-        <p className="text-sm" style={{ color: "var(--estado-alerta)" }}>
-          Este canal no está conectado; no hay nada que descargar.
-        </p>
+        <Aviso tono="alerta">Canal no conectado.</Aviso>
       )}
-
-      <div className="flex flex-wrap gap-1">
-        {COLUMNAS[r.canal].map((c) => (
-          <span
-            key={c}
-            className="rounded-md border px-1.5 py-0.5 text-[11px] hairline"
-            style={{ color: "var(--ink-2)" }}
-          >
-            {c}
-          </span>
-        ))}
-      </div>
 
       <div className="mt-auto">
         {r.conectado && r.skus > 0 ? (
           <a
             href={`/api/skus/excel?canal=${r.canal}`}
-            className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario boton-chico"
           >
             <Download size={14} aria-hidden="true" />
             Descargar Excel
           </a>
         ) : (
           <span
-            className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium hairline opacity-60"
+            className="boton boton-borde boton-chico opacity-60"
             aria-disabled="true"
           >
             <Download size={14} aria-hidden="true" />
@@ -126,20 +107,28 @@ export default async function Skus() {
   });
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">SKUs</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Todos los SKUs de cada canal, con su código de Full o su ASIN, título, talla o
-          variante y FNSKU. Cada canal se descarga por separado en un Excel con filtros.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Inventario"
+        titulo="Catálogo de SKUs"
+        descripcion="Todos los SKUs de cada canal, cada uno en su Excel con filtros."
+        ayudaTitulo="¿Qué trae cada Excel?"
+        ayuda={
+          <>
+            {resumen.map((r) => (
+              <p key={r.canal}>
+                <strong>{r.nombre}.</strong> {NOTAS[r.canal]} Columnas: {COLUMNAS[r.canal].join(", ")}.
+              </p>
+            ))}
+          </>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {resumen.map((r) => (
           <Tarjeta key={r.canal} r={r} />
         ))}
       </div>
-    </div>
+    </Pagina>
   );
 }

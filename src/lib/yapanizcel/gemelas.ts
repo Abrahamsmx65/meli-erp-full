@@ -25,7 +25,7 @@
  * dos publicaciones que solo difieren en guiones o mayúsculas también son
  * gemelas, igual que en el amarre.
  */
-import { claveCanonica, clavePrefijoNC, piezas, piezasSinPrefijo, PREFIJOS_AUTOMATICOS } from "./sku";
+import { claveCanonica, clavePrefijoNC, esAutomatico, piezas, piezasSinPrefijo, PREFIJOS_AUTOMATICOS, type Amarre } from "./sku";
 
 export interface PublicacionGemela {
   sku: string;
@@ -118,4 +118,20 @@ export function sumarPorPrincipal(g: Gemelas, m: Map<string, number>): Map<strin
     out.set(p, (out.get(p) ?? 0) + n);
   }
   return out;
+}
+
+/**
+ * Lleva un amarre a la gemela principal. Si amarró, a la principal de lo
+ * que amarró; si quedó en EMPATE pero todas las candidatas son gemelas
+ * entre sí (462-A57 y N-462-A57 para un sheet que dice "462 A57"), el
+ * empate no es tal: es el mismo producto y se resuelve a su principal. Un
+ * empate entre productos distintos sigue sin resolverse solo.
+ */
+export function amarreConGemelas(a: Amarre, g: Gemelas): Amarre {
+  if (a.skuMeli) return { ...a, skuMeli: principalDe(g, a.skuMeli) };
+  if (a.ambiguo && esAutomatico(a.nivel) && a.candidatos.length > 1) {
+    const principales = new Set(a.candidatos.map((c) => principalDe(g, c)));
+    if (principales.size === 1) return { ...a, skuMeli: [...principales][0], ambiguo: false };
+  }
+  return a;
 }

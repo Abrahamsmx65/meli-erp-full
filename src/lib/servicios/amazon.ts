@@ -6,7 +6,7 @@
  * traerlos al servidor de Next para sumarlos sería tirar el ancho de banda y
  * la memoria a la basura. Aquí solo se normaliza lo que devuelve.
  */
-import type { DB } from "@/lib/datos/repos";
+import { rpcPaginado, type DB } from "@/lib/datos/repos";
 
 export interface CuentaAmazon {
   id: string;
@@ -113,7 +113,11 @@ export async function cargarAmazon(
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_CARGA_MS) return guardado.datos;
 
   const [resumen, totales] = await Promise.all([
-    db.rpc("amazon_resumen_skus", {
+    // POR PÁGINAS: el API entrega 1,000 renglones por respuesta y hay ~10,500
+    // SKUs ordenados por venta. Con una sola llamada el plan de FBA solo veía
+    // los 1,000 que más venden; lo recién mandado a FBA (GT251…GT277) salía
+    // con 0 pares y se le volvían a pedir sus 2 cajas (9-oct-2026).
+    rpcPaginado(db, "amazon_resumen_skus", {
       p_dias: dias,
       p_busqueda: q,
       p_limite: limite,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inversionPorCategoria } from "./inventario";
+import { inversionPorCategoria, soloLoEmbarcado } from "./inventario";
 
 const r = (modelo: string, enBodega: number, enCamino = 0) => ({ modelo, enBodega, enCamino });
 
@@ -77,5 +77,66 @@ describe("inversionPorCategoria", () => {
     const inv = inversionPorCategoria([r("GT110", 0, 0), r("GT120", 1)], base);
     expect(inv.categorias).toHaveLength(1);
     expect(inv.categorias[0].modelos).toBe(1);
+  });
+
+  it("suma lo que está en Full, FBA y TikTok a la inversión", () => {
+    const inv = inversionPorCategoria(
+      [
+        { modelo: "GT110", enBodega: 10, enCamino: 0, enFull: 20 },
+        { modelo: "GT110", enBodega: 0, enCamino: 0, enFba: 5 },
+        { modelo: "GT110", enBodega: 0, enCamino: 0, enTikTok: 7 },
+      ],
+      base,
+    );
+    expect(inv.total.enFull).toBe(20 * 300);
+    expect(inv.total.enFba).toBe(5 * 300);
+    expect(inv.total.enTikTok).toBe(7 * 300);
+    expect(inv.total.total).toBe(42 * 300);
+  });
+
+  it("ganancia estimada = (depósito de MELI − costo) × todos los pares; sin venta, con el promedio", () => {
+    const inv = inversionPorCategoria(
+      [
+        { modelo: "GT110", enBodega: 10, enCamino: 5, enFull: 3, enFba: 2 },
+        r("GT200", 4),
+      ],
+      base,
+      new Map([["GT110", 420]]),
+    );
+    // GT110: real. GT200 (sin venta): su costo × lo que deposita MELI por
+    // peso de costo en promedio (420 / 300 = 1.4).
+    expect(inv.ganancia.pares).toBe(24);
+    expect(inv.ganancia.deposito).toBeCloseTo(20 * 420 + 4 * 100 * 1.4, 6);
+    expect(inv.ganancia.ganancia).toBeCloseTo(20 * 120 + 4 * 40, 6);
+    expect(inv.sinVentaMeli.pares).toBe(4);
+    expect(inv.sinVentaMeli.modelos).toEqual(["GT200"]);
+    expect(inv.sinVentaMeli.veces).toBeCloseTo(1.4, 6);
+    expect(inv.sinVentaMeli.costo).toBe(400);
+    // La inversión sí incluye al que no vendió.
+    expect(inv.total.total).toBe(20 * 300 + 4 * 100);
+  });
+
+  it("sin ningún modelo con venta no se inventa promedio", () => {
+    const inv = inversionPorCategoria([r("GT200", 4)], base, new Map());
+    expect(inv.ganancia.pares).toBe(0);
+    expect(inv.sinVentaMeli.veces).toBeNull();
+    expect(inv.categorias[0].paresPorPromedio).toBe(0);
+  });
+});
+
+describe("soloLoEmbarcado", () => {
+  const sku = (modelo: string, enCamino: number) => ({ modelo, enCamino, sku: `${modelo}-${enCamino}` });
+
+  it("deja en camino solo lo que va en barco, repartido entre los SKU del modelo", () => {
+    const r = soloLoEmbarcado([sku("GT110", 60), sku("GT110", 40), sku("GT200", 50)], new Map([["GT110", 25]]));
+    expect(r.renglones.map((x) => x.enCamino)).toEqual([15, 10, 0]);
+    expect(r.paresEnBarco).toBe(25);
+    expect(r.paresEnFabrica).toBe(125);
+  });
+
+  it("el barco nunca pasa de lo que el inventario trae en camino", () => {
+    const r = soloLoEmbarcado([sku("gt110", 10)], new Map([["GT110", 999]]));
+    expect(r.renglones[0].enCamino).toBe(10);
+    expect(r.paresEnFabrica).toBe(0);
   });
 });

@@ -12,108 +12,35 @@
 import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { recalcularEstadoPedido } from "./pedidos";
 
-export interface ContenedorVista {
-  id: string;
-  numero: string;
-  numeroNaviera: string | null;
-  naviera: string | null;
-  fechaSalida: string | null;
-  llegadaEst: string | null;
-  llegadaReal: string | null;
-  almacenDestino: string | null;
-  estado: string;
-  notas: string | null;
-  cajas: number;
-  pedidos: { pedido: string; cajas: number }[];
-  /** qué viene: por modelo y color, con sus cajas y pares (decisión del dueño: se ve esto, no los pedidos) */
-  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
-  /** renglones del packing list que NO amarraron: el dueño los resuelve en la pantalla */
-  pendientes: PendientePacking[];
-}
-
-/** Un renglón del packing list que no entró, tal como se guarda con el contenedor. */
-export interface PendientePacking {
-  modelo: string;
-  color: string;
-  talla: string | null;
-  /** cajas que se quedaron fuera */
-  cajas: number;
-  motivo: string;
-  /** el pedido que decía el packing list (los guardados antes del 7-oct-2026 no lo traen) */
-  pedido?: string | null;
-}
-
-/** Lo guardado en `contenedores.pendientes`, sin confiar en su forma. */
-export function leerPendientes(valor: unknown): PendientePacking[] {
-  if (!Array.isArray(valor)) return [];
-  return valor
-    .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
-    .map((x) => ({
-      modelo: String(x.modelo ?? "").toUpperCase(),
-      color: String(x.color ?? "").toUpperCase(),
-      talla: x.talla ? String(x.talla) : null,
-      cajas: Number(x.cajas) || 0,
-      motivo: String(x.motivo ?? ""),
-      pedido: x.pedido ? String(x.pedido).toUpperCase() : null,
-    }))
-    .filter((p) => p.modelo && p.cajas > 0);
-}
-
-/** Agrupa los renglones de un contenedor por modelo + color. Puro, para probarse. */
-export function modelosDeContenedor(
-  lineas: { modelo: string; color: string | null; cajas: number; paresPorCaja: number }[],
-): ContenedorVista["modelos"] {
-  const porClave = new Map<string, { modelo: string; color: string; cajas: number; pares: number }>();
-  for (const l of lineas) {
-    const modelo = (l.modelo ?? "").trim().toUpperCase();
-    const color = (l.color ?? "").trim().toUpperCase();
-    if (!modelo || l.cajas <= 0) continue;
-    const k = `${modelo}|${color}`;
-    const x = porClave.get(k) ?? { modelo, color, cajas: 0, pares: 0 };
-    x.cajas += l.cajas;
-    x.pares += Math.round(l.cajas * l.paresPorCaja);
-    porClave.set(k, x);
-  }
-  return [...porClave.values()].sort((a, b) => a.modelo.localeCompare(b.modelo) || a.color.localeCompare(b.color));
-}
-
-const enMx = (x: number): string => Math.round(x).toLocaleString("es-MX");
-
-/**
- * Lo que viene en el contenedor, en UNA línea (decisión del dueño,
- * 10-sep-2026): la lista completa hacía renglones de veinte líneas y la
- * tabla no se podía leer. Aquí van solo los modelos distintos; el detalle
- * sale al pasar el mouse (`detalleModelos`).
- */
-export function resumenModelos(modelos: ContenedorVista["modelos"], tope = 3): string {
-  const distintos = [...new Set(modelos.map((m) => m.modelo))];
-  if (!distintos.length) return "";
-  const primeros = distintos.slice(0, tope).join(", ");
-  return distintos.length > tope ? `${primeros} +${distintos.length - tope}` : primeros;
-}
-
-/** El detalle del tooltip: un renglón por modelo y color, y los pedidos al final. */
-export function detalleModelos(c: Pick<ContenedorVista, "modelos" | "pedidos">): string {
-  const lineas = c.modelos.map(
-    (m) =>
-      `${m.modelo}${m.color ? ` ${m.color}` : ""} · ${enMx(m.cajas)} cajas` +
-      (m.pares > 0 ? ` · ${enMx(m.pares)} pares` : ""),
-  );
-  if (c.pedidos.length) {
-    lineas.push(`Pedidos: ${c.pedidos.map((p) => `${p.pedido} (${enMx(p.cajas)})`).join(" · ")}`);
-  }
-  return lineas.join("\n");
-}
+// Los tipos y las funciones puras de la vista viven en un módulo sin
+// dependencias del servidor: la tabla del navegador los importa de ahí sin
+// arrastrar la base ni los servicios a su paquete. Se reexportan aquí.
+export {
+  detalleModelos,
+  leerOtros,
+  leerPendientes,
+  modelosDeContenedor,
+  resumenModelos,
+  type ContenedorVista,
+  type OtroDelContenedor,
+  type PendientePacking,
+} from "./contenedores-vista";
+import { leerOtros, leerPendientes, modelosDeContenedor, type ContenedorVista } from "./contenedores-vista";
 
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
   // traerTodo pagina (PostgREST corta en 1,000 filas SIN avisar) y ordena
   // por la llave; el orden por llegada se rehace aquí (nulos al final).
-  const conts = await traerTodo<any>(
-    db,
-    "contenedores",
-    "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes",
-    (q) => q.eq("account_id", accountId),
-  );
+  // Los nombres de los pedidos de la cuenta se piden A LA PAR de los
+  // contenedores (antes eran el cuarto salto en fila, después de las líneas).
+  const [conts, pedidos] = await Promise.all([
+    traerTodo<any>(
+      db,
+      "contenedores",
+      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes, otros, cajas_bl, bl_archivo",
+      (q) => q.eq("account_id", accountId),
+    ),
+    traerTodo<{ id: string; pedido: string }>(db, "pedidos", "id, pedido", (q) => q.eq("account_id", accountId)),
+  ]);
   conts.sort((a, b) =>
     String(a.fecha_llegada_est ?? "9999").localeCompare(String(b.fecha_llegada_est ?? "9999")),
   );
@@ -151,13 +78,6 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     }[];
   });
 
-  const pedidoIds = [...new Set(lineas.map((l) => l.pedido_id))];
-  const pedidos = await porTandas(pedidoIds, 500, async (tanda) => {
-    const { data, error } = await db.from("pedidos").select("id, pedido").in("id", tanda);
-    if (error) throw new Error(`pedidos: ${error.message}`);
-    return (data ?? []) as { id: string; pedido: string }[];
-  });
-
   const nombrePedido = new Map((pedidos ?? []).map((p) => [p.id, p.pedido]));
   const pedidoDeLinea = new Map((lineas ?? []).map((l) => [l.id, l.pedido_id]));
   const lineaPorId = new Map((lineas ?? []).map((l) => [l.id, l]));
@@ -182,7 +102,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     const modelos = modelosDeContenedor(
       (lineasPorCont.get(c.id) ?? []).flatMap((cl) => {
         const l = lineaPorId.get(cl.pedido_linea_id);
-        if (!l) return [];
+        if (!l || !(cl.cajas ?? 0)) return [];
         const paresPorCaja = (l.cajas ?? 0) > 0 && (l.pares ?? 0) > 0 ? (l.pares ?? 0) / (l.cajas ?? 1) : 0;
         return [{ modelo: l.modelo, color: l.color, cajas: cl.cajas ?? 0, paresPorCaja }];
       }),
@@ -190,6 +110,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     return {
       modelos,
       pendientes: leerPendientes(c.pendientes),
+      otros: leerOtros(c.otros),
       id: c.id,
       numero: c.numero,
       numeroNaviera: c.numero_naviera ?? null,
@@ -200,6 +121,8 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
       almacenDestino: c.almacen_destino ?? null,
       estado: c.estado,
       notas: c.notas ?? null,
+      cajasBl: c.cajas_bl ?? null,
+      blArchivo: c.bl_archivo ?? null,
       cajas,
       pedidos: [...porPedido.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))

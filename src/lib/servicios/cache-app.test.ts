@@ -132,3 +132,4 @@ describe("escrituras de app_cache", () => {
     expect(fallo).toMatchObject({ operacion: "invalidar", tipo });
   });
 });
+

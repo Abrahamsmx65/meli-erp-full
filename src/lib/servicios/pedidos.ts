@@ -54,38 +54,80 @@ export async function guardarProforma(
   db: DB,
   accountId: string,
   proforma: Proforma,
-  opts?: { fechaPi?: string | null; notas?: string | null; archivo?: string | null },
-): Promise<{ pedidoId: string; corridasCreadas: number; lineasCreadas: number }> {
+  opts?: {
+    fechaPi?: string | null;
+    notas?: string | null;
+    archivo?: string | null;
+    /** "sistema" = lo armó el ERP desde la lista del dueño (Nuevo pedido) */
+    origen?: "proforma" | "sistema";
+  },
+): Promise<{ pedidoId: string; corridasCreadas: number; lineasCreadas: number; reemplazado?: boolean }> {
   const { data: existente } = await db
     .from("pedidos")
-    .select("id")
+    .select("id, origen")
     .eq("account_id", accountId)
     .eq("pedido", proforma.pedido)
     .maybeSingle();
 
+  // La proforma FIRMADA de un pedido que armó el ERP reemplaza sus renglones
+  // (la fábrica pudo cambiar cajas o precio), mientras nada esté en un
+  // contenedor. Así el número IN sigue siendo el mismo pedido.
+  let pedido: { id: string } | null = null;
+  let reemplazado = false;
   if (existente) {
-    throw new Error(
-      `El pedido ${proforma.pedido} ya está cargado. Bórralo primero si quieres volver a subirlo.`,
-    );
-  }
+    if (existente.origen !== "sistema" || opts?.origen === "sistema") {
+      throw new Error(
+        `El pedido ${proforma.pedido} ya está cargado. Bórralo primero si quieres volver a subirlo.`,
+      );
+    }
+    const { data: lineasViejas } = await db.from("pedido_lineas").select("id").eq("pedido_id", existente.id);
+    const ids = (lineasViejas ?? []).map((l) => l.id as string);
+    if (ids.length) {
+      const { count } = await db.from("contenedor_lineas").select("id", { count: "exact", head: true }).in("pedido_linea_id", ids);
+      if ((count ?? 0) > 0) {
+        throw new Error(
+          `El pedido ${proforma.pedido} ya tiene cajas en un contenedor: no se puede reemplazar con la proforma.`,
+        );
+      }
+    }
+    const { error: errBorrar } = await db.from("pedido_lineas").delete().eq("pedido_id", existente.id);
+    if (errBorrar) throw new Error(`No se pudieron quitar los renglones anteriores: ${errBorrar.message}`);
+    const { error: errAct } = await db
+      .from("pedidos")
+      .update({
+        proveedor: proforma.proveedor,
+        importe: proforma.totales.importe,
+        moneda: proforma.moneda,
+        archivo: opts?.archivo ?? null,
+        origen: "proforma",
+        actualizado_en: new Date().toISOString(),
+      })
+      .eq("id", existente.id);
+    if (errAct) throw new Error(`No se pudo actualizar el pedido: ${errAct.message}`);
+    pedido = { id: existente.id as string };
+    reemplazado = true;
+  } else {
+    const { data, error } = await db
+      .from("pedidos")
+      .insert({
+        account_id: accountId,
+        pedido: proforma.pedido,
+        proveedor: proforma.proveedor,
+        fecha_pi: opts?.fechaPi ?? null,
+        importe: proforma.totales.importe,
+        moneda: proforma.moneda,
+        origen: opts?.origen ?? "proforma",
+        estado: "creado",
+        notas: opts?.notas ?? null,
+        archivo: opts?.archivo ?? null,
+      })
+      .select("id")
+      .single();
 
-  const { data: pedido, error } = await db
-    .from("pedidos")
-    .insert({
-      account_id: accountId,
-      pedido: proforma.pedido,
-      proveedor: proforma.proveedor,
-      fecha_pi: opts?.fechaPi ?? null,
-      importe: proforma.totales.importe,
-      estado: "creado",
-      notas: opts?.notas ?? null,
-      archivo: opts?.archivo ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (error || !pedido) {
-    throw new Error(`No se pudo crear el pedido: ${error?.message ?? "sin detalle"}`);
+    if (error || !data) {
+      throw new Error(`No se pudo crear el pedido: ${error?.message ?? "sin detalle"}`);
+    }
+    pedido = data;
   }
 
   // Renglones de CORRIDA: uno por modelo+color (si la proforma lo repite, se
@@ -139,34 +181,85 @@ export async function guardarProforma(
       cajas: l.cajas,
       pares: l.pares,
       precio_unitario: l.precioUnitario,
+      precios_talla: l.unitalla ? null : (l.preciosTalla ?? null),
+      cbm_caja: l.cbmCaja ?? null,
     })),
   );
   if (errLineas) throw new Error(`No se pudieron guardar los renglones: ${errLineas.message}`);
 
-  // Las corridas. Aquí está el ahorro: se dan de alta solas. Las unitallas
-  // quedan fuera: una caja de pura talla 24 no es la corrida del modelo.
-  const { error: errCorridas } = await db.from("corridas").upsert(
-    lineasDeCorrida.map((l) => ({
-      account_id: accountId,
-      pedido: proforma.pedido,
-      modelo: l.modelo,
-      color: l.color,
-      tallas: l.tallas,
-      total: l.paresPorCaja,
-      origen: "proforma",
-      actualizado_en: new Date().toISOString(),
-    })),
-    { onConflict: "account_id,pedido,modelo,color" },
-  );
+  // Las corridas. Aquí está el ahorro: se dan de alta solas, también las
+  // cajas de UNA talla (una por color y talla, como en el sheet).
+  const corridas = corridasDeProforma(accountId, proforma.pedido, lineasDeCorrida, lineasUnitalla);
+  const { error: errCorridas } = await db.from("corridas").upsert(corridas, { onConflict: "account_id,pedido,modelo,color" });
   if (errCorridas) {
     throw new Error(`El pedido se creó pero las corridas no: ${errCorridas.message}`);
   }
 
   return {
     pedidoId: pedido.id,
+    reemplazado,
     lineasCreadas: lineasDeCorrida.length + lineasUnitalla.length,
-    corridasCreadas: lineasDeCorrida.length,
+    corridasCreadas: corridas.length,
   };
+}
+
+export interface CorridaDePedido {
+  account_id: string;
+  pedido: string;
+  modelo: string;
+  color: string;
+  tallas: Record<string, number>;
+  total: number;
+  origen: "proforma";
+  actualizado_en: string;
+}
+
+/**
+ * Las corridas que deja un pedido confirmado: una por modelo + color para
+ * las cajas de corrida (la receta de la caja) y, para las cajas de UNA
+ * talla, una por modelo + color + talla con el MISMO pedido y la talla
+ * pegada al color: `IN10121 · GT114 · TABACO BROWN-25 · { "25": 24 }`,
+ * calcada de cómo el dueño las apunta en el sheet de corridas (dueño,
+ * 20-oct-2026: «los que son de una talla igual crea corrida y toma cada
+ * caja color por separado»; «así se suben: IN10121 GT114 TABACO BROWN-25,
+ * no cada talla como otro pedido»). Hasta ese día las unitallas quedaban
+ * fuera.
+ */
+export function corridasDeProforma(
+  accountId: string,
+  pedido: string,
+  lineasDeCorrida: { modelo: string; color: string; tallas: Record<string, number>; paresPorCaja: number }[],
+  lineasUnitalla: { modelo: string; color: string; unitalla: string | null; paresPorCaja: number }[],
+  ahora = new Date().toISOString(),
+): CorridaDePedido[] {
+  const out: CorridaDePedido[] = lineasDeCorrida.map((l) => ({
+    account_id: accountId,
+    pedido,
+    modelo: l.modelo,
+    color: l.color,
+    tallas: l.tallas,
+    total: l.paresPorCaja,
+    origen: "proforma",
+    actualizado_en: ahora,
+  }));
+  const vistas = new Set<string>();
+  for (const l of lineasUnitalla) {
+    if (!l.unitalla || !(l.paresPorCaja > 0)) continue;
+    const k = `${canonizar(l.modelo)}|${canonizar(l.color)}|${l.unitalla}`;
+    if (vistas.has(k)) continue;
+    vistas.add(k);
+    out.push({
+      account_id: accountId,
+      pedido,
+      modelo: l.modelo,
+      color: `${l.color}-${l.unitalla}`,
+      tallas: { [l.unitalla]: l.paresPorCaja },
+      total: l.paresPorCaja,
+      origen: "proforma",
+      actualizado_en: ahora,
+    });
+  }
+  return out;
 }
 
 export async function listarPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {
@@ -203,7 +296,36 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
   // recibido ya no mueve nada. Si el catálogo no se pudo leer, no se grita.
   const vivosIds = new Set(pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado").map((p) => p.id));
   const lineasVivas = lineas.filter((l) => vivosIds.has(l.pedido_id));
-  const amarres = await amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]);
+
+  // El amarre con el catálogo de MELI y los contenedores de estas líneas no
+  // dependen uno del otro: van en paralelo (antes eran saltos en fila).
+  // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
+  // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
+  // pedidos, no desde TODOS los contenedores históricos de la cuenta.
+  const contenedoresDeLineas = (async () => {
+    const contLineas = await porTandas(lineas.map((l) => l.id), 200, (tanda) =>
+      traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
+        db,
+        "contenedor_lineas",
+        "contenedor_id, pedido_linea_id, cajas",
+        (q) => q.in("pedido_linea_id", tanda),
+      ),
+    );
+    const contenedorIds = [...new Set(contLineas.map((l) => l.contenedor_id))];
+    const contenedores = await porTandas(contenedorIds, 200, (tanda) =>
+      traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
+        db,
+        "contenedores",
+        "id, numero, estado, fecha_llegada_est",
+        (q) => q.eq("account_id", accountId).in("id", tanda),
+      ),
+    );
+    return { contLineas, contenedores };
+  })();
+  const [amarres, { contLineas, contenedores }] = await Promise.all([
+    amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]),
+    contenedoresDeLineas,
+  ]);
   const fantasmaPorPedido = new Map<string, { modelo: string; color: string; coloresMeli: string[] }[]>();
   const ligadosPorPedido = new Map<string, ColorLigado[]>();
   for (const pid of vivosIds) {
@@ -215,28 +337,6 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     const ligados = coloresLigados(suyas, propios);
     if (ligados.length) ligadosPorPedido.set(pid, ligados);
   }
-
-  // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
-  // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
-  // pedidos, no desde TODOS los contenedores históricos de la cuenta.
-  const contLineas = await porTandas(lineas.map((l) => l.id), 200, (tanda) =>
-    traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
-      db,
-      "contenedor_lineas",
-      "contenedor_id, pedido_linea_id, cajas",
-      (q) => q.in("pedido_linea_id", tanda),
-    ),
-  );
-
-  const contenedorIds = [...new Set(contLineas.map((l) => l.contenedor_id))];
-  const contenedores = await porTandas(contenedorIds, 200, (tanda) =>
-    traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
-      db,
-      "contenedores",
-      "id, numero, estado, fecha_llegada_est",
-      (q) => q.eq("account_id", accountId).in("id", tanda),
-    ),
-  );
 
   const lineasPorPedido = new Map<string, { cajas: number; pares: number; modelos: Set<string> }>();
   const pedidoDeLinea = new Map<string, string>();

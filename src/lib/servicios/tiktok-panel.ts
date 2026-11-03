@@ -12,6 +12,7 @@ import { sugerirParecidos } from "../tiktok/sugerencias";
 import { skusContados } from "./tiktok";
 import { conCacheApp } from "./cache-app";
 import { paresEnBodegaTikTok } from "./tiktok-bodega";
+import { skusExternos } from "./tiktok-externos";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 
 /** Ventana con la que se mide qué tan rápido se vende cada talla. */
@@ -43,6 +44,13 @@ export interface RenglonTikTok {
    * no está en línea»).
    */
   estadoPublicacion: string | null;
+  /**
+   * false si NINGUNA publicación de TikTok (activa, borrador o apagada)
+   * lleva este SKU: el stock está en la bodega pero no hay dónde venderlo
+   * (dueño, 15-oct-2026: «si tengo stock que no está ligado a ninguna
+   * publicación, que me salga un aviso y cuáles son»).
+   */
+  tienePublicacion: boolean;
   /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
   contado: boolean;
   /** publicaciones de TikTok del mismo modelo y talla, para ligar a mano */
@@ -76,13 +84,17 @@ export interface PanelTikTok {
   movimientos: MovimientoPanel[];
   /** SKUs de TikTok que no se pudieron amarrar al catálogo del ERP */
   ultimaSync: string | null;
+  /** lo vendido en TikTok por SKU: 30 días y desde que el ERP registra (para el total por familia) */
+  ventasPorSku: { sku: string; ventas30: number; ventasHist: number }[];
+  /** primer día con venta registrada de TikTok; null sin ventas */
+  ventasDesde: string | null;
 }
 
 export async function cargarPanelTikTok(db: DB, accountId: string): Promise<PanelTikTok> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados] = await Promise.all([
+  const [tiendaRes, invCrudo, skusTikTokCrudos, ventas, movsRes, syncRes, contados, externos] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -95,9 +107,10 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok, estado", (q) =>
       eq(q).eq("activo", true),
     ),
-    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
-      eq(q).gte("fecha", desde),
-    ),
+    // TODA la historia (la tabla es chica: un renglón por SKU y día desde
+    // septiembre 2026); los 30 días se recortan aquí. Así el total por
+    // familia dice también lo vendido desde que el ERP registra.
+    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades, fecha", eq),
     db
       .from("tiktok_movimientos")
       .select("id, sku, tipo, cantidad, motivo, referencia, nota, fecha")
@@ -112,7 +125,11 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .limit(1)
       .maybeSingle(),
     skusContados(db, accountId),
+    // Los SKUs de vendedores externos (David) tienen su propia pantalla.
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
+  const inv = (invCrudo ?? []).filter((r: any) => !externos.has(String(r.sku)));
+  const skusTikTok = (skusTikTokCrudos ?? []).filter((s: any) => !s.sku_interno || !externos.has(String(s.sku_interno)));
 
   const tienda = tiendaRes.data ?? null;
 
@@ -145,9 +162,17 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const sellerSkus = (skusTikTok ?? []).map((x: any) => String(x.seller_sku ?? "")).filter(Boolean);
 
   const ventas30 = new Map<string, number>();
+  const ventasHist = new Map<string, number>();
+  let ventasDesde: string | null = null;
   for (const v of ventas ?? []) {
-    ventas30.set(v.sku, (ventas30.get(v.sku) ?? 0) + (v.unidades ?? 0));
+    if (externos.has(String(v.sku))) continue;
+    const u = Number(v.unidades ?? 0);
+    const fecha = String(v.fecha ?? "").slice(0, 10);
+    if (u && fecha && (!ventasDesde || fecha < ventasDesde)) ventasDesde = fecha;
+    ventasHist.set(v.sku, (ventasHist.get(v.sku) ?? 0) + u);
+    if (fecha >= desde) ventas30.set(v.sku, (ventas30.get(v.sku) ?? 0) + u);
   }
+  const ventasPorSku = [...ventasHist.keys()].map((sku) => ({ sku, ventas30: ventas30.get(sku) ?? 0, ventasHist: ventasHist.get(sku) ?? 0 }));
 
   const renglones: RenglonTikTok[] = (inv ?? [])
     .map((r: any): RenglonTikTok => {
@@ -169,6 +194,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         enRojo: r.saldo < 0,
         publicable: conPublicacion.has(r.sku) && contado,
         estadoPublicacion: conPublicacion.has(r.sku) ? null : (estadoNoActivo.get(r.sku) ?? null),
+        tienePublicacion: conPublicacion.has(r.sku) || estadoNoActivo.has(r.sku),
         sugerencias: conPublicacion.has(r.sku) || estadoNoActivo.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })
@@ -202,6 +228,8 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     },
     movimientos: (movsRes.data ?? []) as MovimientoPanel[],
     ultimaSync: syncRes.data?.fin ?? null,
+    ventasPorSku,
+    ventasDesde,
   };
 }
 
@@ -234,7 +262,7 @@ export interface PanelDesfases {
 
 export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDesfases> {
   const eq = (q: any) => q.eq("account_id", accountId);
-  const [inv, skusTikTok, contados, bodega, salidas] = await Promise.all([
+  const [inv, skusTikTok, contados, bodega, salidas, externos] = await Promise.all([
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", eq).then((filas) =>
       (filas ?? []).map((r: any) => ({ ...r, apartado: (r.apartado ?? 0) + (r.apartado_web ?? 0) })),
     ),
@@ -244,6 +272,7 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
     // Industher cambia cada 3 horas y la sincronización la invalida.
     conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () => paresEnBodegaTikTok(db, accountId)),
     estadoSalidas3pl(db, accountId),
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
 
   const enTikTok = new Map<string, number>();
@@ -257,6 +286,8 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
   for (const r of inv ?? []) kardex.set(r.sku, { saldo: r.saldo, apartado: r.apartado });
 
   const todos = new Set<string>([...kardex.keys(), ...bodega.pares.keys(), ...enTikTok.keys()]);
+  // Los SKUs de vendedores externos (David) no están en Industher: no se cuadran aquí.
+  for (const sku of externos.keys()) todos.delete(sku);
   const desfases: Desfase[] = [];
 
   for (const sku of todos) {

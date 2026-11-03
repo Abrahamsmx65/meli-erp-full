@@ -926,9 +926,15 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
     // creciendo en MELI: septiembre 2026 se leyó el 7-sep (9,132 renglones)
     // y se quedó así todo el mes. Se relee cada tanto hasta que la última
     // lectura sea posterior al cierre del mes.
-    if (p.completo && !leidoAntesDeCerrar(p, periodo)) continue;
-    const cadaMs = (p.completo ? HORAS_RELECTURA_MES_ABIERTO : 6) * 3_600_000;
-    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - cadaMs) continue;
+    // Y uno leído DESPUÉS del cierre pero corto contra el total de MELI
+    // también se relee: septiembre 2026 de fundas quedó «completo» el 6-oct
+    // con 1,800 de 23,957 renglones y este bucle lo saltaba sin mirar el
+    // total (la regla solo corría para los meses viejos); sus gastos de Full
+    // salían en $3,365 contra $109 mil de agosto (9-oct-2026).
+    const corto = necesitaRelecturaPorTotal(p);
+    if (p.completo && !leidoAntesDeCerrar(p, periodo) && !corto) continue;
+    const cadaMs = (p.completo && !corto ? HORAS_RELECTURA_MES_ABIERTO : 6) * 3_600_000;
+    if (!corto && p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - cadaMs) continue;
     return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
   }
   // Con el mes anterior y el actual al día, los meses VIEJOS que nunca se
@@ -982,6 +988,10 @@ export const MAX_RELECTURAS_CORTAS = 2;
  * revisión general.
  */
 export function necesitaRelecturaPorTotal(p: Pick<ProgresoCargos, "completo" | "offset" | "total" | "modo" | "relecturas">): boolean {
+  // Leído con la paginación vieja (sin `modo`) y sin total que comparar:
+  // no se sabe si quedó completo (julio 2026 de fundas: 3,000 renglones con
+  // total 0). Se relee por id una vez.
+  if (p.completo && p.modo == null && p.offset > 0 && !p.total && (p.relecturas ?? 0) < MAX_RELECTURAS_CORTAS) return true;
   return (
     p.completo &&
     p.total != null &&

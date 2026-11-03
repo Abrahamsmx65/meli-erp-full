@@ -242,3 +242,39 @@ describe("IN10173 (Huaian Tengchuang, GT179 y GT181): .xlsx con modelo y color e
     ]);
   });
 });
+
+/**
+ * Moneda y precios (dueño, 11-oct-2026: «revisa bien los precios, el precio
+ * es diferente con cada fábrica»): cada fábrica cobra en su moneda y hasta
+ * ese día todo se guardaba como RMB.
+ */
+describe("moneda, precios heredados, precio por talla y CBM por caja", () => {
+  it("CHAOZHOU cobra en USD y trae el CBM por renglón", async () => {
+    const p = await importarProforma(fixture("proforma-chaozhou-IN10157.xls"), { nombre: "IN10157_GT144.xls" });
+    expect(p.moneda).toBe("USD");
+    expect(p.lineas[0].cbmCaja).toBeCloseTo(3.98112 / 20, 4);
+  });
+
+  it("JINJIANG cobra en RMB y la fila de continuación con otro precio queda como precio por talla", async () => {
+    const p = await importarProforma(fixture("proforma-jinjiang-IN10160.xls"), { nombre: "IN10160.xls" });
+    expect(p.moneda).toBe("RMB");
+    const camel = p.lineas.find((l) => l.color.startsWith("CAMEL"))!;
+    expect(camel.precioUnitario).toBe(9.6);
+    expect(camel.preciosTalla?.["23"]).toBe(9.6);
+    expect(camel.preciosTalla?.["27"]).toBe(10.1);
+    expect(camel.cbmCaja).toBeCloseTo(2.0862 / 20, 4);
+  });
+
+  it("MINGTAI cobra en RMB; JIAXING y HUAIAN en USD", async () => {
+    expect((await importarProforma(fixture("PEDIDO_IN10151.xls"), { nombre: "IN10151.xls" })).moneda).toBe("RMB");
+    expect((await importarProforma(fixture("proforma-IN10172-GT148.xls"), { nombre: "IN10172.xls" })).moneda).toBe("USD");
+    expect((await importarProforma(fixture("proforma-IN10173-GT179.xlsx"), { nombre: "IN10173.xlsx" })).moneda).toBe("USD");
+  });
+
+  it("FUZHOU pone el precio solo en el primer color: los demás lo heredan y el importe cuadra con la proforma", async () => {
+    const p = await importarProforma(fixture("proforma-fuzhou-IN10163.xls"), { nombre: "IN10163 (MY2307).xls" });
+    expect(p.moneda).toBe("USD");
+    expect(p.lineas.every((l) => l.precioUnitario === 1.03)).toBe(true);
+    expect(p.totales.importe).toBeCloseTo(11618.4, 2);
+  });
+});

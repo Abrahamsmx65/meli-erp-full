@@ -38,8 +38,8 @@ export function SubirCostos() {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <label
-        className="cursor-pointer rounded-lg border px-3 py-1.5 text-sm font-medium"
-        style={{ borderColor: "var(--borde)", opacity: subiendo ? 0.6 : 1 }}
+        className="boton boton-borde boton-chico cursor-pointer"
+        style={{ opacity: subiendo ? 0.6 : 1 }}
       >
         {subiendo ? "Cargando…" : "Cargar costos desde Excel"}
         <input
@@ -54,7 +54,7 @@ export function SubirCostos() {
           }}
         />
       </label>
-      <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <span className="text-xs texto-2">
         Columnas: CATEGORIA · MODELO · COSTO (en MXN, por modelo)
       </span>
       {mensaje ? (
@@ -63,7 +63,7 @@ export function SubirCostos() {
         </span>
       ) : null}
       {error ? (
-        <span className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <span className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </span>
       ) : null}

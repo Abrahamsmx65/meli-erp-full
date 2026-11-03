@@ -4,6 +4,8 @@ import type { EnvioSeparado } from "@/lib/servicios/envios";
 import type { DesgloseOpcionales } from "@/lib/reporte/opcionales";
 import { partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras } from "@/components/ui/pagina";
+import { Pestanas, type Pestana } from "@/components/ui/pestanas";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -20,6 +22,7 @@ export function CajasFba({
   dias,
   envios = [],
   sinConfigurar = [],
+  pestanasExtra = [],
 }: {
   plan: PlanFbaCajas;
   desglose: DesgloseOpcionales;
@@ -28,6 +31,8 @@ export function CajasFba({
   envios?: EnvioSeparado[];
   /** almacenes del plan que no están en almacenes_activos: salen en su propio envío */
   sinConfigurar?: string[];
+  /** Pestañas de la pantalla que van después de las del plan, en la misma barra. */
+  pestanasExtra?: (Pestana | false | null | undefined)[];
 }) {
   const sinCaja = plan.sinCajaEnBodega.reduce((a, f) => a + f.pares, 0);
   // Cajas que entraron por la regla del producto SIN VENTA: se marcan en la
@@ -36,7 +41,7 @@ export function CajasFba({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha
           titulo="Cajas a mandar"
           valor={desglose.cajasObligatorias}
@@ -47,7 +52,7 @@ export function CajasFba({
           valor={desglose.cajasOpcionales}
           nota={
             desglose.cajasOpcionales > 0
-              ? `${n(desglose.paresOpcionales)} pares extra si las subes: rescates y la media caja de la regla de la mitad`
+              ? `${n(desglose.paresOpcionales)} pares extra si las subes`
               : "El plan no necesitó rescates"
           }
           tono={desglose.cajasOpcionales > 0 ? "alerta" : "neutro"}
@@ -63,26 +68,23 @@ export function CajasFba({
           nota="Pares que faltan y ninguna caja disponible trae"
           tono={sinCaja > 0 ? "alerta" : "bien"}
         />
-      </div>
+      </Cifras>
 
       {sinConfigurar.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
-          Almacenes del plan sin configurar en <code>almacenes_activos</code> (cada uno
-          sale en su propio envío): {sinConfigurar.join(", ")}.
-        </p>
+        <Aviso tono="alerta">
+          Almacenes sin configurar en <code>almacenes_activos</code> (cada uno sale en su
+          propio envío): {sinConfigurar.join(", ")}.
+        </Aviso>
       ) : null}
 
       {plan.avisos.map((a, i) => (
-        <p key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
+        <Aviso key={i} tono="alerta">
           {a}
-        </p>
+        </Aviso>
       ))}
 
       {plan.sinEstreno.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          <strong>Productos SIN VENTA en Amazon</strong> (nunca han vendido un par, hay
-          cajas en bodega y tienen publicación): se les manda una posición mínima
-          para probarlos, como en Full.{" "}
+        <Aviso titulo="Productos sin venta: posición mínima para probarlos">
           {plan.sinEstreno
             .map(
               (e) =>
@@ -91,210 +93,212 @@ export function CajasFba({
                 }`,
             )
             .join(" · ")}
-        </p>
+        </Aviso>
       ) : null}
 
       {plan.productosNuevos.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          <strong>Productos NUEVOS en Amazon</strong> (se estrenaron hace poco): cualquier
-          faltante fuerza su caja y va firme, nunca opcional.{" "}
+        <Aviso titulo="Productos nuevos: cualquier faltante fuerza caja firme">
           {plan.productosNuevos
             .map((e) => `${nombreProducto(e.producto)} (hace ${e.edad} días)`)
             .join(" · ")}
-        </p>
+        </Aviso>
       ) : null}
 
-      {desglose.totalDeMas > 0 ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          Al cerrar cajas completas van{" "}
-          <strong className="cifra">{n(desglose.totalDeMas)}</strong> pares por encima de
-          lo sugerido — <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de
-          esos en las opcionales. Por talla:{" "}
-          <span className="cifra">{textoDeMas(desglose.deMasPorTalla)}</span>
-        </p>
-      ) : null}
+      <Pestanas
+        pestanas={[
+          {
+            id: "envios",
+            titulo: "Envíos a preparar",
+            contenido: (
+              <>
+                {desglose.totalDeMas > 0 ? (
+                  <p className="texto-2 text-sm">
+                    Al cerrar cajas completas van{" "}
+                    <strong className="cifra">{n(desglose.totalDeMas)}</strong> pares por encima de
+                    lo sugerido — <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de
+                    esos en las opcionales. Por talla:{" "}
+                    <span className="cifra">{textoDeMas(desglose.deMasPorTalla)}</span>
+                  </p>
+                ) : null}
 
-      {/* ---- Un envío por dirección de bodega ------------------------------
-           Caseshop + Industher salen juntas y EnvioPack aparte
-           (almacenes_activos.grupo_envio, el mismo reparto que en Full). Cada
-           sección es UN envío que se da de alta en Amazon: sus cajas, sus
-           pares y su Excel. El plan completo queda como un solo botón. */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Envíos a preparar</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            {plan.cajas.length === 0
-              ? "El mismo motor que los envíos a Full, sobre las mismas cajas físicas."
-              : envios.length > 1
-                ? `Son ${envios.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Amazon.`
-                : "Todo sale de una sola dirección, así que es un solo envío."}{" "}
-            Lo que registres en un envío se aparta y desaparece para los dos canales.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {plan.cajas.length > 0 && envios.length > 1 ? (
-            <a
-              href={`/api/amazon/envio-excel?dias=${dias}`}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
-              title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su sección"
-            >
-              Excel del plan completo
-            </a>
-          ) : null}
-          <a
-            href={`/api/amazon/excel-simple?dias=${dias}`}
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
-            title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
-          >
-            Excel simple
-          </a>
-        </div>
-      </div>
+                {/* ---- Un envío por dirección de bodega ------------------------------
+                     Caseshop + Industher salen juntas y EnvioPack aparte
+                     (almacenes_activos.grupo_envio, el mismo reparto que en Full). Cada
+                     sección es UN envío que se da de alta en Amazon: sus cajas, sus
+                     pares y su Excel. El plan completo queda como un solo botón. */}
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h2 className="seccion-titulo">Envíos a preparar</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {plan.cajas.length > 0 && envios.length > 1 ? (
+                      <a
+                        href={`/api/amazon/envio-excel?dias=${dias}`}
+                        className="boton boton-borde boton-chico"
+                        title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su sección"
+                      >
+                        Excel del plan completo
+                      </a>
+                    ) : null}
+                    <a
+                      href={`/api/amazon/excel-simple?dias=${dias}`}
+                      className="boton boton-borde boton-chico"
+                      title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
+                    >
+                      Excel simple
+                    </a>
+                  </div>
+                </div>
 
-      {plan.cajas.length === 0 ? (
-        <section className="tarjeta p-6 text-center">
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-            {plan.paresSugeridos === 0
-              ? "Nada que mandar: el calzado que vende tiene cobertura suficiente en FBA."
-              : "Hay faltantes, pero ninguna caja disponible en bodega los trae."}
-          </p>
-        </section>
-      ) : envios.length ? (
-        envios.map((e) => (
-          <SeccionEnvio
-            key={e.grupo}
-            envio={e}
-            desglose={desglose}
-            dias={dias}
-            codigosSinEstreno={codigosSinEstreno}
-          />
-        ))
-      ) : (
-        // Sin cuenta de MELI no hay grupos de bodega: todas las cajas juntas.
-        <SeccionEnvio
-          envio={{
-            grupo: "",
-            nombre: "todas las bodegas",
-            almacenes: [...new Set(plan.cajas.map((c) => c.almacen))].sort(),
-            cajas: plan.cajas as unknown as EnvioSeparado["cajas"],
-            totalCajas: plan.cajas.reduce((a, c) => a + c.cantidad, 0),
-            totalPares: plan.cajas.reduce((a, c) => a + c.paresTotales, 0),
-            skus: 0,
-            porSku: [],
-          }}
-          desglose={desglose}
-          dias={dias}
-          codigosSinEstreno={codigosSinEstreno}
-        />
-      )}
+                {plan.cajas.length === 0 ? (
+                  <section className="tarjeta p-6 text-center">
+                    <p className="texto-2 text-sm">
+                      {plan.paresSugeridos === 0
+                        ? "Nada que mandar: el calzado que vende tiene cobertura suficiente en FBA."
+                        : "Hay faltantes, pero ninguna caja disponible en bodega los trae."}
+                    </p>
+                  </section>
+                ) : envios.length ? (
+                  envios.map((e) => (
+                    <SeccionEnvio
+                      key={e.grupo}
+                      envio={e}
+                      desglose={desglose}
+                      dias={dias}
+                      codigosSinEstreno={codigosSinEstreno}
+                    />
+                  ))
+                ) : (
+                  // Sin cuenta de MELI no hay grupos de bodega: todas las cajas juntas.
+                  <SeccionEnvio
+                    envio={{
+                      grupo: "",
+                      nombre: "todas las bodegas",
+                      almacenes: [...new Set(plan.cajas.map((c) => c.almacen))].sort(),
+                      cajas: plan.cajas as unknown as EnvioSeparado["cajas"],
+                      totalCajas: plan.cajas.reduce((a, c) => a + c.cantidad, 0),
+                      totalPares: plan.cajas.reduce((a, c) => a + c.paresTotales, 0),
+                      skus: 0,
+                      porSku: [],
+                    }}
+                    desglose={desglose}
+                    dias={dias}
+                    codigosSinEstreno={codigosSinEstreno}
+                  />
+                )}
+              </>
+            ),
+          },
+          (plan.sinCajaEnBodega.length > 0 || plan.faltanteConCaja.length > 0) && {
+            id: "faltantes",
+            titulo: "Faltantes",
+            cuenta: plan.sinCajaEnBodega.length + plan.faltanteConCaja.length,
+            alerta: plan.sinCajaEnBodega.length > 0,
+            contenido: (
+              <>
+                {plan.sinCajaEnBodega.length > 0 ? (
+                  <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
+                    <header className="border-b p-4 hairline">
+                      <h2 className="seccion-titulo">
+                        Faltantes SIN caja en bodega ({plan.sinCajaEnBodega.length} SKUs ·{" "}
+                        {n(sinCaja)} pares)
+                      </h2>
+                    </header>
+                    <div className="max-h-[24rem] overflow-auto">
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>SKU (MELI)</th>
+                            <th className="num">Pares que faltan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plan.sinCajaEnBodega.map((f) => (
+                            <tr key={f.sku}>
+                              <td className="font-medium">{f.sku}</td>
+                              <td className="num cifra">{n(f.pares)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                ) : null}
 
-      {plan.sinCajaEnBodega.length > 0 ? (
-        <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
-          <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
-              Faltantes SIN caja en bodega ({plan.sinCajaEnBodega.length} SKUs ·{" "}
-              {n(sinCaja)} pares)
-            </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Estos SKUs necesitan pares y NO vienen en ninguna caja disponible: o la
-              bodega de verdad no tiene, o algo no está ligando. Si un SKU de esta
-              lista SÍ tiene caja física en bodega, es un problema de amarre: avísame
-              cuál. (Los faltantes chicos de SKUs que sí van en el plan ya no salen
-              aquí — están en su propia tabla abajo.)
-            </p>
-          </header>
-          <div className="max-h-[24rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>SKU (MELI)</th>
-                  <th className="num">Pares que faltan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.sinCajaEnBodega.map((f) => (
-                  <tr key={f.sku}>
-                    <td className="font-medium">{f.sku}</td>
-                    <td className="num cifra">{n(f.pares)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {plan.faltanteConCaja.length > 0 ? (
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
-              Faltantes chicos con caja disponible ({plan.faltanteConCaja.length} SKUs ·{" "}
-              {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
-            </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Estos SKUs SÍ tienen caja en bodega y el plan ya manda lo que se
-              justifica; el pico que queda no vale otra caja completa y se cubre en el
-              siguiente envío. No es un problema de amarre.
-            </p>
-          </header>
-          <div className="max-h-[20rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>SKU (MELI)</th>
-                  <th className="num">Van en el plan</th>
-                  <th className="num">Pico que queda</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.faltanteConCaja.map((f) => (
-                  <tr key={f.sku}>
-                    <td className="font-medium">{f.sku}</td>
-                    <td className="num cifra">{n(f.enPlan)}</td>
-                    <td className="num cifra">{n(f.pares)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {plan.sinAmarre.length > 0 ? (
-        <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
-          <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
-              SKUs de Amazon que NO amarran con MELI ({plan.sinAmarre.length})
-            </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Su venta y su faltante no entran al plan de cajas porque el SKU no se
-              encontró en el catálogo de MELI con ninguno de los cuatro amarres.
-            </p>
-          </header>
-          <div className="max-h-[20rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>SKU (Amazon)</th>
-                  <th className="num">Ventas del periodo</th>
-                  <th className="num">Faltante calculado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.sinAmarre.map((s) => (
-                  <tr key={s.sku}>
-                    <td className="font-medium">{s.sku}</td>
-                    <td className="num cifra">{n(s.unidades)}</td>
-                    <td className="num cifra">{n(s.faltante)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+                {plan.faltanteConCaja.length > 0 ? (
+                  <section className="tarjeta overflow-hidden">
+                    <header className="border-b p-4 hairline">
+                      <h2 className="seccion-titulo">
+                        Faltantes chicos con caja disponible ({plan.faltanteConCaja.length} SKUs ·{" "}
+                        {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
+                      </h2>
+                    </header>
+                    <div className="max-h-[20rem] overflow-auto">
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>SKU (MELI)</th>
+                            <th className="num">Van en el plan</th>
+                            <th className="num">Pico que queda</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plan.faltanteConCaja.map((f) => (
+                            <tr key={f.sku}>
+                              <td className="font-medium">{f.sku}</td>
+                              <td className="num cifra">{n(f.enPlan)}</td>
+                              <td className="num cifra">{n(f.pares)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                ) : null}
+              </>
+            ),
+          },
+          plan.sinAmarre.length > 0 && {
+            id: "sin-amarre",
+            titulo: "Sin amarre",
+            cuenta: plan.sinAmarre.length,
+            alerta: true,
+            contenido: (
+              <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
+                <header className="border-b p-4 hairline">
+                  <h2 className="seccion-titulo">
+                    SKUs de Amazon que NO amarran con MELI ({plan.sinAmarre.length})
+                  </h2>
+                  <p className="texto-2 mt-0.5 text-sm">
+                    Su venta y su faltante no entran al plan hasta que amarren.
+                  </p>
+                </header>
+                <div className="max-h-[20rem] overflow-auto">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>SKU (Amazon)</th>
+                        <th className="num">Ventas del periodo</th>
+                        <th className="num">Faltante calculado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {plan.sinAmarre.map((s) => (
+                        <tr key={s.sku}>
+                          <td className="font-medium">{s.sku}</td>
+                          <td className="num cifra">{n(s.unidades)}</td>
+                          <td className="num cifra">{n(s.faltante)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ),
+          },
+          ...pestanasExtra,
+        ]}
+      />
     </div>
   );
 }
@@ -328,8 +332,8 @@ function SeccionEnvio({
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-center gap-4 border-b p-4 hairline">
         <div>
-          <h3 className="font-semibold">Envío {envio.nombre}</h3>
-          <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <h3 className="seccion-titulo">Envío {envio.nombre}</h3>
+          <p className="texto-2 text-xs">
             Recolección en {envio.almacenes.join(" y ")}
           </p>
         </div>
@@ -345,11 +349,10 @@ function SeccionEnvio({
 
         <a
           href={excel}
-          className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario ml-auto"
           title={`Excel solo con las cajas del envío ${envio.nombre}`}
         >
-          Excel de este envío
+          Descargar Excel
         </a>
       </header>
 
@@ -381,9 +384,7 @@ function SeccionEnvio({
                 }}
               >
                 <td colSpan={6} className="text-sm font-semibold">
-                  OPCIONALES de {envio.nombre} — {n(cajasOpc)} cajas · {n(paresOpc)} pares.
-                  Entraron por el rescate de una talla que falta; el resto de la caja
-                  sobra. Tú decides si van.
+                  Opcionales de {envio.nombre}: {n(cajasOpc)} cajas · {n(paresOpc)} pares.
                 </td>
               </tr>
             ) : null}
@@ -439,7 +440,7 @@ function Dato({
 }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+      <div className="texto-tenue text-[11px] uppercase tracking-wide">
         {titulo}
       </div>
       <div
@@ -477,7 +478,7 @@ function FilaCaja({
         >
           {c.skuCaja}
         </div>
-        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <div className="texto-tenue text-xs">
           {c.modelo} · {c.color}
         </div>
         {sinEstreno ? (
@@ -501,13 +502,13 @@ function FilaCaja({
         style={opcionales > 0 ? { color: "var(--estado-critico)" } : undefined}
       >
         {c.cantidad}
-        <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+        <span className="texto-tenue text-xs font-normal">
           {" "}
           / {c.cajasDisponibles}
         </span>
       </td>
       <td className="num cifra">{n(c.paresTotales)}</td>
-      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="texto-2 text-xs">
         {c.aporta.map((a) => `${a.talla}:${a.paresTotales}`).join("  ")}
       </td>
     </tr>

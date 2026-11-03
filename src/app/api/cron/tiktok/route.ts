@@ -4,6 +4,7 @@ import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
 import { calentarCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { hayPendientes, publicarPendientes } from "@/lib/servicios/tiktok-publicar";
 import { revisarDesfasesTikTok } from "@/lib/servicios/tiktok-alarma";
+import { sincronizarDevoluciones } from "@/lib/servicios/tiktok-devoluciones";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { refrescarCatalogoTienda } from "@/lib/servicios/tienda-catalogo";
@@ -64,6 +65,14 @@ export async function GET(req: NextRequest) {
       } catch {
         /* el siguiente cron lo vuelve a intentar */
       }
+      // Las devoluciones viven en su propio API de TikTok: se bajan aquí
+      // masticadas para que la pantalla solo lea la tabla.
+      let devoluciones: unknown = null;
+      try {
+        devoluciones = await sincronizarDevoluciones(admin, c.id, { msPresupuesto: 45_000 });
+      } catch (err) {
+        devoluciones = { error: (err as Error).message };
+      }
       // Las salidas que el 3PL todavía no confirma se vuelven a mandar.
       let al3pl: unknown = null;
       try {
@@ -98,7 +107,7 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         tienda.catalogo = { error: (err as Error).message };
       }
-      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas, publicaciones, tienda });
+      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas, publicaciones, tienda, devoluciones });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }

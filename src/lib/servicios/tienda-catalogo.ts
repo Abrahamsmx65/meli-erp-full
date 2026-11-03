@@ -28,6 +28,7 @@ import { esPaginaDeCaptcha, imagenesDeDocumentoAplus, imagenesDeTiendaAmazon } f
 import { configPorProducto } from "./productos";
 import { leerTiendaAmazon } from "./tienda-banners";
 import { clienteDeCuenta } from "./tiktok";
+import { productosExternos } from "./tiktok-externos";
 
 export const HORAS_RELEER = 12;
 
@@ -63,13 +64,18 @@ export async function refrescarCatalogoTienda(
   const avisos: string[] = [];
   const eq = (q: any) => q.eq("account_id", accountId);
 
-  const [skus, productos, variantes] = await Promise.all([
+  const [skusCrudos, productos, variantes, externos] = await Promise.all([
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, seller_sku, sku_interno, precio, estado", (q) =>
       eq(q).eq("activo", true),
     ),
     traerTodo<any>(admin, "tienda_productos", "product_id, leido_en, activo, estado_tiktok", eq),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, precio, activo", eq),
+    // Las publicaciones de vendedores externos (David) no se venden en la
+    // tienda de GETAC ni salen en el catálogo de creadores: para la tienda
+    // es como si TikTok no las tuviera.
+    productosExternos(admin, accountId).catch(() => new Map<string, string>()),
   ]);
+  const skus = (skusCrudos ?? []).filter((s: any) => !externos.has(String(s.product_id ?? "")));
 
   // Lo que TikTok tiene ACTIVO (según el catálogo del sync de 15 min).
   const activosTikTok = new Set<string>();

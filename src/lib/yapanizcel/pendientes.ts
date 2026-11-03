@@ -56,11 +56,14 @@ export async function limpiarResueltos(admin: DB, accountId: string): Promise<nu
   for (let i = 0; i < resueltos.length; i += 300) {
     const trozo = resueltos.slice(i, i + 300);
     const items = [...new Set(trozo.map((r) => r.item_id as string))];
-    const { data: pend } = await admin
-      .from("yz_skus_pendientes")
-      .select("item_id, variation_id")
-      .eq("account_id", accountId)
-      .in("item_id", items);
+    // Todas las páginas: un item con muchas variantes pendientes pasaba de
+    // 1,000 renglones y lo resuelto de más allá nunca se limpiaba.
+    const pend = await todo<{ item_id: string; variation_id: string }>(
+      admin,
+      "yz_skus_pendientes",
+      "item_id, variation_id",
+      (q) => q.eq("account_id", accountId).in("item_id", items),
+    );
     const claves = new Set(trozo.map((r) => `${r.item_id}#${r.variation_id ?? ""}`));
     for (const p of pend ?? []) {
       if (!claves.has(`${p.item_id}#${p.variation_id}`)) continue;

@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { Loader2, Upload } from "lucide-react";
+import { Ayuda, Seccion } from "@/components/ui/pagina";
 import type { PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { PublicacionMeliParaTikTok } from "@/lib/tiktok/publicar";
+import { confirmar } from "@/components/ui/confirmar";
 
 /**
  * Publicaciones de MELI que juntan VARIOS modelos (GT117…GT122 en una sola
@@ -41,9 +43,11 @@ export function PublicacionesMeliTikTok({
     if (!(precio > 0)) return;
     const titulo = (titulos[p.itemId] ?? p.titulo).trim();
     if (
-      !window.confirm(
-        `¿Publicar en TikTok${borrador ? " como borrador" : ""} la publicación ${p.itemId} (${p.modelos.join(", ")}) como UN producto con ${p.variantes - p.enTikTok.length} variantes a ${precio} ${moneda}?`,
-      )
+      !(await confirmar({
+        titulo: `¿Publicar en TikTok${borrador ? " como borrador" : ""} la publicación ${p.itemId}?`,
+        mensaje: `${p.modelos.join(", ")} como UN producto con ${p.variantes - p.enTikTok.length} variantes a ${precio} ${moneda}.`,
+        confirmar: "Publicar",
+      }))
     )
       return;
     setEnviando(p.itemId);
@@ -55,17 +59,20 @@ export function PublicacionesMeliTikTok({
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="titulo-seccion">Publicaciones de MELI con varios modelos</h2>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-        En MELI estas publicaciones juntan varios modelos como variantes. En TikTok se publican igual: UN producto cuyas
-        variantes son «modelo + color» («GT117 Café», «GT118 Negro»…) con sus tallas, las fotos de cada variación de MELI,
-        la descripción de la publicación y el SKU de MELI tal cual (el kardex y el amarre ya lo conocen). Un precio único por
-        producto. La casilla «Dejarlos como borrador» de arriba también aplica aquí.
-      </p>
+    <Seccion
+      titulo="Publicaciones de MELI con varios modelos"
+    >
+      <Ayuda titulo="¿Cómo se arman?">
+        <p>
+          En MELI estas publicaciones juntan varios modelos como variantes. En TikTok se publican igual: UN producto cuyas
+          variantes son «modelo + color» («GT117 Café», «GT118 Negro»…) con sus tallas, las fotos de cada variación de MELI,
+          la descripción de la publicación y el SKU de MELI tal cual (el kardex y el amarre ya lo conocen).
+        </p>
+        <p>La casilla «Dejarlos como borrador» de arriba también aplica aquí.</p>
+      </Ayuda>
       <table className="mt-3 w-full text-sm">
         <thead>
-          <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+          <tr className="text-left text-xs texto-2">
             <th className="px-2 py-1">Publicación</th>
             <th className="px-2 py-1">Modelos</th>
             <th className="px-2 py-1 text-right">Variantes</th>
@@ -94,7 +101,7 @@ export function PublicacionesMeliTikTok({
                       title="El título con el que se publica en TikTok; corrígelo aquí antes de confirmar"
                     />
                   ) : (
-                    <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+                    <div className="text-xs texto-2">
                       {p.titulo}
                     </div>
                   )}
@@ -102,7 +109,7 @@ export function PublicacionesMeliTikTok({
                 <td className="px-2 py-2">{p.modelos.join(", ")}</td>
                 <td className="px-2 py-2 text-right">
                   {p.variantes}
-                  <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <div className="text-xs texto-tenue">
                     {p.colores} modelo{p.colores === 1 ? "" : "s"} + color
                     {p.enTikTok.length ? ` · ${p.enTikTok.length} ya en TikTok` : ""}
                   </div>
@@ -128,8 +135,7 @@ export function PublicacionesMeliTikTok({
                         <button
                           onClick={() => publicar(p)}
                           disabled={bloqueada || enviando === p.itemId || !(Number(precio) > 0)}
-                          className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
-                          style={{ background: "var(--acento)" }}
+                          className="boton boton-primario boton-chico gap-1.5"
                         >
                           {enviando === p.itemId ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                           {borrador ? "Borrador en TikTok" : "Publicar en TikTok"}
@@ -138,7 +144,7 @@ export function PublicacionesMeliTikTok({
                     ) : null}
                   </td>
                 ) : null}
-                <td className="px-2 py-2 text-xs" style={{ color: "var(--ink-2)" }}>
+                <td className="px-2 py-2 text-xs texto-2">
                   {todas
                     ? "TikTok ya vende todas sus variantes"
                     : c
@@ -156,6 +162,6 @@ export function PublicacionesMeliTikTok({
           })}
         </tbody>
       </table>
-    </section>
+    </Seccion>
   );
 }

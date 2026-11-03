@@ -28,6 +28,8 @@ const CUOTAS: Record<string, [number, number]> = {
   getShipmentItems: [2, 30],
   searchCatalogItems: [2, 2],
   searchListingsItems: [5, 5],
+  getListingsItem: [5, 10],
+  patchListingsItem: [5, 5],
   // Finances API: 0.5 por segundo, ráfaga de 30 (cuota publicada).
   listFinancialEventGroups: [0.5, 30],
   listFinancialEvents: [0.5, 30],
@@ -163,7 +165,7 @@ export class Cliente {
   }
 
   async llamar<T = any>(
-    metodo: "GET" | "POST",
+    metodo: "GET" | "POST" | "PATCH",
     ruta: string,
     operacion: string,
     opciones: { params?: Record<string, string | number | undefined>; cuerpo?: unknown } = {},

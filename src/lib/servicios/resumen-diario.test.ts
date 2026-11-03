@@ -49,6 +49,19 @@ describe("armarResumen y correo", () => {
     expect(correo.html).toContain("TikTok Shop");
     expect(correo.texto).toContain("Total: 1,004 u");
   });
+  it("un canal que no se pudo leer sale SIN DATO, no en cero (16-oct-2026)", () => {
+    const r = armarResumen("2026-10-16", consolidado([calzado]), null, ["Fundas · Mercado Libre: no se pudo leer (timeout)."], ["meli_fundas"]);
+    expect(r.filas[1]).toMatchObject({ canal: "meli_fundas", sinDato: true, ganancia: null });
+    expect(r.filas[2].sinDato).toBeUndefined();
+    const correo = armarCorreoResumen(r);
+    expect(correo.asunto).toContain("(sin Fundas · Mercado Libre)");
+    expect(correo.texto).toContain("Fundas · Mercado Libre: no se pudo leer");
+    expect(correo.html).toContain("no se pudo leer: no está en el total");
+  });
+  it("si no se pudo leer nada, las cuatro salen sin dato", () => {
+    const r = armarResumen("2026-10-16", null, null);
+    expect(r.filas.every((f) => f.sinDato)).toBe(true);
+  });
   it("fechas", () => {
     expect(diaAnterior("2026-10-01")).toBe("2026-09-30");
     expect(fechaLarga("2026-09-28")).toBe("lunes 28 de septiembre");

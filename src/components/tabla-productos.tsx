@@ -1,7 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { Negocio, ProductoConfig } from "@/lib/servicios/productos";
+import { FotoProducto } from "./ui/foto-producto";
+
+/** Renglones que se pintan de entrada (cada uno lleva dos campos de captura). */
+const TOPE_INICIAL = 300;
+const SIN_CATEGORIA = "Sin categoría";
 
 /**
  * Captura de categoría y costo por producto.
@@ -22,12 +27,27 @@ export function TablaProductos({
   const [busqueda, setBusqueda] = useState("");
   const [soloSinCosto, setSoloSinCosto] = useState(false);
   const [negocio, setNegocio] = useState<Negocio | "">("");
+  // Filtro por categoría. Se filtra con la categoría con que llegó cada
+  // renglón, no con la que se está tecleando: así se puede filtrar «Sin
+  // categoría» e ir asignándolas sin que el renglón desaparezca a la primera
+  // letra. Lo recategorizado se acomoda al recargar.
+  const [categoria, setCategoria] = useState<string>("");
+  const categoriaDe = useMemo(
+    () => new Map(productos.map((p) => [p.modelo, p.categoria?.trim() || SIN_CATEGORIA])),
+    [productos],
+  );
+  const [tope, setTope] = useState(TOPE_INICIAL);
 
-  const visibles = useMemo(() => {
-    const q = busqueda.trim().toUpperCase();
+  // Cada renglón trae dos campos de captura: con cientos de modelos, pintar
+  // todos y refiltrar en cada tecla se sentía. El filtro corre con el valor
+  // diferido y se pintan los primeros `tope` (con «Mostrar más»).
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const filtradas = useMemo(() => {
+    const q = busquedaDiferida.trim().toUpperCase();
     return filas.filter((p) => {
       if (negocio && p.negocio !== negocio) return false;
       if (soloSinCosto && p.costoMxn != null) return false;
+      if (categoria && (categoriaDe.get(p.modelo) ?? SIN_CATEGORIA) !== categoria) return false;
       if (!q) return true;
       return (
         p.modelo.toUpperCase().includes(q) ||
@@ -35,7 +55,22 @@ export function TablaProductos({
         (p.titulo ?? "").toUpperCase().includes(q)
       );
     });
-  }, [filas, busqueda, soloSinCosto, negocio]);
+  }, [filas, busquedaDiferida, soloSinCosto, negocio, categoria, categoriaDe]);
+
+  // Las categorías que hay, con cuántos renglones tiene cada una dentro del
+  // negocio elegido (Todo / Calzado / Fundas).
+  const opcionesCategoria = useMemo(() => {
+    const cuenta = new Map<string, number>();
+    for (const p of filas) {
+      if (negocio && p.negocio !== negocio) continue;
+      const c = categoriaDe.get(p.modelo) ?? SIN_CATEGORIA;
+      cuenta.set(c, (cuenta.get(c) ?? 0) + 1);
+    }
+    return [...cuenta.entries()].sort((a, b) =>
+      a[0] === SIN_CATEGORIA ? 1 : b[0] === SIN_CATEGORIA ? -1 : a[0].localeCompare(b[0], "es"),
+    );
+  }, [filas, negocio, categoriaDe]);
+  const visibles = filtradas.slice(0, tope);
 
   const clave = (p: ProductoConfig) => p.modelo;
 
@@ -63,7 +98,15 @@ export function TablaProductos({
     setFilas((l) => l.map((p) => (clave(p) === k ? { ...p, ...cambios } : p)));
   };
 
-  const sinCosto = filas.filter((p) => p.costoMxn == null).length;
+  const conteos = useMemo(
+    () => ({
+      sinCosto: filas.filter((p) => p.costoMxn == null).length,
+      calzado: filas.filter((p) => p.negocio === "calzado").length,
+      fundas: filas.filter((p) => p.negocio === "fundas").length,
+    }),
+    [filas],
+  );
+  const sinCosto = conteos.sinCosto;
 
   return (
     <section className="tarjeta overflow-hidden">
@@ -71,7 +114,10 @@ export function TablaProductos({
         <input
           type="search"
           value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setTope(TOPE_INICIAL);
+          }}
           placeholder="Buscar modelo, color o categoría…"
           className="min-w-[16rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -93,11 +139,31 @@ export function TablaProductos({
                   : { borderColor: "var(--borde)" }
               }
             >
-              {texto} ({valor ? filas.filter((p) => p.negocio === valor).length : filas.length})
+              {texto} ({valor ? conteos[valor] : filas.length})
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
+        <select
+          value={categoria}
+          onChange={(e) => {
+            setCategoria(e.target.value);
+            setTope(TOPE_INICIAL);
+          }}
+          aria-label="Filtrar por categoría"
+          className="rounded-lg border px-2 py-1.5 text-sm"
+          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+        >
+          <option value="">Todas las categorías</option>
+          {opcionesCategoria.map(([c, cuantos]) => (
+            <option key={c} value={c}>
+              {c} ({cuantos})
+            </option>
+          ))}
+          {categoria && !opcionesCategoria.some(([c]) => c === categoria) ? (
+            <option value={categoria}>{categoria} (0)</option>
+          ) : null}
+        </select>
+        <label className="flex items-center gap-2 text-sm texto-2">
           <input
             type="checkbox"
             checked={soloSinCosto}
@@ -111,6 +177,7 @@ export function TablaProductos({
         <table className="datos">
           <thead>
             <tr>
+              <th className="w-12">Foto</th>
               <th>Modelo</th>
               <th>Negocio</th>
               <th>Producto</th>
@@ -127,13 +194,13 @@ export function TablaProductos({
               const st = estado[k];
               return (
                 <tr key={k}>
+                  <td>{p.negocio === "calzado" ? <FotoProducto url={p.foto} alt={p.modelo} /> : null}</td>
                   <td className="font-medium">{p.modelo}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <td className="text-xs texto-tenue">
                     {p.negocio === "fundas" ? "Fundas" : "Calzado"}
                   </td>
                   <td
-                    className="max-w-72 truncate text-xs"
-                    style={{ color: "var(--ink-2)" }}
+                    className="max-w-72 truncate text-xs texto-2"
                     title={p.titulo ?? ""}
                   >
                     {p.titulo ?? "—"}
@@ -170,11 +237,11 @@ export function TablaProductos({
                   </td>
                   <td className="text-sm">
                     {st === "guardando" ? (
-                      <span style={{ color: "var(--ink-muted)" }}>…</span>
+                      <span className="texto-tenue">…</span>
                     ) : st === "ok" ? (
                       <span style={{ color: "var(--exito-texto)" }}>✓</span>
                     ) : st === "error" ? (
-                      <span style={{ color: "var(--estado-critico)" }}>✗</span>
+                      <span style={{ color: "var(--critico-texto)" }}>✗</span>
                     ) : null}
                   </td>
                 </tr>
@@ -182,6 +249,19 @@ export function TablaProductos({
             })}
           </tbody>
         </table>
+        {filtradas.length > visibles.length ? (
+          <div className="flex items-center gap-3 border-t p-3 text-xs hairline texto-tenue">
+            Se muestran {visibles.length} de {filtradas.length}; busca un modelo para encontrarlo más rápido.
+            <button
+              type="button"
+              onClick={() => setTope((t) => t + TOPE_INICIAL)}
+              className="rounded-lg border px-3 py-1 font-medium"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-1)" }}
+            >
+              Mostrar más
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <datalist id="categorias-conocidas">

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Aviso, Seccion } from "@/components/ui/pagina";
 import { LigarTikTok } from "@/components/ligar-tiktok";
 import type { RenglonTikTok } from "@/lib/servicios/tiktok-panel";
 import { filtrarInventario, ordenarPorSku, totalesDeInventario } from "@/lib/tiktok/inventario-vista";
@@ -9,18 +11,52 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
+interface ResultadoRetiroVista {
+  referencia: string;
+  detalle: { sku: string; retirados: number; apartados: number; recortados?: number }[];
+  sinDisponible: string[];
+  paresRetirados: number;
+  avisos: string[];
+}
+
 /**
  * La tabla del inventario del Almacén TikTok: ordenada por SKU, con
  * buscador y el total de lo que se está viendo arriba (pedido del dueño,
  * 18-sep-2026). Es solo vista: los renglones ya vienen masticados del
  * servidor (`cargarPanelTikTok`).
+ *
+ * Con `esDueno`, cada renglón lleva una casilla y «Retirar del almacén»
+ * pone en cero lo DISPONIBLE de los SKU elegidos: salida en el kardex,
+ * salida a Industher y cero publicado en TikTok (dueño, 20-oct-2026). Lo
+ * apartado en pedidos se queda.
  */
-export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonTikTok[]; diasVenta: number }) {
+export function InventarioTikTok({
+  renglones,
+  diasVenta,
+  esDueno = false,
+}: {
+  renglones: RenglonTikTok[];
+  diasVenta: number;
+  esDueno?: boolean;
+}) {
+  const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
   // Lo que tiene stock y NO está en línea: sin publicación activa en TikTok
   // (ninguna, en borrador o desactivada). Dueño, 2-oct-2026: «me haces una
   // lista de todo lo que hay stock TikTok que no está en línea».
   const [soloSinLinea, setSoloSinLinea] = useState(false);
+  const [elegidos, setElegidos] = useState<Set<string>>(() => new Set());
+  const [confirmaRetiro, setConfirmaRetiro] = useState(false);
+  const [retirando, setRetirando] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoRetiroVista | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Descontar una CANTIDAD de un SKU (dueño, 22-oct-2026: «una barra en la
+  // que se pone una cantidad y descuenta las piezas»): lo tecleado por SKU,
+  // cuál espera confirmación y cuál se está descontando.
+  const [descuentos, setDescuentos] = useState<Record<string, string>>({});
+  const [confirmando, setConfirmando] = useState<string | null>(null);
+  const [descontando, setDescontando] = useState<string | null>(null);
+
   const ordenados = useMemo(() => ordenarPorSku(renglones), [renglones]);
   const vistos = useMemo(() => {
     const base = filtrarInventario(ordenados, busqueda);
@@ -30,26 +66,105 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
   const filtrando = busqueda.trim().length > 0 || soloSinLinea;
   const sinLinea = useMemo(() => renglones.filter((r) => !r.publicable && r.disponible > 0).length, [renglones]);
 
+  // Lo elegido, con lo que de verdad se va a retirar (el disponible de hoy).
+  const seleccion = useMemo(() => {
+    const porSku = new Map(renglones.map((r) => [r.sku, r]));
+    const filas = [...elegidos].map((sku) => porSku.get(sku)).filter((r): r is RenglonTikTok => Boolean(r));
+    return {
+      filas,
+      pares: filas.reduce((a, r) => a + Math.max(0, r.disponible), 0),
+      apartados: filas.reduce((a, r) => a + Math.max(0, r.apartado), 0),
+      sinDisponible: filas.filter((r) => r.disponible <= 0).length,
+    };
+  }, [elegidos, renglones]);
+  const todosLosVistosElegidos = vistos.length > 0 && vistos.every((r) => elegidos.has(r.sku));
+
+  function alternar(sku: string) {
+    setElegidos((prev) => {
+      const s = new Set(prev);
+      if (s.has(sku)) s.delete(sku);
+      else s.add(sku);
+      return s;
+    });
+    setConfirmaRetiro(false);
+  }
+
+  function alternarVistos() {
+    setElegidos((prev) => {
+      const s = new Set(prev);
+      if (todosLosVistosElegidos) for (const r of vistos) s.delete(r.sku);
+      else for (const r of vistos) s.add(r.sku);
+      return s;
+    });
+    setConfirmaRetiro(false);
+  }
+
+  async function retirar() {
+    if (!elegidos.size || !confirmaRetiro || retirando) return;
+    setRetirando(true);
+    setError(null);
+    setResultado(null);
+    try {
+      const res = await fetch("/api/tiktok/retiro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: [...elegidos] }),
+      });
+      const datos = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(datos?.error ?? `Error ${res.status}`);
+      setResultado(datos as ResultadoRetiroVista);
+      setElegidos(new Set());
+      setConfirmaRetiro(false);
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRetirando(false);
+    }
+  }
+
+  async function descontar(r: RenglonTikTok) {
+    const n = Math.round(Number(descuentos[r.sku]));
+    if (!Number.isFinite(n) || n <= 0 || descontando) return;
+    setDescontando(r.sku);
+    setConfirmando(null);
+    setError(null);
+    setResultado(null);
+    try {
+      const res = await fetch("/api/tiktok/retiro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: [r.sku], cantidades: { [r.sku]: n } }),
+      });
+      const datos = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(datos?.error ?? `Error ${res.status}`);
+      setResultado(datos as ResultadoRetiroVista);
+      setDescuentos((prev) => ({ ...prev, [r.sku]: "" }));
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDescontando(null);
+    }
+  }
+
+  const columnas = esDueno ? 9 : 7;
+
   return (
-    <section className="tarjeta overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
-        <h2 className="text-sm font-semibold">Inventario por SKU</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-            Orden alfabético · venta de los últimos {diasVenta} días
-          </span>
+    <Seccion
+      titulo="Inventario por SKU"
+      sinRelleno
+      acciones={
           <a
             href="/api/tiktok/resumen-modelos"
-            className="rounded-lg border px-3 py-1 text-xs font-medium"
-            style={{ borderColor: "var(--borde)", color: "var(--ink)" }}
+            className="boton boton-borde boton-chico"
             title="Un renglón por modelo: foto, categoría, ID y estado en TikTok, stock en la bodega TikTok, stock por bodega de cajas y ventas de MELI de toda la historia"
           >
             Excel por modelo
           </a>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3 px-4">
+      }
+    >
+      <div className="flex flex-wrap items-center gap-3 px-4 pt-3">
         <input
           type="search"
           value={busqueda}
@@ -59,11 +174,11 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           className="min-w-[16rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: sinLinea ? "var(--estado-alerta)" : "var(--ink-2)" }}>
+        <label className="flex items-center gap-1.5 text-xs" style={{ color: sinLinea ? "var(--alerta-texto)" : "var(--ink-2)" }}>
           <input type="checkbox" checked={soloSinLinea} onChange={(e) => setSoloSinLinea(e.target.checked)} />
           Solo con stock sin publicación activa ({n(sinLinea)})
         </label>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "var(--ink-2)" }}>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs texto-2">
           <span>
             <b className="num" style={{ color: "var(--ink)" }}>{n(totales.skus)}</b> SKU
             {filtrando ? ` de ${n(renglones.length)}` : ""}
@@ -83,33 +198,121 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
         </div>
       </div>
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full text-sm">
+      {esDueno && elegidos.size > 0 ? (
+        <div
+          className="mx-4 mt-3 flex flex-wrap items-start gap-3 rounded-lg border px-3 py-2 text-sm"
+          style={{ borderColor: "color-mix(in oklab, var(--estado-critico) 45%, var(--borde))", background: "var(--surface-2)" }}
+        >
+          <div className="flex-1 min-w-[16rem]">
+            <b>{n(elegidos.size)} SKU</b> elegidos · se retiran <b className="num">{n(seleccion.pares)}</b> pares disponibles
+            {seleccion.apartados > 0 ? (
+              <span className="texto-2"> · {n(seleccion.apartados)} apartados en pedidos se quedan para despacharse</span>
+            ) : null}
+            {seleccion.sinDisponible > 0 ? (
+              <span className="texto-2"> · {n(seleccion.sinDisponible)} sin disponible (no cambian)</span>
+            ) : null}
+            <span className="block text-xs texto-2 mt-1">
+              El kardex baja a cero lo disponible, a Industher se le manda la salida con la referencia RETIRO-… para que
+              descuente la caja de la bodega TikTok, y a TikTok se le publica el cero.
+            </span>
+            <label className="mt-1.5 flex items-start gap-1.5 text-xs">
+              <input type="checkbox" checked={confirmaRetiro} onChange={(e) => setConfirmaRetiro(e.target.checked)} className="mt-0.5" />
+              <span>Sí, retirar estos {n(elegidos.size)} SKU del almacén de TikTok.</span>
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="boton boton-borde boton-chico" onClick={() => { setElegidos(new Set()); setConfirmaRetiro(false); }} disabled={retirando}>
+              Quitar selección
+            </button>
+            <button
+              type="button"
+              className="boton boton-peligro-lleno boton-chico"
+              onClick={retirar}
+              disabled={retirando || !confirmaRetiro || seleccion.pares <= 0}
+            >
+              {retirando ? "Retirando…" : "Retirar del almacén"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {error ? (
+        <Aviso tono="critico" className="mx-4 mt-3">
+          {error}
+        </Aviso>
+      ) : null}
+      {resultado ? (
+        <Aviso tono={resultado.paresRetirados > 0 ? "bien" : "alerta"} titulo={resultado.paresRetirados > 0 ? `Descontados ${n(resultado.paresRetirados)} pares (${resultado.referencia})` : "No se descontó nada"} className="mx-4 mt-3">
+          {resultado.detalle.length ? (
+            <ul className="text-xs">
+              {resultado.detalle.map((d) => (
+                <li key={d.sku}>
+                  {d.sku}: {n(d.retirados)} pares fuera{d.apartados > 0 ? ` · ${n(d.apartados)} apartados se quedan` : ""}
+                  {d.recortados ? ` · se pidieron ${n(d.retirados + d.recortados)} pero solo había ${n(d.retirados)} disponibles` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {resultado.sinDisponible.length ? (
+            <p className="text-xs texto-2 mt-1">Sin disponible, no cambian: {resultado.sinDisponible.join(", ")}</p>
+          ) : null}
+          {resultado.avisos.map((a, i) => (
+            <p key={i} className="text-xs mt-1">
+              {a}
+            </p>
+          ))}
+        </Aviso>
+      ) : null}
+
+      <div className="tabla-caja mt-3">
+        <table className="datos">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
-              <th className="px-4 py-2 font-semibold">SKU</th>
-              <th className="px-4 py-2 text-right font-semibold">En almacén</th>
-              <th className="px-4 py-2 text-right font-semibold">Apartado</th>
-              <th className="px-4 py-2 text-right font-semibold">Disponible</th>
-              <th className="px-4 py-2 text-right font-semibold">En TikTok</th>
-              <th className="px-4 py-2 text-right font-semibold">Venta {diasVenta}d</th>
-              <th className="px-4 py-2 text-right font-semibold">Cobertura</th>
+            <tr>
+              {esDueno ? (
+                <th className="w-8">
+                  <input
+                    type="checkbox"
+                    checked={todosLosVistosElegidos}
+                    onChange={alternarVistos}
+                    aria-label="Elegir todos los SKU que se ven"
+                    title="Elegir todos los SKU que se ven"
+                    disabled={!vistos.length}
+                  />
+                </th>
+              ) : null}
+              <th>SKU</th>
+              <th className="num">En almacén</th>
+              <th className="num">Apartado</th>
+              <th className="num">Disponible</th>
+              <th className="num">En TikTok</th>
+              <th className="num">Venta {diasVenta}d</th>
+              <th className="num">Cobertura</th>
+              {esDueno ? <th>Descontar</th> : null}
             </tr>
           </thead>
           <tbody>
             {vistos.map((r) => (
-              <tr key={r.sku} className="hairline">
-                <td className="px-4 py-2">
+              <tr key={r.sku} style={elegidos.has(r.sku) ? { background: "var(--surface-2)" } : undefined}>
+                {esDueno ? (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={elegidos.has(r.sku)}
+                      onChange={() => alternar(r.sku)}
+                      aria-label={`Elegir ${r.sku} para retirarlo del almacén`}
+                    />
+                  </td>
+                ) : null}
+                <td>
                   <span className="font-medium">{r.sku}</span>
                   {r.titulo ? (
-                    <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
+                    <span className="block text-xs texto-2">
                       {r.titulo}
                     </span>
                   ) : null}
                   {!r.contado ? (
                     <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                      sin conteo inicial: a TikTok no se le escribe hasta capturar una entrada o un
-                      ajuste
+                      sin conteo inicial: no se publica a TikTok hasta una entrada o un ajuste
                     </span>
                   ) : !r.publicable ? (
                     <>
@@ -126,36 +329,91 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                     </>
                   ) : null}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}>
+                <td className="num cifra" style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}>
                   {n(r.saldo)}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num cifra texto-2">
                   {r.apartado ? n(r.apartado) : "—"}
                 </td>
-                <td className="num px-4 py-2 text-right font-semibold">{n(r.disponible)}</td>
+                <td className="num cifra font-semibold">{n(r.disponible)}</td>
                 <td
-                  className="num px-4 py-2 text-right"
+                  className="num cifra"
                   style={{ color: r.desfasado ? "var(--estado-critico)" : "var(--ink-2)" }}
                 >
                   {r.publicado == null ? "—" : n(r.publicado)}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num cifra texto-2">
                   {r.ventas30 ? n(r.ventas30) : "—"}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num cifra texto-2">
                   {r.diasCobertura == null ? "—" : `${Math.round(r.diasCobertura)} d`}
                 </td>
+                {esDueno ? (
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {r.disponible > 0 ? (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={1}
+                          max={r.disponible}
+                          step={1}
+                          inputMode="numeric"
+                          value={descuentos[r.sku] ?? ""}
+                          onChange={(e) => {
+                            setDescuentos((prev) => ({ ...prev, [r.sku]: e.target.value }));
+                            if (confirmando === r.sku) setConfirmando(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && Number(descuentos[r.sku]) > 0) setConfirmando(r.sku);
+                          }}
+                          placeholder="pares"
+                          aria-label={`Pares a descontar de ${r.sku}`}
+                          className="w-16 rounded-lg border px-1.5 py-0.5 text-sm text-right"
+                          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                          disabled={descontando !== null}
+                        />
+                        {confirmando === r.sku ? (
+                          <>
+                            <button
+                              type="button"
+                              className="boton boton-peligro-lleno boton-chico"
+                              onClick={() => descontar(r)}
+                              disabled={descontando !== null}
+                              title={`Saca ${Math.min(Math.round(Number(descuentos[r.sku])), r.disponible)} pares del kardex, se lo manda a Industher como salida y TikTok recibe el nuevo disponible`}
+                            >
+                              Sí, −{Math.min(Math.round(Number(descuentos[r.sku])), r.disponible)}
+                            </button>
+                            <button type="button" className="boton boton-borde boton-chico" onClick={() => setConfirmando(null)} disabled={descontando !== null}>
+                              No
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="boton boton-peligro boton-chico"
+                            onClick={() => setConfirmando(r.sku)}
+                            disabled={descontando !== null || !(Math.round(Number(descuentos[r.sku])) > 0)}
+                          >
+                            {descontando === r.sku ? "Descontando…" : "Descontar"}
+                          </button>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-xs texto-tenue">sin disponible</span>
+                    )}
+                  </td>
+                ) : null}
               </tr>
             ))}
             {!renglones.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
-                  Todavía no hay nada en el almacén de TikTok. Captura la primera entrada arriba.
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={columnas}>
+                  Todavía no hay nada en el almacén de TikTok.
                 </td>
               </tr>
             ) : !vistos.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={columnas}>
                   Ningún SKU coincide con «{busqueda.trim()}».
                 </td>
               </tr>
@@ -163,6 +421,6 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           </tbody>
         </table>
       </div>
-    </section>
+    </Seccion>
   );
 }

@@ -15,6 +15,20 @@
  *     falta        = objetivo − posición
  *     mandar       = falta redondeada ARRIBA a decena, topada por bodega
  *
+ * Dos casos que la ventana sola no ve (dueño, 21-oct-2026: «no me pide
+ * mandar 567-i11-transparent pero no hay stock»):
+ *
+ *   · AGOTADO CON HISTORIA: un SKU sin stock en Full durante toda la ventana
+ *     no vende, y con venta 0 nunca se repone solo (567-i11-purple: 58
+ *     vendidas hasta julio, 10 en bodega, 0 en Full, pedía 0). Si vendió en
+ *     los 180 días anteriores a la ventana, su venta diaria sale de ESA
+ *     historia (unidades ÷ días que tuvo stock) y se repone con eso.
+ *   · ESTRENO: un SKU que NUNCA ha vendido, con nada en Full ni en camino y
+ *     al menos una decena en bodega, recibe UNA decena de prueba (el mínimo
+ *     de envío). Si vende, la ventana lo sostiene; si no, no se le manda
+ *     más (con la decena en Full ya no falta nada). Una publicación cerrada
+ *     en MELI no se estrena.
+ *
  * Por qué bloques y no un promedio plano: un modelo que pasó de 35 a 65 al
  * día a media ventana (601-iPad10 en agosto) promedia 53 y se repone corto.
  * Inclinar hacia lo reciente lo pone en 62. La tendencia (última semana
@@ -45,6 +59,8 @@ export const PESOS_BLOQUES = [0.5, 0.3, 0.2] as const;
 /** Tope a la tendencia que se reporta: −30% … +50%, como en el calzado. */
 export const TENDENCIA_MIN = -0.3;
 export const TENDENCIA_MAX = 0.5;
+/** Cuánto atrás de la ventana se mira para reponer un SKU agotado con historia. */
+export const DIAS_HISTORIA = 180;
 
 export interface VentaDia {
   sku: string;
@@ -76,6 +92,17 @@ export interface EnCamino {
   unidades: number;
 }
 
+/** Lo vendido ANTES de la ventana (los 180 días previos), ya sumado por SKU. */
+export interface HistoriaPrevia {
+  sku: string;
+  unidades: number;
+  /** Días del rango de historia. */
+  dias: number;
+  /** Fotos diarias de stock en ese rango y cuántas tuvieron stock. */
+  fotos: number;
+  conStock: number;
+}
+
 export interface ParametrosPlan {
   diasVenta: number;
   diasObjetivo: number;
@@ -85,6 +112,10 @@ export interface ParametrosPlan {
 
 export type MotivoNoEnviar =
   | "ok"
+  /** Agotado en Full toda la ventana: se repone con su venta de cuando tenía stock. */
+  | "historia"
+  /** Nunca ha vendido: va una decena de prueba. */
+  | "estreno"
   | "sin_faltante"
   | "sin_inventario"
   | "menos_de_una_decena"
@@ -99,6 +130,8 @@ export interface LineaPlan {
   /** true si la venta diaria se calculó con el calendario por falta de fotos. */
   porCalendario: boolean;
   ventaDiaria: number;
+  /** true si la venta diaria salió de la historia previa a la ventana (agotado con historia). */
+  ventaDeHistoria?: boolean;
   /** Última semana contra la anterior (0.1 = +10%); null si falta un bloque. */
   tendencia: number | null;
   enFull: number;
@@ -191,6 +224,19 @@ export function subirADecena(n: number, multiplo: number): number {
   return Math.ceil(Math.max(0, n) / multiplo) * multiplo;
 }
 
+/**
+ * Venta diaria de un SKU agotado, sacada de su historia previa: unidades ÷
+ * días que tuvo stock (con las mismas guardas que la ventana: calendario si
+ * faltan fotos, y un piso para que dos días con stock no disparen la cuenta).
+ */
+export function ventaDiariaDeHistoria(h: HistoriaPrevia): number {
+  if (h.unidades <= 0 || h.dias <= 0) return 0;
+  const porCalendario = h.fotos < h.dias * COBERTURA_MINIMA_SNAPSHOTS;
+  if (porCalendario) return h.unidades / h.dias;
+  const piso = Math.max(1, Math.ceil(h.dias / TOPE_CORRECCION));
+  return h.unidades / Math.max(piso, Math.min(h.dias, h.conStock));
+}
+
 /** Baja a la decena cerrada: lo que sí alcanza a salir con lo que hay en bodega. */
 export function bajarADecena(n: number, multiplo: number): number {
   if (multiplo <= 1) return Math.max(0, Math.floor(n));
@@ -205,6 +251,13 @@ export function calcularPlan(datos: {
   bodega: EnBodega[];
   enCamino: EnCamino[];
   parametros: ParametrosPlan;
+  /**
+   * Lo vendido antes de la ventana, por SKU. Sin esto no se aplican ni el
+   * agotado con historia ni el estreno (no se puede distinguir uno del otro).
+   */
+  historia?: HistoriaPrevia[];
+  /** SKUs cuya publicación está cerrada en MELI: no se estrenan. */
+  cerrados?: string[];
   /** Último día que cuenta (completo). Por omisión, AYER. */
   hasta?: string;
 }): Plan {
@@ -229,6 +282,9 @@ export function calcularPlan(datos: {
 
   const caminoPorSku = new Map<string, number>();
   for (const c of datos.enCamino) sumar(caminoPorSku, c.skuMeli, c.unidades);
+
+  const historiaPorSku = datos.historia ? new Map(datos.historia.map((h) => [h.sku, h])) : null;
+  const cerrados = new Set(datos.cerrados ?? []);
 
   const lineas: LineaPlan[] = [];
 
@@ -277,7 +333,7 @@ export function calcularPlan(datos: {
         ? diasDe(b)
         : Math.max(Math.max(1, Math.ceil(diasDe(b) / TOPE_CORRECCION)), Math.min(diasDe(b), [...conStock].filter((f) => f >= b.desde && f <= b.hasta).length));
     });
-    const ventaDiaria = sumaPesos > 0 ? sumaTasas / sumaPesos : 0;
+    let ventaDiaria = sumaPesos > 0 ? sumaTasas / sumaPesos : 0;
 
     let tendencia: number | null = null;
     if (tasas[0] != null && tasas[1] != null && tasas[1] > 0) {
@@ -289,15 +345,42 @@ export function calcularPlan(datos: {
     const enTransferencia = st?.enTransferencia ?? 0;
     const enCamino = caminoPorSku.get(sku) ?? 0;
     const posicion = enFull + enTransferencia + enCamino;
+    const enBodega = bodegaPorSku.get(sku) ?? 0;
+
+    // Sin venta en la ventana y sin nada en Full ni en camino: la ventana no
+    // dice nada de este SKU. Se decide con la historia previa.
+    let ventaDeHistoria = false;
+    let estreno = false;
+    if (historiaPorSku && vendidas === 0 && posicion === 0) {
+      const h = historiaPorSku.get(sku);
+      if (h && h.unidades > 0) {
+        ventaDiaria = ventaDiariaDeHistoria(h);
+        ventaDeHistoria = ventaDiaria > 0;
+      } else if (!cerrados.has(sku)) {
+        estreno = true;
+      }
+    }
 
     const objetivo = ventaDiaria * p.diasObjetivo;
-    const falta = objetivo - posicion;
-    const enBodega = bodegaPorSku.get(sku) ?? 0;
+    let falta = objetivo - posicion;
 
     let mandar = 0;
     let motivo: MotivoNoEnviar = "ok";
 
-    if (falta <= 0) {
+    if (estreno) {
+      // Una decena de prueba, si la bodega la tiene.
+      const prueba = subirADecena(p.minimoEnvio, p.multiploEnvio);
+      const tope = bajarADecena(enBodega, p.multiploEnvio);
+      if (enBodega <= 0) {
+        motivo = "sin_inventario";
+      } else if (tope < prueba) {
+        motivo = "menos_de_una_decena";
+      } else {
+        mandar = prueba;
+        falta = prueba;
+        motivo = "estreno";
+      }
+    } else if (falta <= 0) {
       motivo = "sin_faltante";
     } else if (enBodega <= 0) {
       motivo = "sin_inventario";
@@ -311,6 +394,8 @@ export function calcularPlan(datos: {
         motivo = "menos_de_una_decena";
       } else if (mandar < querido) {
         motivo = "topado_por_bodega";
+      } else if (ventaDeHistoria) {
+        motivo = "historia";
       }
     }
 
@@ -320,6 +405,7 @@ export function calcularPlan(datos: {
       diasConStock,
       porCalendario,
       ventaDiaria,
+      ...(ventaDeHistoria ? { ventaDeHistoria } : {}),
       tendencia,
       enFull,
       enTransferencia,

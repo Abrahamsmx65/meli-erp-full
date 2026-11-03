@@ -1,5 +1,6 @@
 import type { EnCaminoFba } from "@/lib/servicios/fba-en-camino";
 import { DIAS_VIGENCIA_ENVIO_FBA } from "@/lib/servicios/fba-en-camino";
+import { Aviso } from "@/components/ui/pagina";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -15,11 +16,9 @@ function n(x: number): string {
 export function EnviosViejosFba({ enCamino }: { enCamino: EnCaminoFba | null }) {
   if (!enCamino) {
     return (
-      <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-        El detalle de envíos entrantes a FBA aún no se sincroniza (la primera
-        lectura tarda hasta una hora). Mientras tanto, el &quot;en camino&quot;
-        sale del reporte de Amazon, que también cuenta envíos atorados.
-      </p>
+      <Aviso>
+        Los envíos entrantes a FBA aún no se sincronizan.
+      </Aviso>
     );
   }
   if (!enCamino.viejos.length) return null;
@@ -27,15 +26,13 @@ export function EnviosViejosFba({ enCamino }: { enCamino: EnCaminoFba | null }) 
   return (
     <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
       <header className="border-b p-4 hairline">
-        <h2 className="font-semibold">
+        <h2 className="seccion-titulo">
           Envíos a FBA ignorados por viejos ({enCamino.viejos.length} envíos ·{" "}
           {n(enCamino.paresViejos)} pares en el aire)
         </h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Llevan más de {DIAS_VIGENCIA_ENVIO_FBA} días sin ningún movimiento, así que
-          el plan YA NO los cuenta como &quot;en camino&quot;: las tallas que decían
-          traer vuelven a pedir caja. Conviene cerrarlos o reclamarlos en Seller
-          Central para que Amazon deje de reportarlos.
+        <p className="texto-2 mt-0.5 text-sm">
+          Más de {DIAS_VIGENCIA_ENVIO_FBA} días sin movimiento: el plan ya no los cuenta como
+          &quot;en camino&quot;. Ciérralos o reclámalos en Seller Central.
         </p>
       </header>
       <div className="max-h-[20rem] overflow-auto">

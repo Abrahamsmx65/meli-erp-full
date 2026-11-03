@@ -282,12 +282,7 @@ export async function repararVentasHistoricas(
     const r = await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
     // Leer de vuelta lo que QUEDÓ en la base: si el barrido dice 468 filas
     // y aquí aparecen 0, el problema es la escritura, no la lectura.
-    const { data: eco } = await db
-      .from("ventas_diarias")
-      .select("unidades")
-      .eq("account_id", accountId)
-      .eq("fecha", fecha)
-      .limit(2000);
+    const eco = await filasDelDia(db, accountId, fecha, "sku, unidades", { siFalla: "vacio" });
     const enBase = (eco ?? []).length;
     const unidadesEnBase = (eco ?? []).reduce((a: number, f: any) => a + (f.unidades ?? 0), 0);
     bitacora.push({
@@ -332,6 +327,31 @@ export function diaNecesitaRegistro(registradas: number, ordenesVenta: number): 
 }
 
 const TAREA_REGISTRO_ORDENES = "registro_ordenes_v1";
+
+
+/**
+ * Los renglones de UN día de `ventas_diarias`, TODOS: un día trae un renglón
+ * por SKU vendido (~470, 554 el día más alto) y un `.limit(2000)` solo trae
+ * 1,000. Un día de Hot Sale con más de mil SKUs dejaba fuera de la cuenta
+ * los sobrantes a borrar y el candado de plausibilidad. Con `siFalla:
+ * "vacio"` un error se lee como día vacío (bitácoras y la limpieza de
+ * sobrantes, que entonces no borra nada); sin él, el error sube: el candado
+ * de plausibilidad no puede decidir a ciegas.
+ */
+async function filasDelDia(
+  db: DB,
+  accountId: string,
+  fecha: string,
+  columnas: string,
+  opts: { siFalla?: "vacio" | "lanzar" } = {},
+): Promise<any[]> {
+  try {
+    return await traerTodo<any>(db, "ventas_diarias", columnas, (q) => q.eq("account_id", accountId).eq("fecha", fecha));
+  } catch (err) {
+    if (opts.siFalla === "vacio") return [];
+    throw err;
+  }
+}
 
 /**
  * Registra hacia atrás las órdenes que el barrido diario nunca guardó en
@@ -383,7 +403,7 @@ export async function registrarOrdenesFaltantes(
   // Hasta 3 días barridos o 40 saltados por latido: el latido tiene más que hacer.
   while (fecha >= fondo && dias < 3 && saltados < 40 && Date.now() < finMs) {
     const [{ data: venta }, { count: registradas }] = await Promise.all([
-      db.from("ventas_diarias").select("ordenes").eq("account_id", accountId).eq("fecha", fecha).limit(2000),
+      filasDelDia(db, accountId, fecha, "sku, ordenes", { siFalla: "vacio" }).then((data) => ({ data })),
       db.from("ordenes_neto").select("order_id", { count: "exact", head: true }).eq("account_id", accountId).eq("fecha", fecha),
     ]);
     const ordenesVenta = (venta ?? []).reduce((a: number, f: any) => a + (f.ordenes ?? 0), 0);
@@ -469,12 +489,7 @@ export async function recalcularDiaVentas(
     .slice(0, 10);
   let ordenesGuardadas = 0;
   if (fecha <= hace2dias) {
-    const { data: previas } = await db
-      .from("ventas_diarias")
-      .select("ordenes")
-      .eq("account_id", accountId)
-      .eq("fecha", fecha)
-      .limit(2000);
+    const previas = await filasDelDia(db, accountId, fecha, "sku, ordenes");
     ordenesGuardadas = (previas ?? []).reduce((a: number, f: any) => a + (f.ordenes ?? 0), 0);
   }
 
@@ -607,12 +622,7 @@ export async function recalcularDiaVentas(
   // mitad de lo guardado. Se relee lo guardado AQUÍ, justo antes de
   // escribir, para achicar la ventana de carrera con la reparación.
   if (fecha <= hace2dias) {
-    const { data: guardadas } = await db
-      .from("ventas_diarias")
-      .select("unidades")
-      .eq("account_id", accountId)
-      .eq("fecha", fecha)
-      .limit(2000);
+    const guardadas = await filasDelDia(db, accountId, fecha, "sku, unidades");
     const unidadesGuardadas = (guardadas ?? []).reduce(
       (a: number, f: any) => a + (f.unidades ?? 0),
       0,
@@ -641,11 +651,7 @@ export async function recalcularDiaVentas(
     return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli, netosPendientes };
   }
   const skusBarridos = new Set(filas.map((f) => f.sku as string));
-  const { data: existentes } = await db
-    .from("ventas_diarias")
-    .select("sku")
-    .eq("account_id", accountId)
-    .eq("fecha", fecha);
+  const existentes = await filasDelDia(db, accountId, fecha, "sku", { siFalla: "vacio" });
   const sobrantes = (existentes ?? [])
     .map((e: any) => e.sku as string)
     .filter((s) => !skusBarridos.has(s));

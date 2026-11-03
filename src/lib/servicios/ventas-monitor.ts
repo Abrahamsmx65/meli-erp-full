@@ -10,8 +10,7 @@
  * "vender menos" es no tener qué vender — y solo si el stock no explica nada
  * se atribuye a la demanda.
  */
-import { traerTodo, type DB } from "../datos/repos";
-import { conCacheApp } from "./cache-app";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { configPorProducto } from "./productos";
 
 /** Compatibilidad: sin marca explícita, solo los netos positivos históricos eran reales. */
@@ -143,27 +142,63 @@ function rangoPrevio(r: RangoFechas): RangoFechas {
 }
 
 /**
- * Un minuto de caché por instancia: el monitor baja decenas de miles de
- * renglones de venta por clic y el latido solo escribe una vez por minuto —
- * releerlo en cada visita era puro tiempo perdido.
+ * Copia en memoria por instancia, MUY corta: solo para que varios clics
+ * seguidos (o las recargas de la pantalla) no repitan el mismo cálculo. Lo
+ * guardado de verdad son las ventas por día de la base (`ventas_dia_sku`,
+ * al corriente en ≤ 1 min); el monitor se arma sobre ellas en cada visita.
  */
 const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
-const VIDA_CACHE_MONITOR_MS = 60_000;
+const VIDA_CACHE_MONITOR_MS = 15_000;
 
 /**
- * Reutiliza el agregado completo por cuenta y rango. La búsqueda, el orden y
- * la página se aplican después sobre este resultado y no forman parte de la
- * clave, por lo que navegar la tabla no vuelve a consultar sus fuentes.
+ * El monitor para PANTALLAS se calcula EN VIVO (dueño, 11-oct-2026: «antes
+ * todo era en vivo, todo funcionaba rápido; no se trabajaba cuando cambiabas
+ * entre hoy, ayer, 7, 15 o 30 días»). Hasta ese día se servía una copia
+ * guardada por rango en `app_cache` que vencía a los 3 min mientras el
+ * latido la rehacía cada ~6: casi toda visita encontraba la copia vieja, la
+ * enseñaba, mandaba a recalcular y la pantalla se recargaba sola con los
+ * números brincando. Desde la 0138 los días ya están sumados en la base y
+ * `ventas_monitor_datos` (0141) suma el periodo, el anterior y los totales
+ * por día en UNA llamada (30 días ≈ 110 ms en Postgres): ya no hace falta
+ * otra copia encima. «Hoy» sale con el retraso de la base (≤ 1 min).
  */
-export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+export async function servirMonitor(
+  db: DB,
+  accountId: string,
+  rango?: RangoFechas,
+): Promise<{ datos: Monitor; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
-  return conCacheApp(
-    db,
-    accountId,
-    `ventas-monitor:${r.desde}:${r.hasta}`,
-    VIDA_CACHE_MONITOR_MS,
-    () => calcularMonitor(db, accountId, r),
-  );
+  const datos = await calcularMonitor(db, accountId, r);
+  return { datos, generadoEn: null, refrescando: false };
+}
+
+export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+  return (await servirMonitor(db, accountId, rango)).datos;
+}
+
+/**
+ * Catálogo y stock para nombrar modelos y explicar las razones: cambian
+ * despacio, así que se guardan dos minutos por instancia (no son ventas).
+ */
+const VIDA_CATALOGO_MS = 2 * 60_000;
+const cacheCatalogo = new Map<
+  string,
+  { en: number; datos: Promise<{ skus: any[]; stock: any[] }> }
+>();
+
+function catalogoMonitor(db: DB, accountId: string): Promise<{ skus: any[]; stock: any[] }> {
+  const guardado = cacheCatalogo.get(accountId);
+  if (guardado && Date.now() - guardado.en < VIDA_CATALOGO_MS) return guardado.datos;
+  const datos = Promise.all([
+    traerTodo<any>(db, "skus", "sku, modelo, color", (q) => q.eq("account_id", accountId).eq("activo", true)),
+    traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
+  ]).then(([skus, stock]) => ({ skus, stock }));
+  cacheCatalogo.set(accountId, { en: Date.now(), datos });
+  // Si falla, que el siguiente lo vuelva a pedir.
+  datos.catch(() => {
+    if (cacheCatalogo.get(accountId)?.datos === datos) cacheCatalogo.delete(accountId);
+  });
+  return datos;
 }
 
 async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
@@ -230,10 +265,46 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
 
   // Sumado en Postgres: bajar decenas de miles de renglones para sumarlos
   // aquí era el costo más alto de abrir la pantalla.
+  // UNA llamada (0141): lo mismo que `ventas_resumen_sku` + `ventas_totales_dia`.
+  const agregadosDesdeMonitorDatos = async (): Promise<Agregados | null> => {
+    const { data, error } = await db.rpc("ventas_monitor_datos", {
+      p_account: accountId,
+      p_desde: inicioSemana,
+      p_hasta: finRango,
+      p_prev_desde: previo.desde,
+      p_prev_hasta: previo.hasta,
+      p_hoy: hoy,
+    });
+    if (error || !data) return null;
+    const crudo = data as { skus?: unknown[][]; dias?: unknown[][] };
+    const porSku: AgregadoSku[] = (crudo.skus ?? []).map((f) => ({
+      sku: String(f[0]),
+      unidades: Number(f[1]) || 0,
+      ordenes: Number(f[2]) || 0,
+      importe: Number(f[3]) || 0,
+      comision: Number(f[4]) || 0,
+      netoResuelto: Number(f[5]) || 0,
+      importeNetoReal: Number(f[6]) || 0,
+      comisionNetoReal: Number(f[7]) || 0,
+      netoReal: Number(f[8]) || 0,
+      unidadesHoy: Number(f[9]) || 0,
+      unidadesPrev: Number(f[10]) || 0,
+    }));
+    const porDia = new Map<string, ResumenDia>(
+      (crudo.dias ?? []).map((f) => [
+        String(f[0]),
+        { unidades: Number(f[1]) || 0, ordenes: Number(f[2]) || 0, importe: Number(f[3]) || 0 },
+      ]),
+    );
+    return { porSku, porDia };
+  };
+
+  // Respaldo: las dos consultas de antes (si la 0141 no está en la base).
   const agregadosDesdeRpc = async (): Promise<Agregados | null> => {
     const hastaTotales = hoy > finRango ? hoy : finRango;
     const [porSkuR, porDiaR] = await Promise.all([
-      db.rpc("ventas_resumen_sku", {
+      // Por páginas: hay más de 1,000 SKUs con venta.
+      rpcPaginado(db, "ventas_resumen_sku", {
         p_account: accountId,
         p_desde: inicioSemana,
         p_hasta: finRango,
@@ -324,19 +395,12 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     return { porSku: [...porSku.values()], porDia };
   };
 
-  const [agregados, skus, stock, snapshots, config] = await Promise.all([
-    (async () => (await agregadosDesdeRpc()) ?? agregadosDesdeRenglones(await leerVentas()))(),
-    traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
-      q.eq("account_id", accountId).eq("activo", true),
-    ),
-    traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) =>
-      q.eq("account_id", accountId),
-    ),
-    // SOLO las fotos en cero: es lo único que el monitor usa (días
-    // agotados). Traerlas todas eran ~36 mil filas por clic.
-    traerTodo<any>(db, "stock_snapshots", "sku, fecha, disponible", (q) =>
-      q.eq("account_id", accountId).gte("fecha", inicioPrev).eq("disponible", 0),
-    ),
+  const [agregados, { skus, stock }, config] = await Promise.all([
+    (async () =>
+      (await agregadosDesdeMonitorDatos()) ??
+      (await agregadosDesdeRpc()) ??
+      agregadosDesdeRenglones(await leerVentas()))(),
+    catalogoMonitor(db, accountId),
     configPorProducto(db, accountId),
   ]);
 
@@ -477,10 +541,44 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     else tallasDe.set(clave, [s.sku]);
   }
 
+  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
+  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
+  const movimientos = [...modelos.entries()]
+    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
+    .map(([modelo, m]) => ({
+      producto: modelo,
+      modelo,
+      color: "",
+      antes: m.unidades7Prev,
+      ahora: m.unidades7,
+      delta: m.unidades7 - m.unidades7Prev,
+      razon: "",
+    }));
+  const subenSinRazon = movimientos
+    .filter((m) => m.delta > 0)
+    .sort((a, b) => b.delta - a.delta)
+    .slice(0, 8);
+  const bajanSinRazon = movimientos
+    .filter((m) => m.delta < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 8);
+
+  // Las fotos en cero SOLO de las tallas de los modelos que salen en Suben y
+  // Bajan: es lo único que las usa. Antes se bajaban las ~18 mil fotos en
+  // cero de toda la cuenta (19 páginas) para escribir 16 razones.
+  const skusConRazon = [
+    ...new Set([...subenSinRazon, ...bajanSinRazon].flatMap((m) => tallasDe.get(m.modelo) ?? [])),
+  ];
+  const snapshots = await fotosEnCeroDe(db, accountId, inicioPrev, skusConRazon);
+
   const diasAgotadoSemana = new Map<string, number>();
+  const agotadoAntes = new Set<string>();
   for (const f of snapshots) {
-    if (f.fecha < inicioSemana) continue;
     if ((f.disponible ?? 0) > 0) continue;
+    if (f.fecha < inicioSemana) {
+      agotadoAntes.add(f.sku);
+      continue;
+    }
     diasAgotadoSemana.set(f.sku, (diasAgotadoSemana.get(f.sku) ?? 0) + 1);
   }
 
@@ -504,41 +602,15 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     const teniaQuiebrePrev = tallas.some((sku) => {
       // ¿Estuvo agotado la semana pasada y ahora tiene stock?
       const conStockHoy = (stockDe.get(sku)?.disponible ?? 0) > 0;
-      const agotadoAntes = snapshots.some(
-        (f) => f.sku === sku && f.fecha < inicioSemana && (f.disponible ?? 0) === 0,
-      );
-      return conStockHoy && agotadoAntes;
+      return conStockHoy && agotadoAntes.has(sku);
     });
     if (teniaQuiebrePrev) return "Se repuso stock que estaba agotado.";
     if (enCamino) return "La demanda subió (y ya viene más stock en camino).";
     return "La demanda subió.";
   };
 
-  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
-  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
-  const movimientos = [...modelos.entries()]
-    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
-    .map(([modelo, m]) => ({
-      producto: modelo,
-      modelo,
-      color: "",
-      antes: m.unidades7Prev,
-      ahora: m.unidades7,
-      delta: m.unidades7 - m.unidades7Prev,
-      razon: "",
-    }));
-
-  const subiendo = movimientos
-    .filter((m) => m.delta > 0)
-    .sort((a, b) => b.delta - a.delta)
-    .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
-
-  const bajando = movimientos
-    .filter((m) => m.delta < 0)
-    .sort((a, b) => a.delta - b.delta)
-    .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
+  const subiendo = subenSinRazon.map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
+  const bajando = bajanSinRazon.map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
 
   const porModelo: FilaModelo[] = [...modelos.entries()]
     .map(([modelo, m]) => ({
@@ -580,6 +652,31 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
   };
   cacheMonitor.set(claveCache, { en: Date.now(), datos: monitor });
   return monitor;
+}
+
+/** Tallas por tanda en `.in("sku", …)`: la URL no debe crecer sin tope. */
+const SKUS_POR_TANDA = 150;
+
+/** Fotos con `disponible = 0` desde `desde`, solo de esos SKUs, por tandas. */
+async function fotosEnCeroDe(
+  db: DB,
+  accountId: string,
+  desde: string,
+  skus: string[],
+): Promise<{ sku: string; fecha: string; disponible: number | null }[]> {
+  const tandas: string[][] = [];
+  for (let i = 0; i < skus.length; i += SKUS_POR_TANDA) tandas.push(skus.slice(i, i + SKUS_POR_TANDA));
+  const partes = await Promise.all(
+    tandas.map((tanda) =>
+      traerTodo<{ sku: string; fecha: string; disponible: number | null }>(
+        db,
+        "stock_snapshots",
+        "sku, fecha, disponible",
+        (q) => q.eq("account_id", accountId).gte("fecha", desde).eq("disponible", 0).in("sku", tanda),
+      ),
+    ),
+  );
+  return partes.flat();
 }
 
 /**

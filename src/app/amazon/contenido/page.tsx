@@ -4,6 +4,7 @@ import { obtenerContenidoAmazon } from "@/lib/servicios/contenido-amazon";
 import { tokenDeCuenta } from "@/lib/servicios/acceso-contenido";
 import { ContenidoAmazonPanel } from "@/components/contenido-amazon";
 import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -25,16 +26,7 @@ export default async function Contenido({
   const supabase = await clienteServidor();
   const cuenta = await cuentaAmazon(supabase);
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Amazon no está conectado</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          No hay ninguna cuenta de Amazon asociada a este usuario.
-        </p>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Contenido de marca" servicio="amazon" />;
 
   const [contenido, token] = await Promise.all([
     obtenerContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados }),
@@ -53,37 +45,35 @@ export default async function Contenido({
   } = contenido;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Contenido en Amazon</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Los productos que tenemos publicados en Amazon, del GT054 en adelante más MY2307 y
-          G650: sus categorías en la store, sus imágenes y su contenido A+. Lo que se publique
-          después entra solo, marcado como nuevo.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Amazon"
+        titulo="Contenido de marca"
+        descripcion="Categorías en la store, imágenes y contenido A+ de cada producto publicado."
+        ayuda={
+          <p>
+            Los productos que tenemos publicados en Amazon, del GT054 en adelante más MY2307 y
+            G650: sus categorías en la store, sus imágenes y su contenido A+. Lo que se publique
+            después entra solo, marcado como nuevo.
+          </p>
+        }
+      />
 
       {faltaMigracion ? (
-        <div
-          className="tarjeta p-4 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
+        <Aviso tono="alerta">
           Falta aplicar la migración 0032 en Supabase: la lista se ve, pero no se puede
           palomear nada todavía.
-        </div>
+        </Aviso>
       ) : null}
 
       {advertencias.length ? (
-        <div
-          className="tarjeta p-4 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
+        <Aviso tono="alerta">
           <strong>Contenido parcial.</strong> {advertencias.join(" ")} Vuelve a intentar antes
           de editar.
-        </div>
+        </Aviso>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha titulo="Productos" valor={totales.modelos} />
         <Ficha
           titulo="Nuevos"
@@ -102,7 +92,7 @@ export default async function Contenido({
           valor={anotacionesDisponibles ? totales.conAplus : "—"}
           nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conAplus}` : "No disponible"}
         />
-      </div>
+      </Cifras>
 
       {anotacionesDisponibles ? <ContenidoAmazonPanel
         modelos={modelos}
@@ -113,6 +103,6 @@ export default async function Contenido({
         soloLectura={faltaMigracion || advertencias.length > 0}
         linkPublico={token ? `/contenido/${token}` : null}
       /> : null}
-    </div>
+    </Pagina>
   );
 }

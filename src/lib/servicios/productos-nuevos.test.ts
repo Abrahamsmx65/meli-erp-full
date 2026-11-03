@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agruparProductosDePedidos,
+  buscadorDeProductos,
   claveProducto,
   claveProductoDeSku,
   claveProductoLaxa,
@@ -119,5 +120,38 @@ describe("amarre a una letra (MY2307: la proforma dice CHOCOLATE BROWN, MELI pub
     expect(colorAUnaLetra("M BROWN", partesLaxasDeSku("GT214-LT BROWN-24-MX")!.color)).toBe(false);
     // Igualito no es «a una letra»: ese caso ya lo resolvió el nivel exacto.
     expect(colorAUnaLetra("BLK", partesLaxasDeSku("GT134-BLK-24-MX")!.color)).toBe(false);
+  });
+});
+
+describe("buscadorDeProductos: GT104 y GT229 (21-oct-2026)", () => {
+  const armar = (lineas: { modelo: string; color: string }[]) =>
+    buscadorDeProductos(
+      agruparProductosDePedidos(
+        [{ id: "a", pedido: "IN10151", estado: "creado", actualizado_en: null }],
+        lineas.map((l) => ({ pedido_id: "a", ...l, cajas: 10, pares: 480 })),
+      ),
+    );
+
+  it("GT104-1 + BLK del pedido amarra con «GT104-1-BLK-25-MX» de MELI (modelo con guion partido)", () => {
+    const buscar = armar([
+      { modelo: "GT104-1", color: "BLK" },
+      { modelo: "GT104-7", color: "GREY-BLK" },
+    ]);
+    expect(buscar("GT104-1-BLK-25-MX").map((p) => p.clave)).toEqual(["GT104-1|BLK"]);
+    expect(buscar("GT104-7-GREY/BLK-25-MX").map((p) => p.clave)).toEqual(["GT104-7|GREYBLK"]);
+    expect(buscar("GT104-7-GREY-BLK-25-MX").map((p) => p.clave)).toEqual(["GT104-7|GREYBLK"]);
+  });
+
+  it("GT229 «BLK / GREY FUR» del pedido amarra con «GT229-BLK» de MELI; con dos candidatos no adivina", () => {
+    const buscar = armar([
+      { modelo: "GT229", color: "BLK / GREY FUR" },
+      { modelo: "GT229", color: "DK BROWN / CREAM FUR (" },
+      { modelo: "GT229", color: "TABACO BROWN / CREAM FUR (" },
+    ]);
+    expect(buscar("GT229-BLK-23-MX").map((p) => p.clave)).toEqual(["GT229|BLKGREYFUR"]);
+    expect(buscar("GT229-DK BROWN-23-MX").map((p) => p.color)).toEqual(["DK BROWN / CREAM FUR ("]);
+    expect(buscar("GT229-TABACO BROWN-23-MX").map((p) => p.color)).toEqual(["TABACO BROWN / CREAM FUR ("]);
+    // «BROWN» solo cabe en los dos cafés: no se adivina
+    expect(buscar("GT229-BROWN-23-MX")).toEqual([]);
   });
 });

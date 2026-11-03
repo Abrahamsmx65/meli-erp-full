@@ -79,3 +79,22 @@ describe("renglonesDeTallas", () => {
     expect(renglonesDeTallas([], 14, medir)).toEqual([]);
   });
 });
+
+describe("itemsConLotes", () => {
+  it("colapsa los paquetes seguidos de un lote en un solo bloque con todos sus pares", async () => {
+    const { itemsConLotes } = await import("./empaque");
+    const { detectarLotes } = await import("./lotes");
+    const { numerarPaquetes } = await import("./despacho");
+    const paquetes = numerarPaquetes(
+      [
+        ...Array.from({ length: 10 }, (_, i) => ({ orderId: `a${i}`, packageId: `p${i}`, destinatario: null, pares: [{ sku: "GT148-BLK-24-MX", pares: 1, fnsku: "X1" }] })),
+        { orderId: "b", packageId: "pb", destinatario: null, pares: [{ sku: "GT148-BLK-25-MX", pares: 2, fnsku: "X2" }] },
+      ],
+      "un-color",
+    );
+    const items = itemsConLotes(paquetes, detectarLotes(paquetes));
+    expect(items.map((it) => it.tipo)).toEqual(["lote", "paquete"]);
+    expect(items[0].pares).toEqual([{ sku: "GT148-BLK-24-MX", pares: 10 }]);
+    if (items[0].tipo === "lote") expect(items[0].paquetes.map((p) => p.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+});

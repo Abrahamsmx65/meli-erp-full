@@ -19,7 +19,7 @@
  * Este módulo no escribe nada.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { guardarCacheApp, leerCacheApp } from "./cache-app";
+import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { claveGrupoFba, desglosarAmazon } from "./fba";
 import {
   esErrorObjetoLegacy,
@@ -535,26 +535,35 @@ export async function obtenerContenidoAmazon(
   opciones: { verEliminados?: boolean } = {},
 ): Promise<ContenidoAmazon> {
   const clave = `contenido:${pais ?? ""}:${opciones.verEliminados ? 1 : 0}`;
-  const guardado = await leerCacheApp<ContenidoAmazon>(
-    db,
-    amazonAccountId,
-    clave,
-    30 * 60_000,
-  );
+  const guardado = await leerCacheAppGuardado<ContenidoAmazon>(db, amazonAccountId, clave);
   if (guardado.estado === "fallo") throw guardado.error;
   if (guardado.estado === "encontrado") {
-    return {
-      ...guardado.valor,
-      advertencias: guardado.valor.advertencias ?? [],
-      anotacionesDisponibles: guardado.valor.anotacionesDisponibles ?? true,
-    };
+    const { datos, generadoEn, vigente } = guardado.valor;
+    const edad = Date.now() - Date.parse(generadoEn);
+    if (vigente && edad <= vidaContenido(datos)) {
+      return {
+        ...datos,
+        advertencias: datos.advertencias ?? [],
+        anotacionesDisponibles: datos.anotacionesDisponibles ?? true,
+      };
+    }
   }
   const t0 = Date.now();
   const contenido = await cargarContenidoAmazon(db, amazonAccountId, pais, opciones);
-  if (contenido.advertencias.length === 0) {
+  // Con avisos también se guarda (los avisos viajan dentro): antes un solo
+  // aviso —p. ej. los ASIN padre sin leer— dejaba la pantalla sin caché y
+  // bajando el catálogo completo en cada visita. Lo único que NO se guarda es
+  // un contenido con la edición apagada: se volvería a enseñar sin poder
+  // palomear durante media hora.
+  if (contenido.anotacionesDisponibles || contenido.faltaMigracion) {
     await guardarCacheApp(db, amazonAccountId, clave, contenido, Date.now() - t0);
   }
   return contenido;
+}
+
+/** 30 min de vida; con avisos, 5: lo que falló se vuelve a intentar pronto. */
+export function vidaContenido(c: Pick<ContenidoAmazon, "advertencias">): number {
+  return (c.advertencias?.length ?? 0) > 0 ? 5 * 60_000 : 30 * 60_000;
 }
 
 export async function cargarContenidoAmazon(

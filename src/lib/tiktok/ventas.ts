@@ -19,6 +19,33 @@ export function diaMx(iso: string): string {
 /** Lo que nunca cuenta como venta: sin pagar o cancelado. */
 const NO_CUENTAN = new Set(["UNPAID", "CANCELLED", "CANCEL"]);
 
+/**
+ * La venta de un pedido (decisión del dueño, 11-oct-2026, la misma regla que
+ * la reventa de MELI al precio público): lo que TikTok cuenta como ingreso
+ * del pedido, que incluye el descuento que TikTok pone de su bolsa y luego
+ * le paga al vendedor. El cliente pagó menos ($1,276,208 contra $1,357,487
+ * en septiembre de 2026) y contado así el descuento de TikTok se comía la
+ * barra de «plataforma» (27 % en vez del ~30 % que TikTok cobra). Sin
+ * número de TikTok todavía, es lo que pagó el cliente (precio × cantidad).
+ */
+/**
+ * El ingreso y los anuncios del pedido desde `pago_desglose`, solo si TikTok
+ * ya tiene número de cuánto paga por él (liquidado o por liquidar).
+ */
+export function deDesglose(
+  desglose: { ingreso?: unknown; anuncios?: unknown } | null | undefined,
+  conNumero: boolean,
+): { ingresoTikTok: number | null; anuncios: number | null } {
+  if (!conNumero || !desglose) return { ingresoTikTok: null, anuncios: null };
+  const ingreso = desglose.ingreso == null || desglose.ingreso === "" ? NaN : Number(desglose.ingreso);
+  const anuncios = Number(desglose.anuncios);
+  return { ingresoTikTok: Number.isFinite(ingreso) ? ingreso : null, anuncios: Number.isFinite(anuncios) ? anuncios : null };
+}
+
+export function ventaDeOrden(o: Pick<OrdenParaVentas, "ingresoTikTok">, cobradoOrden: number): number {
+  return o.ingresoTikTok != null && Number.isFinite(o.ingresoTikTok) ? o.ingresoTikTok : cobradoOrden;
+}
+
 export interface OrdenParaVentas {
   orderId: string;
   estado: string | null;
@@ -36,6 +63,15 @@ export interface OrdenParaVentas {
   pagoEsperado?: number | null;
   /** comisión a afiliados/creadores que TikTok descuenta en ese pedido */
   afiliado?: number | null;
+  /**
+   * La VENTA del pedido según TikTok (`revenue_amount` de sus transacciones:
+   * precio menos el descuento del vendedor; el descuento que pone TikTok de
+   * su bolsa SÍ cuenta). Solo cuando TikTok ya tiene número del pedido;
+   * null = se usa precio × cantidad de los renglones.
+   */
+  ingresoTikTok?: number | null;
+  /** anuncios GMV Max que TikTok cobró dentro del pedido (publicidad) */
+  anuncios?: number | null;
   /** el creador (afiliado) que trajo la venta, según el endpoint de afiliados; null = ninguno */
   creador?: string | null;
   /** true si el pedido ya se revisó contra el endpoint de afiliados (sin creador = venta de la tienda) */
@@ -65,6 +101,13 @@ export function agregarVentasDiarias(
   renglones: RenglonParaVentas[],
 ): VentaDiariaTikTok[] {
   const diaDeOrden = new Map<string, string>();
+  const ordenPorId = new Map(ordenes.map((o) => [o.orderId, o]));
+  // El precio de los renglones vivos de cada pedido, para repartir su venta.
+  const cobradoDe = new Map<string, number>();
+  for (const r of renglones) {
+    if (!r.skuInterno || NO_CUENTAN.has(String(r.estado ?? "").toUpperCase())) continue;
+    cobradoDe.set(r.orderId, (cobradoDe.get(r.orderId) ?? 0) + (r.precio ?? 0) * r.cantidad);
+  }
   for (const o of ordenes) {
     if (NO_CUENTAN.has(String(o.estado ?? "").toUpperCase())) continue;
     if (o.esMuestra) continue;
@@ -82,14 +125,17 @@ export function agregarVentasDiarias(
     const acc = acumulado.get(clave) ?? { unidades: 0, ordenes: new Set<string>(), importe: 0 };
     acc.unidades += r.cantidad;
     acc.ordenes.add(r.orderId);
-    acc.importe += (r.precio ?? 0) * r.cantidad;
+    const cobradoOrden = cobradoDe.get(r.orderId) ?? 0;
+    const o = ordenPorId.get(r.orderId);
+    const cobrado = (r.precio ?? 0) * r.cantidad;
+    acc.importe += o?.ingresoTikTok != null && cobradoOrden > 0 ? ventaDeOrden(o, cobradoOrden) * (cobrado / cobradoOrden) : cobrado;
     acumulado.set(clave, acc);
   }
 
   return [...acumulado]
     .map(([clave, acc]) => {
       const i = clave.lastIndexOf("|");
-      return { sku: clave.slice(0, i), fecha: clave.slice(i + 1), unidades: acc.unidades, ordenes: acc.ordenes.size, importe: acc.importe };
+      return { sku: clave.slice(0, i), fecha: clave.slice(i + 1), unidades: acc.unidades, ordenes: acc.ordenes.size, importe: Math.round(acc.importe * 100) / 100 };
     })
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.sku.localeCompare(b.sku));
 }
@@ -107,8 +153,12 @@ export interface ResumenModelo {
   modelo: string;
   unidades: number;
   pedidos: number;
-  /** precio de venta al cliente */
+  /** la VENTA: lo que TikTok cuenta como ingreso (`ventaDeOrden`), repartido por precio */
   cobrado: number;
+  /** lo que pagó el cliente (precio × cantidad); la diferencia con la venta es el descuento que pone TikTok */
+  pagadoCliente: number;
+  /** anuncios GMV Max cobrados en esos pedidos, repartidos igual (solo pedidos con dato) */
+  anuncios: number;
   /**
    * Lo que TikTok va a pagar por estos pares según SUS transacciones
    * (liquidadas o por liquidar), repartido entre los renglones del pedido
@@ -172,7 +222,7 @@ export function resumenPorModelo(
     let m = modelos.get(modelo);
     if (!m) {
       m = {
-        modelo, unidades: 0, pedidos: 0, cobrado: 0, aRecibir: 0, aRecibirLiquidado: 0, aRecibirPorLiquidar: 0, afiliado: 0,
+        modelo, unidades: 0, pedidos: 0, cobrado: 0, pagadoCliente: 0, anuncios: 0, aRecibir: 0, aRecibirLiquidado: 0, aRecibirPorLiquidar: 0, afiliado: 0,
         unidadesConDato: 0, pedidosSinDato: 0, cobradoSinDato: 0, unidadesSinDato: 0, pedidosLiquidados: 0, tallas: [],
         pedidosSet: new Set(), sinDatoSet: new Set(), liquidadosSet: new Set(), tallasMap: new Map(),
       };
@@ -191,14 +241,17 @@ export function resumenPorModelo(
     const liquidado = o.netoRecibido != null;
     const pagoPedido = liquidado ? (o.netoRecibido as number) : o.pagoEsperado ?? null;
     const afiliadoPedido = o.afiliado ?? 0;
+    const conIngreso = pagoPedido != null && o.ingresoTikTok != null;
     for (const r of lista) {
-      const cobrado = (r.precio ?? 0) * r.cantidad;
+      const pagado = (r.precio ?? 0) * r.cantidad;
       // La parte del pago que le toca al renglón: por precio; si el pedido
       // no tiene precios, por unidades.
-      const parte = cobradoOrden > 0 ? cobrado / cobradoOrden : unidadesOrden > 0 ? r.cantidad / unidadesOrden : 0;
+      const parte = cobradoOrden > 0 ? pagado / cobradoOrden : unidadesOrden > 0 ? r.cantidad / unidadesOrden : 0;
+      const cobrado = conIngreso ? ventaDeOrden(o, cobradoOrden) * parte : pagado;
       const m = de(modeloDeSku(r.skuInterno as string));
       m.unidades += r.cantidad;
       m.cobrado += cobrado;
+      m.pagadoCliente += pagado;
       m.pedidosSet.add(orderId);
       const t = m.tallasMap.get(r.skuInterno as string) ?? { sku: r.skuInterno as string, unidades: 0, cobrado: 0, aRecibir: 0 };
       t.unidades += r.cantidad;
@@ -217,6 +270,7 @@ export function resumenPorModelo(
           m.aRecibirPorLiquidar += aRecibir;
         }
         m.afiliado += afiliadoPedido * parte;
+        m.anuncios += (o.anuncios ?? 0) * parte;
         m.unidadesConDato += r.cantidad;
         t.aRecibir += aRecibir;
       }
@@ -311,6 +365,11 @@ export function origenDeVentas(
     if (!acum || NO_CUENTAN.has(String(r.estado ?? "").toUpperCase())) continue;
     acum.unidades += r.cantidad;
     acum.cobrado += (r.precio ?? 0) * r.cantidad;
+  }
+  // La venta de cada pedido es la de TikTok (`ventaDeOrden`), como en el resumen.
+  for (const o of validas) {
+    const v = porOrden.get(o.orderId);
+    if (v && (o.netoRecibido != null || o.pagoEsperado != null)) v.cobrado = ventaDeOrden(o, v.cobrado);
   }
   const vacio = (): BloqueOrigen => ({ pedidos: 0, unidades: 0, cobrado: 0, porcentaje: 0 });
   const total = vacio();

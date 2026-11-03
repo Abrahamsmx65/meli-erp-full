@@ -15,18 +15,22 @@
  * El paso 5 es el que hace que esto sirva: sin él el kardex sería un cuaderno
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
-import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
-import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { estanteDeSku, leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
-import { agregarVentasDiarias } from "../tiktok/ventas";
+import { leerEstadosDeCuenta } from "./tiktok-estados";
+import { agregarVentasDiarias, deDesglose } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
+import { amarreDeExterno } from "../tiktok/externos";
+import { limpiarCacheExternos, productosExternos } from "./tiktok-externos";
 import {
   bodegas,
-  catalogo,
+  catalogoConEstado,
+  desactivarActividad,
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
@@ -53,9 +57,14 @@ import {
 import { disponibleConEstante } from "../tiktok/bodega";
 import {
   apartadosPorSku,
+  avisosDeRechazos,
   disponibleParaCompradores,
   escriturasContraTikTok,
   frenarSubidasSinCausa,
+  productosEnCerosRechazados,
+  resumirRechazos,
+  sePuedeEscribir,
+  type RechazoTikTok,
   movimientosPendientes,
   saldosDesdeMovimientos,
   type Movimiento,
@@ -212,6 +221,8 @@ export interface ResultadoSync {
   salidas: number;
   devoluciones: number;
   skusCatalogo: number;
+  /** variantes que TikTok ya no trae en el catálogo y dejaron de estar vigentes en esta corrida */
+  skusDadosDeBaja: number;
   sinAmarre: number;
   publicados: number;
   fallosPublicacion: number;
@@ -225,6 +236,7 @@ const VACIO: ResultadoSync = {
   salidas: 0,
   devoluciones: 0,
   skusCatalogo: 0,
+  skusDadosDeBaja: 0,
   sinAmarre: 0,
   publicados: 0,
   fallosPublicacion: 0,
@@ -625,12 +637,16 @@ async function sincronizarTikTokSinCandado(
 
   // ---- 1. Catálogo de TikTok -------------------------------------------
   let skusCatalogo = 0;
+  let skusDadosDeBaja = 0;
   if (!opciones.soloPedidos) try {
-    const lista = await catalogo(cliente);
+    const { skus: lista, completo } = await catalogoConEstado(cliente);
     skusCatalogo = lista.length;
     if (lista.length) {
+      // Las publicaciones de un vendedor externo (David): lo que no amarra
+      // con nada toma su seller_sku como nombre del kardex (`amarreDeExterno`).
+      const externos = await productosExternos(admin, accountId);
       const filas = lista.map((s) => {
-        const a = amarrar(s.sellerSku);
+        const a = amarreDeExterno(s.sellerSku, amarrar(s.sellerSku), externos.has(String(s.productId)));
         return {
           account_id: accountId,
           sku_id: s.skuId,
@@ -649,6 +665,31 @@ async function sincronizarTikTokSinCandado(
         };
       });
       await guardarEnLotes(admin, "tiktok_skus", filas, "account_id,sku_id");
+      if (externos.size) limpiarCacheExternos(accountId);
+      // Lo que TikTok YA NO TRAE deja de estar vigente: una variante borrada
+      // (el GT125 perdió 20 el 15-oct-2026 por una edición parcial) seguía
+      // `activo` para siempre, se le intentaba publicar inventario en cada
+      // corrida y Publicar productos la creía todavía en TikTok. Solo con
+      // el catálogo leído ENTERO: una lectura corta no da de baja a nadie.
+      if (completo) {
+        const vigentes = new Set(lista.map((s) => s.skuId));
+        const activos = await traerTodo<{ sku_id: string }>(admin, "tiktok_skus", "sku_id", (q) =>
+          q.eq("account_id", accountId).eq("activo", true),
+        );
+        const desaparecidos = (activos ?? []).map((r) => String(r.sku_id)).filter((id) => !vigentes.has(id));
+        if (desaparecidos.length) {
+          await porTandas(desaparecidos, 200, async (tanda) => {
+            const { error } = await admin
+              .from("tiktok_skus")
+              .update({ activo: false, actualizado_en: new Date().toISOString() })
+              .eq("account_id", accountId)
+              .in("sku_id", tanda);
+            if (error) throw new Error(error.message);
+            return [];
+          });
+          skusDadosDeBaja = desaparecidos.length;
+        }
+      }
     }
   } catch (err) {
     avisos.push(`Catálogo: ${(err as Error).message}`);
@@ -711,7 +752,10 @@ async function sincronizarTikTokSinCandado(
       salidas,
       devoluciones,
       publicados: pub.publicados,
+      rechazos: pub.rechazos ?? [],
+      sinEscribir: pub.sinEscribir ?? [],
       skusCatalogo,
+      skusDadosDeBaja,
       sinAmarre,
       reamarrados,
       bodega,
@@ -728,6 +772,7 @@ async function sincronizarTikTokSinCandado(
     salidas,
     devoluciones,
     skusCatalogo,
+    skusDadosDeBaja,
     sinAmarre,
     publicados: pub.publicados,
     fallosPublicacion: pub.fallidos,
@@ -744,6 +789,10 @@ export interface ResultadoPublicar {
   fallidos: number;
   sinProducto: number;
   avisos: string[];
+  /** lo que TikTok rechazó, agrupado por motivo (para la bitácora) */
+  rechazos?: RechazoTikTok[];
+  /** SKUs que no se intentaron porque su publicación está borrada o congelada en TikTok */
+  sinEscribir?: string[];
 }
 
 /**
@@ -785,7 +834,7 @@ export async function publicarDisponibilidad(
       "sku, saldo, apartado, apartado_web, tope_estante, contado, publicado, publicado_en",
       (q) => q.eq("account_id", accountId),
     ),
-    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok", (q) =>
+    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok, estado", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
     skusContados(admin, accountId),
@@ -814,9 +863,8 @@ export async function publicarDisponibilidad(
   const reglasTienda: { account_id: string; sku: string; contado: boolean; tope_estante: number | null }[] = [];
   for (const r of inv ?? []) {
     const contado = contados.has(r.sku);
-    const pares = estante.pares && !estante.contadosDespues.has(r.sku)
-      ? (estante.pares.get(r.sku) ?? 0)
-      : null;
+    // Un SKU de vendedor externo (David) no tiene estante: `estanteDeSku` contesta null.
+    const pares = !estante.contadosDespues.has(r.sku) ? estanteDeSku(estante, r.sku) : null;
     if (Boolean(r.contado) !== contado || (r.tope_estante ?? null) !== pares) {
       reglasTienda.push({ account_id: accountId, sku: r.sku, contado, tope_estante: pares });
     }
@@ -838,9 +886,19 @@ export async function publicarDisponibilidad(
   // Se compara contra lo que TikTok DICE tener (cantidad_tiktok, del
   // catálogo), no contra lo último que escribimos: si alguien editó el stock
   // en el Seller Center, aquí se corrige.
+  // Una publicación BORRADA o congelada en TikTok no acepta inventario
+  // (12052901): se deja fuera y se declara, en vez de rechazarse cada corrida
+  // y taparle el aviso a los demás (el GT100 borrado escondió 27 horas el
+  // rechazo del retiro del GT148, 22-oct-2026).
+  const sinEscribir: string[] = [];
+  const escribibles = (skusTikTok ?? []).filter((s: any) => {
+    if (!s.sku_interno || !s.product_id) return false;
+    if (sePuedeEscribir(s.estado)) return true;
+    if (disponibles.has(s.sku_interno)) sinEscribir.push(`${s.sku_interno} (${String(s.estado).toLowerCase()})`);
+    return false;
+  });
   const escrituras = escriturasContraTikTok(
-    (skusTikTok ?? [])
-      .filter((s: any) => s.sku_interno && s.product_id)
+    escribibles
       .map((s: any) => ({
         skuId: s.sku_id,
         productId: s.product_id,
@@ -873,12 +931,17 @@ export async function publicarDisponibilidad(
     ({ permitidas, frenadas } = frenarSubidasSinCausa(escrituras, conCausa, todasConCausa));
   }
 
+  const avisoSinEscribir = sinEscribir.length
+    ? [`${sinEscribir.length} SKU con publicación borrada o congelada en TikTok no se escriben: ${sinEscribir.slice(0, 5).join(", ")}${sinEscribir.length > 5 ? "…" : ""}`]
+    : [];
   if (!permitidas.length) {
     return {
       publicados: 0,
       fallidos: 0,
       sinProducto,
+      sinEscribir,
       avisos: [
+        ...avisoSinEscribir,
         ...(sinProducto ? [`${sinProducto} SKU con existencia no tienen publicación en TikTok.`] : []),
         ...(topados.length ? [`${topados.length} SKU topados por la bodega (el kardex traía de más).`] : []),
         ...(frenadas.length ? [`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`] : []),
@@ -891,10 +954,41 @@ export async function publicarDisponibilidad(
     cliente.tienda.warehouseId,
     permitidas.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
   );
+  const avisos: string[] = [];
+
+  // Un modelo que se quiere dejar EN CEROS y TikTok rechaza por el stock que
+  // le reserva una relámpago (12019024): se cancelan sus relámpagos, se pausa
+  // su cíclica y se vuelve a intentar el cero (dueño, 22-oct-2026).
+  let fallidos = res.fallidos;
+  const enCeros = productosEnCerosRechazados(
+    resumirRechazos(fallidos, permitidas),
+    escribibles.map((s: any) => ({ productId: String(s.product_id), skuInterno: String(s.sku_interno) })),
+    disponibles,
+  );
+  if (enCeros.length) {
+    const c = await cancelarRelampagosDePublicacionesEnCeros(admin, accountId, cliente, enCeros);
+    avisos.push(...c.avisos);
+    if (c.canceladas) {
+      const otraVez = permitidas.filter((e) => enCeros.includes(e.productId) && fallidos.some((f) => f.skuId === e.skuId));
+      const res2 = await publicarStock(
+        cliente,
+        cliente.tienda.warehouseId,
+        otraVez.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
+      );
+      const reintentados = new Set(otraVez.map((e) => e.skuId));
+      fallidos = [...fallidos.filter((f) => !reintentados.has(f.skuId)), ...res2.fallidos];
+      const entraron = otraVez.length - res2.fallidos.length;
+      avisos.push(
+        entraron > 0
+          ? `Con las relámpagos canceladas, ${entraron} SKU ya quedaron en cero en TikTok.`
+          : `TikTok todavía rechaza el cero después de cancelar las relámpagos; se reintenta en la siguiente corrida.`,
+      );
+    }
+  }
 
   // Solo se da por escrito lo que TikTok aceptó de verdad: cantidad_tiktok
   // queda igual al número que se mandó, y `publicado` en el inventario.
-  const fallados = new Set(res.fallidos.map((f) => f.skuId));
+  const fallados = new Set(fallidos.map((f) => f.skuId));
   const ahora = new Date().toISOString();
   const okSkus = permitidas.filter((e) => !fallados.has(e.skuId));
 
@@ -920,10 +1014,11 @@ export async function publicarDisponibilidad(
     );
   }
 
-  const avisos: string[] = [];
-  if (res.fallidos.length) {
-    avisos.push(`TikTok rechazó ${res.fallidos.length} SKU: ${res.fallidos[0].error}`);
-  }
+  // Un aviso POR MOTIVO con los SKUs que cayeron en él: antes solo se
+  // enseñaba el primer error de la tanda y el resto quedaba escondido.
+  const rechazos = resumirRechazos(fallidos, permitidas);
+  avisos.push(...avisosDeRechazos(rechazos));
+  avisos.push(...avisoSinEscribir);
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
   // El tope contra el estante NUNCA es silencioso: si actuó es que el kardex
   // y la bodega no coinciden, y eso hay que arreglarlo en el conteo, no
@@ -938,7 +1033,99 @@ export async function publicarDisponibilidad(
     avisos.push(`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`);
   }
 
-  return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos };
+  return { publicados: okSkus.length, fallidos: fallidos.length, sinProducto, avisos, rechazos, sinEscribir };
+}
+
+/**
+ * Cuando un modelo se quiere dejar EN CEROS y TikTok rechaza el cero por el
+ * stock que una relámpago le reserva (12019024), se DESACTIVAN en TikTok
+ * todas las relámpagos en curso o programadas que tienen ese producto, se
+ * PAUSA su cíclica (si no, el fondo le crearía otra en un minuto) y el que
+ * llama vuelve a intentar el cero. Dueño, 22-oct-2026: «si un modelo queda
+ * en ceros y hay error 12019024, que todas sus relámpagos se cancelen para
+ * que pueda actualizarse el stock». Constancia en `tiktok_sync_log` tarea
+ * `relampagos-por-cero`. Nunca lanza: lo que falle queda en los avisos.
+ */
+async function cancelarRelampagosDePublicacionesEnCeros(
+  admin: any,
+  accountId: string,
+  cliente: Cliente,
+  productIds: string[],
+): Promise<{ canceladas: number; avisos: string[] }> {
+  const avisos: string[] = [];
+  let canceladas = 0;
+  const detalle: Record<string, unknown>[] = [];
+  try {
+    // Import dinámico: tiktok-promociones importa de este archivo.
+    const { relampagosPorProducto, modelosParaOferta } = await import("./tiktok-promociones");
+    const [enTikTok, catalogo] = await Promise.all([
+      relampagosPorProducto(admin, accountId),
+      modelosParaOferta(admin, accountId, { sinPrecios: true }).catch(() => ({ modelos: [] as { modelo: string; productId: string }[] })),
+    ]);
+    if (enTikTok.error) {
+      avisos.push(`No se pudieron leer las relámpagos para cancelar las del modelo en cero: ${enTikTok.error}`);
+      return { canceladas, avisos };
+    }
+    for (const productId of productIds) {
+      const modelo = catalogo.modelos.find((m) => m.productId === productId)?.modelo ?? null;
+      const nombre = modelo ?? `publicación ${productId}`;
+      const vivas = (enTikTok.porProducto[productId] ?? []).filter((r) => r.estado === "ONGOING" || r.estado === "NOT_START");
+      const hechas: string[] = [];
+      const fallas: string[] = [];
+      for (const r of vivas) {
+        try {
+          await desactivarActividad(cliente, r.activityId);
+          await admin
+            .from("tiktok_promociones")
+            .update({ estado: "desactivada", respuesta: { desactivada: "modelo en cero", en: new Date().toISOString() } })
+            .eq("account_id", accountId)
+            .eq("activity_id", r.activityId)
+            .then(() => undefined, () => undefined);
+          hechas.push(r.titulo);
+          canceladas++;
+        } catch (err) {
+          fallas.push(`${r.titulo}: ${(err as Error).message}`);
+        }
+      }
+      let ciclicaPausada = false;
+      if (modelo) {
+        const { data } = await admin
+          .from("tiktok_promociones_ciclicas")
+          .update({
+            activo: false,
+            ultimo_error: `Pausada el ${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}: el ${modelo} quedó en cero y sus relámpagos se cancelaron para poder bajar el stock en TikTok. Actívala otra vez cuando vuelva a tener pares.`,
+          })
+          .eq("account_id", accountId)
+          .eq("modelo", modelo)
+          .eq("activo", true)
+          .select("id");
+        ciclicaPausada = Boolean(data?.length);
+      }
+      detalle.push({ productId, modelo, hechas, fallas, ciclicaPausada });
+      if (hechas.length || fallas.length || ciclicaPausada) {
+        avisos.push(
+          `${nombre} quedó en cero: ` +
+            (hechas.length ? `se cancelaron ${hechas.length} relámpago${hechas.length === 1 ? "" : "s"} (${hechas.join(", ")})` : "no había relámpagos vivas que cancelar") +
+            (fallas.length ? `; no se pudieron cancelar: ${fallas.join(" · ")}` : "") +
+            (ciclicaPausada ? "; su cíclica quedó pausada." : "."),
+        );
+      } else {
+        avisos.push(`${nombre} quedó en cero y TikTok rechaza bajarlo por stock reservado, pero no se ve ninguna relámpago viva con ese producto: revísalo en el Seller Center.`);
+      }
+    }
+    if (canceladas) {
+      const { invalidarApp } = await import("./cache-app");
+      await invalidarApp(admin, accountId, "relámpagos canceladas por modelo en cero", { claves: ["tiktok:promociones", "tiktok:promociones:productos"] }).catch(() => undefined);
+    }
+  } catch (err) {
+    avisos.push(`No se pudieron cancelar las relámpagos del modelo en cero: ${(err as Error).message}`);
+  }
+  const ahora = new Date().toISOString();
+  await admin
+    .from("tiktok_sync_log")
+    .insert({ account_id: accountId, tarea: "relampagos-por-cero", inicio: ahora, fin: ahora, estado: canceladas ? "ok" : "sin cambios", detalle: { productIds, canceladas, detalle, avisos } })
+    .then(() => undefined, () => undefined);
+  return { canceladas, avisos };
 }
 
 /**
@@ -963,30 +1150,48 @@ async function causasDeSubida(
   if (!pendientes.length) return causa;
   const desdeMin = [...desdeDe.values()].filter(Boolean).sort()[0] as string;
 
-  const [{ data: movs }, { data: cancelados }, { data: soltadosWeb }] = await Promise.all([
-    db
-      .from("tiktok_movimientos")
-      .select("sku, fecha")
-      .eq("account_id", accountId)
-      .in("sku", pendientes)
-      .in("tipo", ["entrada", "devolucion", "ajuste"])
-      .gt("fecha", desdeMin),
-    db
-      .from("tiktok_ordenes")
-      .select("order_id, fecha_actualizacion, tiktok_orden_items!inner(sku_interno)")
-      .eq("account_id", accountId)
-      .in("estado", ["CANCELLED", "CANCEL"])
-      .gt("fecha_actualizacion", desdeMin)
-      .in("tiktok_orden_items.sku_interno", pendientes),
+  // POR TANDAS de SKUs y TODAS las páginas: con una sola consulta el API
+  // entrega 1,000 renglones (en 21 días hay ~1,300 entradas/ajustes) y la
+  // lista de SKUs viaja en la URL. Lo que no llegaba se leía como «sin causa»
+  // y su subida se frenaba: TikTok se quedaba ofreciendo de menos.
+  // Si la lectura falla, NO se tumba la publicación: sin causa probada la
+  // subida se frena (bajar siempre se puede), como antes.
+  let leidas: [{ sku: string; fecha: string }[], any[], any[]];
+  try {
+    leidas = await Promise.all([
+    porTandas(pendientes, 200, (tanda) =>
+      traerTodo<{ sku: string; fecha: string }>(db, "tiktok_movimientos", "id, sku, fecha", (q) =>
+        q
+          .eq("account_id", accountId)
+          .in("sku", tanda)
+          .in("tipo", ["entrada", "devolucion", "ajuste"])
+          .gt("fecha", desdeMin),
+      ),
+    ),
+    // Pedidos cancelados desde la última escritura con estos SKUs, por RPC:
+    // la base NO tiene llave entre `tiktok_ordenes` y `tiktok_orden_items`,
+    // así que el «!inner» de antes fallaba SIEMPRE
+    // («Could not find a relationship…», cada pocos segundos en los logs
+    // hasta el 11-oct-2026) y por el catch se frenaba TODA subida, también
+    // las que sí traían entrada o devolución.
+    pedidosCanceladosConSkus(db, accountId, desdeMin, new Set(pendientes)),
     // La tienda en línea soltó pares (pedido sin pagar que caducó o se canceló).
-    db
-      .from("tienda_pedidos")
-      .select("actualizado_en, tienda_pedido_items!inner(sku_interno)")
-      .eq("account_id", accountId)
-      .in("estado", ["expirado", "cancelado"])
-      .gt("actualizado_en", desdeMin)
-      .in("tienda_pedido_items.sku_interno", pendientes),
-  ]);
+    porTandas(pendientes, 200, (tanda) =>
+      traerTodo<any>(db, "tienda_pedidos", "id, actualizado_en, tienda_pedido_items!inner(sku_interno)", (q) =>
+        q
+          .eq("account_id", accountId)
+          .in("estado", ["expirado", "cancelado"])
+          .gt("actualizado_en", desdeMin)
+          .in("tienda_pedido_items.sku_interno", tanda)
+          .order("id", { ascending: true }),
+      ),
+    ),
+    ]);
+  } catch (err) {
+    console.error("[tiktok] causas de subida sin leer:", (err as Error).message);
+    return causa;
+  }
+  const [movs, cancelados, soltadosWeb] = leidas;
   for (const o of (soltadosWeb ?? []) as any[]) {
     for (const it of o.tienda_pedido_items ?? []) {
       const desde = desdeDe.get(it.sku_interno);
@@ -1004,6 +1209,25 @@ async function causasDeSubida(
     }
   }
   return causa;
+}
+
+/**
+ * Por SKU, el último pedido CANCELADO desde `desde` que lo traía (RPC
+ * `tiktok_cancelados_por_sku`, migración 0137), con la forma que espera
+ * `causasDeSubida` (`{ fecha_actualizacion, tiktok_orden_items[] }`).
+ */
+async function pedidosCanceladosConSkus(
+  db: DB,
+  accountId: string,
+  desde: string,
+  skus: Set<string>,
+): Promise<{ fecha_actualizacion: string; tiktok_orden_items: { sku_interno: string }[] }[]> {
+  const { data, error } = await db.rpc("tiktok_cancelados_por_sku", { p_account: accountId, p_desde: desde, p_skus: [...skus] });
+  if (error) throw new Error(`tiktok_cancelados_por_sku: ${error.message}`);
+  return ((data ?? []) as { sku: string; fecha: string }[]).map((r) => ({
+    fecha_actualizacion: r.fecha,
+    tiktok_orden_items: [{ sku_interno: r.sku }],
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,7 +1503,12 @@ async function referenciasRegistradas(
 export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [ordenes, items, actuales] = await Promise.all([
-    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra", eq),
+    traerTodo<any>(
+      db,
+      "tiktok_ordenes",
+      "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra, neto_recibido, pago_esperado, ingreso:pago_desglose->>ingreso",
+      eq,
+    ),
     traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
   ]);
@@ -1291,6 +1520,7 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
       creadoEn: o.fecha_creacion,
       actualizadoEn: o.fecha_actualizacion,
       esMuestra: Boolean(o.es_muestra),
+      ...deDesglose({ ingreso: o.ingreso }, o.neto_recibido != null || o.pago_esperado != null),
     })),
     (items ?? []).map((i: any) => ({
       orderId: i.order_id,
@@ -1355,12 +1585,18 @@ export async function reamarrarPendientes(
 
   // Los que ya están en un corte: sus salidas al 3PL, que en su momento no
   // se pudieron registrar porque no tenían SKU.
-  const { data: enCorte } = await db
-    .from("tiktok_ordenes")
-    .select("order_id, corte_id")
-    .eq("account_id", accountId)
-    .in("order_id", ids)
-    .not("corte_id", "is", null);
+  // Por tandas: un amarre nuevo puede resolver cientos de pedidos y la
+  // lista entera en la URL rebota con «Bad Request» (pasó en el corte).
+  const enCorte = await porTandas(ids, 300, async (tanda) => {
+    const { data, error } = await db
+      .from("tiktok_ordenes")
+      .select("order_id, corte_id")
+      .eq("account_id", accountId)
+      .in("order_id", tanda)
+      .not("corte_id", "is", null);
+    if (error) throw new Error(`tiktok_ordenes: ${error.message}`);
+    return (data ?? []) as { order_id: string; corte_id: number }[];
+  });
   const cortes = new Set<number>();
   for (const o of (enCorte ?? []) as { order_id: string; corte_id: number }[]) {
     const { data: items } = await db
@@ -1460,6 +1696,14 @@ export async function sincronizarPagosTikTok(
     });
     if (afiliados?.error) avisos.push(`Afiliados: ${afiliados.error}`);
   }
+  // Los estados de cuenta: lo que TikTok cobra o abona FUERA de los pedidos
+  // (ajustes); una lectura corta cada 3 h, antes de las liquidaciones que se
+  // comen el tiempo que les den.
+  try {
+    await leerEstadosDeCuenta(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Estados de cuenta: ${(err as Error).message}`);
+  }
   try {
     liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
   } catch (err) {
@@ -1556,6 +1800,10 @@ export async function leerSinLiquidar(db: DB, accountId: string, cliente: Client
         ingreso: t.ingreso,
         cargos: t.cargos,
         comision: t.comision,
+        servicio: t.servicio,
+        porPar: t.porPar,
+        comisionTikTok: t.comisionTikTok,
+        anuncios: t.anuncios,
         afiliado: t.afiliado,
         envio: t.envio,
         ivaRetenido: t.ivaRetenido,
@@ -1665,6 +1913,10 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
           ingreso: t.ingreso,
           cargos: t.cargos,
           comision: t.comision,
+          servicio: t.servicio,
+          porPar: t.porPar,
+          comisionTikTok: t.comisionTikTok,
+          anuncios: t.anuncios,
           afiliado: t.afiliado,
           envio: t.envio,
           ivaRetenido: t.ivaRetenido,

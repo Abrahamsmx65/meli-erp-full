@@ -297,6 +297,49 @@ export async function latido(
       }
     }
 
+    // La sugerencia de compra a China (Planificación China) se deja lista
+    // DESPUÉS del plan y del inventario, que son sus insumos: la pantalla
+    // solo lee su renglón y nunca calcula en el clic.
+    if (Date.now() < limite - 20_000) {
+      try {
+        const { refrescarCompraChinaSiHaceFalta } = await import("./compras-china");
+        await refrescarCompraChinaSiHaceFalta(admin, accountId);
+      } catch (err) {
+        console.error("refrescarCompraChina:", (err as Error).message);
+      }
+    }
+
+    // Ventas y Publicidad leen la publicidad y el dinero masticados en
+    // `app_cache`: aquí se dejan listos los atajos de fechas. Unidades y venta
+    // (el monitor) van en vivo sobre las ventas por día de la base.
+    if (Date.now() < limite - 40_000) {
+      try {
+        const { data: cta } = await admin
+          .from("meli_accounts")
+          .select("id, site_id")
+          .eq("id", accountId)
+          .maybeSingle();
+        if (cta) {
+          const { precalcularPantallasVentas } = await import("./ventas-vista");
+          await precalcularPantallasVentas(admin, { id: cta.id, site_id: cta.site_id ?? "MLM" }, limite - 25_000);
+        }
+      } catch (err) {
+        console.error("precalcularPantallasVentas:", (err as Error).message);
+      }
+      // Las gráficas por día y por hora de TikTok (Ventas, Inicio, Estado de resultados).
+      try {
+        const { precalcularVentasTiempo } = await import("./ventas-tiempo");
+        const { fechaMx } = await import("./ventas-monitor");
+        await precalcularVentasTiempo(admin, accountId, limite - 20_000, fechaMx(0));
+        // Ventas TikTok (la tabla por modelo) en los mismos atajos.
+        const { precalcularVentasTikTok } = await import("./tiktok-ventas");
+        await precalcularVentasTikTok(admin, accountId, limite - 15_000, fechaMx(0));
+        // MELI calzado y fundas ya no se guardan: van en vivo (CANALES_EN_VIVO).
+      } catch (err) {
+        console.error("precalcularVentasTiempo:", (err as Error).message);
+      }
+    }
+
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.

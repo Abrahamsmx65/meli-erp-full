@@ -444,8 +444,19 @@ export interface ResumenCanal {
   actualizadoEn: string | null;
 }
 
-async function contar(db: DB, tabla: string, filtrar: (q: any) => any): Promise<number> {
-  const { count, error } = await filtrar(db.from(tabla).select("*", { count: "exact", head: true }));
+/**
+ * Cuántos renglones. Las tablas grandes (skus, yz_skus, catálogo de Amazon,
+ * miles de renglones) van con `estimated`: PostgREST cuenta exacto hasta su
+ * tope de renglones y arriba de eso usa la estadística del planeador, sin
+ * recorrer la tabla. Aquí el número solo informa (ningún cálculo lo usa).
+ */
+async function contar(
+  db: DB,
+  tabla: string,
+  filtrar: (q: any) => any,
+  modo: "exact" | "estimated" = "exact",
+): Promise<number> {
+  const { count, error } = await filtrar(db.from(tabla).select("*", { count: modo, head: true }));
   if (error) return 0;
   return count ?? 0;
 }
@@ -470,7 +481,7 @@ export async function resumenCatalogos(
     }
     const id = cuentas.calzado;
     const [skus, actualizadoEn] = await Promise.all([
-      contar(db, "skus", (q) => q.eq("account_id", id)),
+      contar(db, "skus", (q) => q.eq("account_id", id), "estimated"),
       ultimaFecha(db, "skus", (q) => q.eq("account_id", id)),
     ]);
     return { canal: "calzado", nombre: nombre("calzado"), conectado: true, skus, conFnsku: null, actualizadoEn };
@@ -482,7 +493,7 @@ export async function resumenCatalogos(
     }
     const id = cuentas.fundas;
     const [skus, actualizadoEn] = await Promise.all([
-      contar(db, "yz_skus", (q) => q.eq("account_id", id)),
+      contar(db, "yz_skus", (q) => q.eq("account_id", id), "estimated"),
       ultimaFecha(db, "yz_skus", (q) => q.eq("account_id", id)),
     ]);
     return { canal: "fundas", nombre: nombre("fundas"), conectado: true, skus, conFnsku: null, actualizadoEn };
@@ -494,8 +505,8 @@ export async function resumenCatalogos(
     }
     const id = cuentas.amazon;
     const [listados, vendidos, conFnsku, actualizadoEn] = await Promise.all([
-      contar(db, "amazon_listings", (q) => q.eq("account_id", id)),
-      contar(db, "amazon_skus", (q) => q.eq("account_id", id)),
+      contar(db, "amazon_listings", (q) => q.eq("account_id", id), "estimated"),
+      contar(db, "amazon_skus", (q) => q.eq("account_id", id), "estimated"),
       contar(db, "amazon_inventario", (q) => q.eq("account_id", id).not("fnsku", "is", null)),
       ultimaFecha(db, "amazon_listings", (q) => q.eq("account_id", id)),
     ]);

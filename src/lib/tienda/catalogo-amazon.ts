@@ -12,6 +12,7 @@
  */
 import { esModeloDeCalzado, nombreColorEspanol, partirSkuAmazon, tituloLimpio } from "../tiktok/publicar";
 import { compararTallas, elegirFotosPorColor } from "./catalogo";
+import { normalizarCategoria, SIN_CATEGORIA_CATALOGO } from "../categoria";
 import { PARAMETROS_POR_OMISION, renglonesDePrecio, type ParametrosPrecioTikTok } from "../tiktok/precios";
 
 /** ASINs que se le preguntan al catálogo por color: con dos casi siempre hay una con fotos propias. */
@@ -30,7 +31,7 @@ export function esModeloVigente(modelo: string): boolean {
 }
 
 /** Lo que no tiene categoría ni en el ERP ni en Amazon. */
-export const SIN_CATEGORIA = "Otros";
+export const SIN_CATEGORIA = SIN_CATEGORIA_CATALOGO;
 
 export interface FilaAmazon {
   seller_sku: string;
@@ -239,7 +240,14 @@ export function armarCatalogoAmazon(
       .filter((c) => fotos[c.codigo]?.length)
       .map((c) => ({ color: nombreColorEspanol(c.codigo).nombre, fotos: fotos[c.codigo].slice(0, 8), tallas: c.tallas, tallasConStock: [] as string[], activo: c.activo }))
       .sort((a, b) => Number(b.activo) - Number(a.activo) || a.color.localeCompare(b.color, "es"))
-      .map(({ activo: _a, ...c }) => c);
+      // Dos códigos de Amazon con el mismo nombre en español (GT134 «BLK» y «BLACK» = «Negro») son UN color:
+      // se queda el primero (activo primero) con las tallas de los dos.
+      .reduce<{ color: string; fotos: string[]; tallas: string[]; tallasConStock: string[] }[]>((lista, { activo: _a, ...c }) => {
+        const ya = lista.find((x) => x.color.toLowerCase() === c.color.toLowerCase());
+        if (ya) ya.tallas = [...new Set([...ya.tallas, ...c.tallas])].sort(compararTallas);
+        else lista.push(c);
+        return lista;
+      }, []);
     if (!colores.length) continue;
     const asins = m.colores.flatMap((c) => c.asins);
     const clasificacion = asins.map((a) => fichas.get(a)?.c).find(Boolean) ?? null;
@@ -250,7 +258,7 @@ export function armarCatalogoAmazon(
       productId: `amz-${m.modelo}`,
       modelo: m.modelo,
       titulo,
-      categoria: (categoriaDe.get(m.modelo) ?? "").trim() || clasificacion || SIN_CATEGORIA,
+      categoria: normalizarCategoria(categoriaDe.get(m.modelo)) || normalizarCategoria(clasificacion) || SIN_CATEGORIA,
       activo: m.colores.some((c) => c.activo),
       precioDesde: extras.precios?.get(m.modelo)?.normal ?? null,
       precioHasta: extras.precios?.get(m.modelo)?.normal ?? null,

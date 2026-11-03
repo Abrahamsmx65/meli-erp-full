@@ -1,8 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
+import { obtenerSugeridasYz } from "@/lib/yapanizcel/envios";
 import { Etiquetas } from "@/components/etiquetas";
-import { Encabezado, SinCuenta } from "@/components/yapanizcel/comunes";
+import { Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -14,55 +14,51 @@ export const dynamic = "force-dynamic";
 export default async function EtiquetasYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Etiquetas fundas" />;
 
   // Lo que el plan de envíos a Full dice que hay que mandar, para sacar
   // sus etiquetas de un clic: una por unidad, ya en decenas cerradas. El
-  // plan vive masticado en yz_cache: aquí solo se lee.
+  // plan vive masticado en yz_cache y aquí solo se lee su vista chica
+  // («plan:sugeridas»), no el renglón completo de ~4 MB.
   let sugeridas: { sku: string; cantidad: number }[] = [];
   try {
-    const plan = await obtenerPlanYz(supabase, cuenta.id);
-    sugeridas = plan.lineas
-      .filter((l) => l.mandar > 0)
-      .map((l) => ({ sku: l.sku, cantidad: l.mandar }))
-      .sort((a, b) => b.cantidad - a.cantidad);
+    sugeridas = (await obtenerSugeridasYz(supabase, cuenta.id)).datos;
   } catch {
     sugeridas = [];
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <Pagina>
       <div className="no-imprimir">
         <Encabezado
-          titulo="Etiquetas · YAPANIZCEL"
-          texto="La etiqueta que pide Mercado Envíos Full para cada funda, generada desde aquí en PDF o TXT para la térmica, igual que en la cuenta de calzado. Solo hace falta el SKU y cuántas: el código Full, el título y la variante ya están en el catálogo de fundas."
+          ceja="Fundas"
+          titulo="Etiquetas fundas"
+          descripcion="La etiqueta de Mercado Envíos Full de cada funda, en PDF o TXT para la térmica."
+          ayudaTitulo="Cómo imprimirlas bien"
+          ayuda={
+            <>
+              <p>
+                Es la misma etiqueta que en la cuenta de calzado. Solo hace falta el SKU y cuántas: el código Full, el título
+                y la variante ya están en el catálogo de fundas.
+              </p>
+              <p>
+                Al darle a <strong>Imprimir</strong> se abre el diálogo del navegador. Ahí hay que dejar la escala en{" "}
+                <strong>100%</strong> y quitar los encabezados y pies de página. Si el navegador escala la hoja, las barras se
+                angostan y el escáner del almacén deja de leerlas.
+              </p>
+              <p>
+                Para el rollo de la bodega (2 × 1 pulgadas), elige ese tamaño de papel en el diálogo de la impresora térmica:
+                cada etiqueta sale en su propia página, sin márgenes. Para hoja carta con etiquetas adheribles, usa la opción de
+                24 por hoja y verifica con una hoja de prueba antes de gastar el paquete.
+              </p>
+              <p>
+                El código de barras lleva el <strong>código Full</strong> de la publicación de fundas (el que empieza con
+                cuatro letras), que es lo que el almacén escanea. Debajo va escrito por si hay que capturarlo a mano.
+              </p>
+            </>
+          }
         />
       </div>
-
-      <details className="tarjeta p-4 no-imprimir">
-        <summary className="cursor-pointer text-sm font-semibold">
-          Cómo imprimirlas bien
-        </summary>
-        <div className="mt-3 flex flex-col gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          <p>
-            Al darle a <strong>Imprimir</strong> se abre el diálogo del navegador. Ahí hay
-            que dejar la escala en <strong>100%</strong> y quitar los encabezados y pies de
-            página. Si el navegador escala la hoja, las barras se angostan y el escáner del
-            almacén deja de leerlas.
-          </p>
-          <p>
-            Para el rollo de la bodega (2 × 1 pulgadas), elige ese tamaño de papel en el
-            diálogo de la impresora térmica: cada etiqueta sale en su propia página, sin
-            márgenes. Para hoja carta con etiquetas adheribles, usa la opción de 24 por
-            hoja y verifica con una hoja de prueba antes de gastar el paquete.
-          </p>
-          <p>
-            El código de barras lleva el <strong>código Full</strong> de la publicación de
-            fundas (el que empieza con cuatro letras), que es lo que el almacén escanea.
-            Debajo va escrito por si hay que capturarlo a mano.
-          </p>
-        </div>
-      </details>
 
       <Etiquetas
         sugeridas={sugeridas}
@@ -77,6 +73,6 @@ export default async function EtiquetasYz() {
             "Toma el plan de Envíos a Full de fundas y pide una etiqueta por unidad de cada SKU que hay que mandar.",
         }}
       />
-    </div>
+    </Pagina>
   );
 }

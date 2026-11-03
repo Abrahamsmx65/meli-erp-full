@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bloqueTikTok, rangoTikTok } from "./consolidado-tiktok";
 import { armarConsolidado } from "./consolidado";
+import { interpretarEstados } from "../tiktok/estados-cuenta";
 
 const ordenes = [
   { orderId: "a", estado: "DELIVERED", creadoEn: "2026-09-10T18:00:00Z", netoRecibido: 400, desglose: { comision: 50, envio: 20, isrRetenido: 10, ivaRetenido: 15 } },
@@ -50,6 +51,23 @@ describe("bloqueTikTok", () => {
     const k = cns.canales.find((x) => x.canal === "tiktok")!;
     expect(k.nombre).toBe("TikTok Shop");
     expect(k.utilidadNeta).toBe(400);
+  });
+
+  it("los ajustes de los estados de cuenta del mes (fuera de pedidos) se restan como gasto de la plataforma", () => {
+    const estados = interpretarEstados({
+      statements: [
+        { id: "s1", statement_time: Date.UTC(2026, 8, 20, 12) / 1000, settlement_amount: "500", adjustment_amount: "-80" },
+        // octubre: no es de septiembre
+        { id: "s2", statement_time: Date.UTC(2026, 9, 3, 12) / 1000, settlement_amount: "500", adjustment_amount: "-999" },
+      ],
+    });
+    const b = bloqueTikTok({ ordenes, renglones }, config, { desde: "2026-09-01", hasta: "2026-09-30" }, estados)!;
+    expect(b.gastos).toEqual([{ concepto: "TikTok · ajustes cobrados fuera de pedidos (estados de cuenta)", monto: 80 }]);
+    const cns = armarConsolidado({ periodo: "2026-09", desde: "2026-09-01", hasta: "2026-09-30", bloques: [b] });
+    expect(cns.canales[0].utilidadNeta).toBe(320);
+    // sin estados leídos se declara
+    const sin = bloqueTikTok({ ordenes, renglones }, config, { desde: "2026-09-01", hasta: "2026-09-30" })!;
+    expect(sin.avisos.join(" ")).toContain("estados de cuenta");
   });
 
   it("agosto no tiene canal de TikTok", () => {

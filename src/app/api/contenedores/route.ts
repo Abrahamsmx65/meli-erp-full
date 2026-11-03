@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { recalcularEstadoPedido } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
+import { ESTADO_RELEER } from "@/lib/servicios/drive-packing";
 
 export const dynamic = "force-dynamic";
 
@@ -229,4 +230,56 @@ export async function PATCH(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Borra un contenedor en BORRADOR con sus renglones (11-oct-2026: las
+ * proformas de los pedidos crearon contenedores duplicados desde Drive y no
+ * había cómo quitarlos). Un contenedor confirmado o recibido no se borra:
+ * ese ya cuenta como en camino o como llegado. Los pedidos que pierden
+ * cajas se recalculan y la bitácora de Drive suelta el contenedor.
+ */
+export async function DELETE(req: NextRequest) {
+  const c = await ctx();
+  if ("error" in c) return NextResponse.json({ error: c.error }, { status: c.status });
+  const id = req.nextUrl.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Falta el id del contenedor." }, { status: 400 });
+
+  const { data: contenedor } = await c.supabase
+    .from("contenedores")
+    .select("id, numero, estado")
+    .eq("id", id)
+    .eq("account_id", c.cuenta.id)
+    .maybeSingle();
+  if (!contenedor) return NextResponse.json({ error: "Contenedor no encontrado." }, { status: 404 });
+  if (contenedor.estado !== "borrador") {
+    return NextResponse.json({ error: `${contenedor.numero} ya está confirmado; solo se borran borradores.` }, { status: 400 });
+  }
+
+  const { data: lineas } = await c.supabase
+    .from("contenedor_lineas")
+    .select("pedido_linea_id, pedido_lineas(pedido_id)")
+    .eq("contenedor_id", id);
+  const pedidos = new Set(
+    ((lineas ?? []) as { pedido_lineas: { pedido_id?: string } | null }[])
+      .map((l) => l.pedido_lineas?.pedido_id)
+      .filter((p): p is string => Boolean(p)),
+  );
+
+  const { error: e1 } = await c.supabase.from("contenedor_lineas").delete().eq("contenedor_id", id);
+  if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
+  // Sus archivos de Drive se vuelven a leer en la siguiente «Traer de Drive»
+  // aunque no hayan cambiado y aunque el embarque sea viejo: borrar es para
+  // volver a armarlo desde el archivo.
+  await c.supabase
+    .from("drive_packing_lists")
+    .update({ contenedor_id: null, estado: ESTADO_RELEER, motivo: `Se borró ${contenedor.numero}: se vuelve a leer de Drive.` })
+    .eq("contenedor_id", id);
+  const { error: e2 } = await c.supabase.from("contenedores").delete().eq("id", id).eq("account_id", c.cuenta.id);
+  if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
+
+  for (const p of pedidos) await recalcularEstadoPedido(c.supabase, p).catch(() => undefined);
+  invalidarInventario(c.cuenta.id);
+  await invalidar(c.supabase, c.cuenta.id, `Se borró el contenedor ${contenedor.numero}.`);
+  return NextResponse.json({ ok: true, numero: contenedor.numero });
 }

@@ -26,6 +26,8 @@ export interface ProductoConfig {
   costoMxn: number | null;
   /** de qué catálogo sale: el de calzado (MELI) o el de fundas (YAPANIZCEL) */
   negocio: Negocio;
+  /** foto del modelo (fotos-producto); solo calzado */
+  foto?: string | null;
 }
 
 export interface CatalogoProductos {
@@ -173,11 +175,16 @@ async function leerConfig(
   db: DB,
   accountId: string,
 ): Promise<{ config: Map<string, ConfigProducto>; faltaMigracion: boolean }> {
-  const { data, error } = await db
-    .from("productos_config")
-    .select("modelo, color, categoria, costo_mxn")
-    .eq("account_id", accountId);
-  if (error) return { config: new Map(), faltaMigracion: true };
+  // Paginado: es la fuente única de costos de TODO (calzado y fundas) y una
+  // sola consulta se quedaría con 1,000 renglones el día que haya más.
+  let data: any[];
+  try {
+    data = await traerTodo<any>(db, "productos_config", "modelo, color, categoria, costo_mxn", (q) =>
+      q.eq("account_id", accountId),
+    );
+  } catch {
+    return { config: new Map(), faltaMigracion: true };
+  }
 
   const config = new Map<string, ConfigProducto>();
   // Primero las filas de nivel modelo (color vacío); una fila con color

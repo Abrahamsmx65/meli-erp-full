@@ -8,9 +8,13 @@ import {
   sincronizarCorridasDesdeSheets,
 } from "@/lib/servicios/corridas-sheets";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// 800 s (Fluid compute, como el corte de TikTok): con 300 la corrida se
+// moría a medias la mitad de los días (las que terminaban tardaban ~326 s)
+// y se saltaba las corridas del sheet, el plan y los SKUs pendientes.
+export const maxDuration = 800;
 
 /**
  * Sincronización automática de cada mañana. La dispara Vercel Cron.
@@ -86,7 +90,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Las tallas que quedaron sin SKU se resuelven solas después del cron.
-  await dispararPendientes(process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin);
+  await dispararPendientes(origenDeLaApp(req));
 
   return NextResponse.json({ corridas: resultados.length, resultados });
 }

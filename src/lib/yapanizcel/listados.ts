@@ -27,6 +27,7 @@ import {
 } from "../servicios/listados";
 import type { DB } from "../datos/repos";
 import { todo } from "./db";
+import { conCacheYz, recalcularCacheYz } from "./cache";
 import { desglosar, esCalzado } from "./sku";
 
 export interface GrupoDiseno {
@@ -91,8 +92,28 @@ export async function leerDiseno(cliente: MeliClient, db: DB, accountId: string,
   };
 }
 
+export type DisenoListado = { diseno: string; publicaciones: number; activas: number };
+
+/** Clave en yz_cache de la lista de diseños (la invalida la sincronización del catálogo). */
+export const CLAVE_LISTADOS_DISENOS = "listados:disenos";
+
+/**
+ * Lo que lee la pantalla de Listados: la lista masticada en yz_cache aunque
+ * esté vieja (armarla baja el catálogo completo, ~15 mil variantes, para
+ * sacar ~100 diseños). El cron de netos la refresca; solo sin renglón se
+ * calcula aquí.
+ */
+export function obtenerDisenosListados(db: DB, accountId: string): Promise<DisenoListado[]> {
+  return conCacheYz(db, accountId, CLAVE_LISTADOS_DISENOS, () => listarDisenos(db, accountId));
+}
+
+/** Recalcula y guarda la lista de diseños (lo llama el cron de netos). */
+export function recalcularDisenosListados(db: DB, accountId: string): Promise<DisenoListado[]> {
+  return recalcularCacheYz(db, accountId, CLAVE_LISTADOS_DISENOS, () => listarDisenos(db, accountId));
+}
+
 /** Diseños del catálogo con cuántas publicaciones tiene cada uno (sin calzado). */
-export async function listarDisenos(db: DB, accountId: string): Promise<{ diseno: string; publicaciones: number; activas: number }[]> {
+export async function listarDisenos(db: DB, accountId: string): Promise<DisenoListado[]> {
   const filas = await todo<{ item_id: string | null; sku: string; estado: string | null }>(
     db,
     "yz_skus",

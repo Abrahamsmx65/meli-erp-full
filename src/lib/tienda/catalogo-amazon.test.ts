@@ -41,7 +41,7 @@ describe("catálogo completo desde Amazon", () => {
     expect(r[1].titulo).toBe("Zueco GETAC");
     expect(r[1].activo).toBe(true);
     const sinErp = armarCatalogoAmazon(m, fichas, new Map());
-    expect(sinErp[1].categoria).toBe("Zuecos");
+    expect(sinErp[1].categoria).toBe("ZUECOS");
   });
 
   it("marca lo oculto y suma bodega y mar por modelo", () => {
@@ -75,5 +75,17 @@ describe("catálogo completo desde Amazon", () => {
     const fichas = new Map([["B2", { f: ["b.jpg"], c: null, t: null }]]);
     const r = armarCatalogoAmazon(agruparAmazon(filas), fichas, new Map(), new Map(), { precios });
     expect(r.find((p) => p.modelo === "GT135")).toMatchObject({ precioDesde: gt135.normal, precios: gt135 });
+  });
+  it("dos códigos con el mismo nombre en español son un solo color", () => {
+    const m = agruparAmazon([
+      { seller_sku: "GT134-BLK-24-MX", asin: "K1", estado: "Active", titulo: null },
+      { seller_sku: "GT134-BLACK-23-MX", asin: "K2", estado: "Inactive", titulo: null },
+    ]);
+    const fichas = new Map([
+      ["K1", { f: ["negro1.jpg"], c: null, t: null }],
+      ["K2", { f: ["negro2.jpg"], c: null, t: null }],
+    ]);
+    const [p] = armarCatalogoAmazon(m, fichas, new Map());
+    expect(p.colores.map((c) => [c.color, c.tallas, c.fotos])).toEqual([["Negro", ["23", "24"], ["negro1.jpg"]]]);
   });
 });

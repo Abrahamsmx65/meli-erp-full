@@ -50,7 +50,7 @@ export function DialogoConfirmar({
         if (ocupado) e.preventDefault();
       }}
       aria-label={titulo}
-      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border p-0 backdrop:bg-black/45"
+      className="dialogo m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border p-0 backdrop:bg-black/45"
       style={{ borderColor: "var(--borde)", background: "var(--surface-1)", color: "var(--ink-1)" }}
     >
       <div className="p-5">

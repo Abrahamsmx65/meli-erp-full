@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CatalogoInfluencers } from "@/components/catalogo-influencers";
+import { PortadaCatalogo } from "@/components/portada-catalogo";
 import { catalogoInfluencers } from "@/lib/catalogo";
 
 // El catálogo va en caché de 5 min (lib/catalogo.ts).
@@ -18,13 +19,13 @@ export default async function Influencers() {
   const whatsapp = (process.env.INFLUENCERS_WHATSAPP ?? "").replace(/\D/g, "") || null;
   return (
     <div className="contenedor">
-      <section className="portada portada-creadores">
-        <h1 className="titulo-catalogo">Catálogo para creadores</h1>
-        <p>
-          Todo lo que GETAC tiene en TikTok Shop. Elige los modelos, colores y tallas que quieres
-          promocionar y mándanos tu selección por WhatsApp.
-        </p>
-      </section>
+      <link rel="preconnect" href="https://m.media-amazon.com" />
+      <PortadaCatalogo
+        ceja="TikTok Shop"
+        titulo="Catálogo para creadores"
+        texto="Todo lo que GETAC tiene en TikTok Shop. Elige lo que quieres promocionar y mándanos tu selección."
+        productos={productos}
+      />
       {productos.length ? (
         <CatalogoInfluencers productos={productos} whatsapp={whatsapp} />
       ) : (

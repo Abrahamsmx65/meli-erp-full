@@ -15,6 +15,8 @@ export interface Correo {
   asunto: string;
   html: string;
   texto?: string;
+  /** archivos adjuntos (el Excel del pedido a la fábrica) */
+  adjuntos?: { nombre: string; contenido: Buffer }[];
 }
 
 export interface ResultadoCorreo {
@@ -41,8 +43,17 @@ export async function enviarCorreo(c: Correo): Promise<ResultadoCorreo> {
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${llave}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: Array.isArray(para) ? para : [para], subject: c.asunto, html: c.html, text: c.texto }),
-    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({
+      from,
+      to: Array.isArray(para) ? para : [para],
+      subject: c.asunto,
+      html: c.html,
+      text: c.texto,
+      ...(c.adjuntos?.length
+        ? { attachments: c.adjuntos.map((a) => ({ filename: a.nombre, content: a.contenido.toString("base64") })) }
+        : {}),
+    }),
+    signal: AbortSignal.timeout(c.adjuntos?.length ? 30_000 : 15_000),
   });
   const cuerpo = (await r.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
   if (!r.ok) {
