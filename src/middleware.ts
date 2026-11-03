@@ -77,6 +77,10 @@ export async function middleware(request: NextRequest) {
     ruta === "/api/tiktok/tienda/aviso" ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
+    // El documento de metadatos del cliente OAuth de Higgsfield: SU servidor
+    // lo lee (el client_id es esta URL) para validar los redirect_uris; sin
+    // esta línea el middleware le contestaría el login y la conexión muere.
+    ruta === "/api/higgsfield/cliente" ||
     // La sonda de fotos de Amazon se dispara también desde la base con el
     // bearer del cron; la ruta valida el bearer o la sesión.
     ruta.startsWith("/api/amazon/diagnostico-fotos") ||

@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { MCP_BASE, MCP_RECURSO, MCP_SCOPE, registrarCliente } from "@/lib/higgsfield/mcp";
+import { MCP_BASE, MCP_RECURSO, MCP_SCOPE } from "@/lib/higgsfield/mcp";
+import {
+  RUTA_CALLBACK,
+  clientIdDelErp,
+  dominiosDelErp,
+} from "@/lib/higgsfield/cliente-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +17,11 @@ function base64url(buf: Buffer): string {
 
 /**
  * Arranca la conexión OAuth con la CUENTA de Higgsfield (mcp.higgsfield.ai):
- * registra el cliente, arma el reto PKCE y manda al usuario al login de
- * Higgsfield. El callback (/api/higgsfield/callback) guarda los tokens.
+ * arma el reto PKCE y manda al usuario al login de Higgsfield. El callback
+ * (/api/higgsfield/callback) guarda los tokens. El client_id es la URL del
+ * documento de metadatos del ERP (`cliente-oauth.ts`): el registro dinámico
+ * de antes murió el 2-nov-2026 cuando Higgsfield lo cerró a su lista fija
+ * («redirect_uris contains an entry that is not in the trusted list»).
  */
 export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -35,14 +43,19 @@ export async function GET(req: NextRequest) {
   if (!host) {
     return NextResponse.json({ error: "No se pudo determinar el dominio." }, { status: 500 });
   }
-  const redirectUri = `${proto}://${host}/api/higgsfield/callback`;
-
-  let clientId: string;
-  try {
-    clientId = await registrarCliente(redirectUri);
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 502 });
+  // El redirect_uri tiene que estar en el documento de metadatos (Higgsfield
+  // lo valida contra él). Un host que no está ahí no puede conectar: el
+  // callback de otro dominio ni siquiera vería la cookie del PKCE.
+  if (!dominiosDelErp().includes(host) && !host.startsWith("localhost")) {
+    return NextResponse.json(
+      {
+        error: `Conéctate desde el dominio de producción (${dominiosDelErp()[0]}); este dominio (${host}) no está en el documento del cliente OAuth.`,
+      },
+      { status: 400 },
+    );
   }
+  const redirectUri = `${proto}://${host}${RUTA_CALLBACK}`;
+  const clientId = clientIdDelErp();
 
   const verifier = base64url(randomBytes(48));
   const challenge = base64url(createHash("sha256").update(verifier).digest());
