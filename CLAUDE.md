@@ -1835,10 +1835,16 @@ guárdala numerada.
   migración 0154; sección «Por dónde se vendió» en Ventas TikTok; dueño,
   4-nov-2026: «saber cuánto fue por live, cuánto por video y cuánto de
   tarjetas de producto»): el GMV por día de la ANALÍTICA de TikTok —`live_gmv`,
-  `video_gmv`, `product_card_attributed_gmv`, buscador y pestaña Tienda de
-  `shop_tab_and_search`, el resto «otros»— y cada fuente partida en lo
-  NUESTRO (`seller_*_gmv`, `seller_product_card_gmv`) y lo de CREADORES
-  (`creator_*_gmv`, `affiliate_product_card_attributed_gmv`). Es el número de
+  `video_gmv`, `product_card_attributed_gmv`, el resto «otros»— y cada fuente
+  partida en lo NUESTRO (`seller_*_gmv`, `seller_product_card_gmv`) y lo de
+  CREADORES (`creator_*_gmv`, `affiliate_product_card_attributed_gmv`); lo
+  que no se atribuye a nadie sale como «indirecta» (vista en LIVE o video y
+  comprada después). **El buscador y la pestaña Tienda NO son fuentes
+  aparte** (verificado con la primera lectura real, 3-nov-2026:
+  `seller_product_card_gmv` = `search_attributed` + `shop_tab_attributed`;
+  la primera versión los sumaba aparte y la barra pasaba del 100 %): son el
+  desglose de NUESTRA tarjeta de producto y así se enseñan. Primera lectura:
+  versión 202609 aceptada, 64 días del 1-sep al 3-nov en una corrida. Es el número de
   TikTok tal cual, no la venta del resumen (que sale de los pedidos). Corre
   en el cron de PAGOS con su propio rato (`MS_FUENTES` 40 s): los últimos 4
   días en cada corrida y hasta 3 tramos de 30 días hacia atrás desde lo más
