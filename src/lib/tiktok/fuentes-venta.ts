@@ -27,11 +27,16 @@ export interface FuentesDia {
   live: number;
   video: number;
   tarjeta: number;
-  /** buscador de TikTok Shop */
+  /**
+   * Parte de la tarjeta de producto NUESTRA que llegó por el buscador de
+   * TikTok Shop (verificado el 3-nov-2026: `seller_product_card_gmv` =
+   * `search_attributed` + `shop_tab_attributed` + `others`; no es una fuente
+   * aparte de la tarjeta).
+   */
   buscador: number;
-  /** pestaña Tienda */
+  /** parte de la tarjeta de producto nuestra que llegó por la pestaña Tienda */
   pestanaTienda: number;
-  /** lo que TikTok no clasifica: GMV − (live + video + tarjeta + buscador + pestaña) */
+  /** lo que TikTok no clasifica: GMV − (live + video + tarjeta) */
   otros: number;
   /** nuestros lives, nuestros videos y la tarjeta de producto de la tienda */
   vendedor: PorCanal;
@@ -80,7 +85,7 @@ export function interpretarFuentes(crudo: unknown): FuentesDia[] {
     const tarjeta = monto(s.product_card_attributed_gmv);
     const buscador = monto(b.shop_tab_and_search?.search_attributed);
     const pestanaTienda = monto(b.shop_tab_and_search?.shop_tab_attributed);
-    const otros = redondea(gmv - live - video - tarjeta - buscador - pestanaTienda);
+    const otros = redondea(gmv - live - video - tarjeta);
     dias.push({
       fecha,
       gmv,
@@ -108,7 +113,7 @@ export function interpretarFuentes(crudo: unknown): FuentesDia[] {
   return dias.sort((a, b) => a.fecha.localeCompare(b.fecha));
 }
 
-export type ClaveFuente = "live" | "video" | "tarjeta" | "buscador" | "pestanaTienda" | "otros";
+export type ClaveFuente = "live" | "video" | "tarjeta" | "otros";
 
 export interface BloqueFuente {
   clave: ClaveFuente;
@@ -126,6 +131,8 @@ export interface ResumenFuentes {
   fuentes: BloqueFuente[];
   vendedor: PorCanal;
   creadores: PorCanal;
+  /** de la tarjeta de producto nuestra, lo que llegó por el buscador y por la pestaña Tienda */
+  tarjetaNuestra: { buscador: number; pestanaTienda: number };
   /** días con dato dentro del rango */
   dias: number;
   /** primer y último día con dato */
@@ -137,12 +144,10 @@ export const NOMBRE_FUENTE: Record<ClaveFuente, string> = {
   live: "LIVE",
   video: "Video",
   tarjeta: "Tarjeta de producto",
-  buscador: "Buscador",
-  pestanaTienda: "Pestaña Tienda",
   otros: "Otros",
 };
 
-const ORDEN_FUENTES: ClaveFuente[] = ["live", "video", "tarjeta", "buscador", "pestanaTienda", "otros"];
+const ORDEN_FUENTES: ClaveFuente[] = ["live", "video", "tarjeta", "otros"];
 
 /** Suma los días (ya acotados al rango) y saca el % de cada fuente sobre el GMV. */
 export function sumarFuentes(dias: FuentesDia[]): ResumenFuentes {
@@ -153,16 +158,25 @@ export function sumarFuentes(dias: FuentesDia[]): ResumenFuentes {
     fuentes: [],
     vendedor: { live: 0, video: 0, tarjeta: 0 },
     creadores: { live: 0, video: 0, tarjeta: 0 },
+    tarjetaNuestra: { buscador: 0, pestanaTienda: 0 },
     dias: 0,
     desde: null,
     hasta: null,
   };
-  const acum: Record<ClaveFuente, number> = { live: 0, video: 0, tarjeta: 0, buscador: 0, pestanaTienda: 0, otros: 0 };
+  const acum: Record<ClaveFuente, number> = { live: 0, video: 0, tarjeta: 0, otros: 0 };
   for (const d of dias) {
     r.gmv += d.gmv;
     r.pedidos += d.pedidos;
     r.piezas += d.piezas;
-    for (const k of ORDEN_FUENTES) acum[k] += d[k];
+    acum.live += d.live;
+    acum.video += d.video;
+    acum.tarjeta += d.tarjeta;
+    // «Otros» se recalcula aquí y no se toma del renglón guardado: los días
+    // leídos antes del 3-nov-2026 lo traían restando también buscador y
+    // pestaña, que son parte de la tarjeta.
+    acum.otros += Math.max(0, d.gmv - d.live - d.video - d.tarjeta);
+    r.tarjetaNuestra.buscador += d.buscador;
+    r.tarjetaNuestra.pestanaTienda += d.pestanaTienda;
     for (const k of ["live", "video", "tarjeta"] as const) {
       r.vendedor[k] += d.vendedor[k];
       r.creadores[k] += d.creadores[k];

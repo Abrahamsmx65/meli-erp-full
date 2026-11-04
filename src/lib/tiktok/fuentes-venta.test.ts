@@ -52,7 +52,7 @@ describe("interpretarFuentes", () => {
       tarjeta: 1500,
       buscador: 800,
       pestanaTienda: 200,
-      otros: 500,
+      otros: 1500,
       vendedor: { live: 1000, video: 500, tarjeta: 1200 },
       creadores: { live: 4000, video: 1500, tarjeta: 300 },
       pedidos: 40,
@@ -84,14 +84,18 @@ describe("sumarFuentes", () => {
       ["live", 6000],
       ["video", 2000],
       ["tarjeta", 1500],
-      ["buscador", 800],
-      ["pestanaTienda", 200],
-      ["otros", 500],
+      ["otros", 1500],
     ]);
+    expect(r.tarjetaNuestra).toEqual({ buscador: 800, pestanaTienda: 200 });
     expect(r.fuentes[0].porcentaje).toBeCloseTo(54.55, 1);
     expect(r.vendedor).toEqual({ live: 1000, video: 500, tarjeta: 1200 });
     // el día 1 solo trae live_gmv sin reparto: no se le inventa canal
     expect(r.creadores).toEqual({ live: 4000, video: 1500, tarjeta: 300 });
+  });
+  it("«otros» sale del GMV menos live, video y tarjeta, aunque el renglón guardado diga otra cosa", () => {
+    const d = { ...interpretarFuentes(crudo)[1], otros: 500 };
+    const r = sumarFuentes([d]);
+    expect(r.fuentes.find((f) => f.clave === "otros")?.monto).toBe(1500);
   });
   it("sin días todo es cero", () => {
     const r = sumarFuentes([]);

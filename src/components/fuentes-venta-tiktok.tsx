@@ -24,8 +24,6 @@ const FONDO: Record<ClaveFuente, string> = {
   live: "var(--acento)",
   video: "var(--ink)",
   tarjeta: "var(--ink-muted)",
-  buscador: "rgba(0,0,0,0.28)",
-  pestanaTienda: "rgba(0,0,0,0.16)",
   otros: "repeating-linear-gradient(135deg, var(--ink-muted) 0 3px, transparent 3px 7px)",
 };
 
@@ -46,7 +44,7 @@ export function FuentesVentaTikTok({ fuentes, rango }: { fuentes: FuentesDeVenta
   return (
     <Seccion
       titulo="Por dónde se vendió"
-      descripcion="Según la analítica de TikTok: GMV del rango por LIVE, video, tarjeta de producto, buscador y pestaña Tienda."
+      descripcion="Según la analítica de TikTok: GMV del rango por LIVE, video y tarjeta de producto, y cuánto de cada uno fue nuestro o de creadores."
     >
       {fuentes.sinLectura ? (
         <Aviso tono="info">TikTok todavía no entrega la analítica de la tienda: la primera lectura corre en la siguiente hora.</Aviso>
@@ -68,7 +66,7 @@ export function FuentesVentaTikTok({ fuentes, rango }: { fuentes: FuentesDeVenta
               <div key={f.clave} className="h-full" style={{ width: `${f.porcentaje}%`, background: FONDO[f.clave] }} title={`${f.nombre}: ${pct(f.porcentaje)} · ${pesos(f.monto)}`} />
             ))}
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {r.fuentes.map((f) => (
               <div key={f.clave} className="flex items-start gap-2 text-sm">
                 <span className="mt-1 inline-block h-3 w-3 shrink-0 rounded-[2px]" style={{ background: FONDO[f.clave] }} aria-hidden />
@@ -88,6 +86,7 @@ export function FuentesVentaTikTok({ fuentes, rango }: { fuentes: FuentesDeVenta
                   <th>Fuente</th>
                   <th className="num">Nosotros</th>
                   <th className="num">Creadores</th>
+                  <th className="num">Indirecta</th>
                   <th className="num">Total</th>
                   <th className="num">% creadores</th>
                 </tr>
@@ -96,14 +95,26 @@ export function FuentesVentaTikTok({ fuentes, rango }: { fuentes: FuentesDeVenta
                 {filas.map((f) => {
                   const nosotros = r.vendedor[f.clave];
                   const creadores = r.creadores[f.clave];
-                  const total = nosotros + creadores;
+                  const total = r.fuentes.find((x) => x.clave === f.clave)?.monto ?? nosotros + creadores;
+                  const indirecta = Math.max(0, total - nosotros - creadores);
+                  const atribuida = nosotros + creadores;
                   return (
                     <tr key={f.clave}>
-                      <td className="font-medium">{f.nombre}</td>
+                      <td className="font-medium">
+                        {f.nombre}
+                        {f.clave === "tarjeta" && nosotros > 0 ? (
+                          <div className="num text-xs texto-2">
+                            nuestra: buscador {pesos(r.tarjetaNuestra.buscador)} · pestaña Tienda {pesos(r.tarjetaNuestra.pestanaTienda)}
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="num cifra">{pesos(nosotros)}</td>
                       <td className="num cifra">{pesos(creadores)}</td>
+                      <td className="num cifra texto-2" title="Vista en un LIVE o video y comprada después, sin que TikTok la atribuya a nadie">
+                        {indirecta > 0 ? pesos(indirecta) : "—"}
+                      </td>
                       <td className="num cifra font-medium">{pesos(total)}</td>
-                      <td className="num cifra">{total > 0 ? pct((creadores / total) * 100) : "—"}</td>
+                      <td className="num cifra">{atribuida > 0 ? pct((creadores / atribuida) * 100) : "—"}</td>
                     </tr>
                   );
                 })}
@@ -111,7 +122,7 @@ export function FuentesVentaTikTok({ fuentes, rango }: { fuentes: FuentesDeVenta
             </table>
           </div>
           <p className="mt-2 text-xs texto-2">
-            GMV {pesos(r.gmv)} · {n(r.pedidos)} pedidos · {n(r.piezas)} piezas en {r.dias} día{r.dias === 1 ? "" : "s"} con dato. Lo de hoy y ayer se vuelve a leer cada hora.
+            GMV {pesos(r.gmv)} · {n(r.pedidos)} pedidos · {n(r.piezas)} piezas en {r.dias} día{r.dias === 1 ? "" : "s"} con dato. Lo de hoy y ayer se vuelve a leer cada hora. «Indirecta» es venta que TikTok cuenta en LIVE o video sin atribuirla a nadie.
           </p>
         </>
       ) : !fuentes.sinLectura && !fuentes.error ? (
