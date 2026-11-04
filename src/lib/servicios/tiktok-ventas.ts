@@ -36,7 +36,8 @@ import { skusExternos } from "./tiktok-externos";
 
 /** Cada cuánto se rehace un rango aunque nadie lo invalide. */
 const TTL_MS = 10 * 60_000;
-const VERSION = "v2";
+/** v3 (4-nov-2026): el origen trae el tipo de contenido de cada creador (LIVE, video, vitrina). */
+const VERSION = "v3";
 
 export function claveVentasTikTok(rango: { desde: string; hasta: string }): string {
   return `tiktok:ventas:${VERSION}:${rango.desde}:${rango.hasta}`;
@@ -136,6 +137,7 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
     destinatario: o.destinatario ?? null,
     creador: o.creador ?? null,
     afiliadoLeido: Boolean(o.afiliadoLeido),
+    contenido: o.contenido ?? null,
   }));
   const renglonesCrudos: (RenglonParaVentas & { sellerSku?: string | null })[] = ((rpc.data?.renglones ?? []) as any[]).map((i) => ({
     orderId: String(i.orderId),

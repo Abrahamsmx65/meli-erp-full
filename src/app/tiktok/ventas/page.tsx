@@ -8,6 +8,8 @@ import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { OrigenVentasTikTok } from "@/components/origen-ventas-tiktok";
+import { FuentesVentaTikTok } from "@/components/fuentes-venta-tiktok";
+import { cargarFuentesDeVenta } from "@/lib/servicios/tiktok-fuentes";
 import { Pestanas } from "@/components/ui/pestanas";
 import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
 import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
@@ -59,9 +61,10 @@ export default async function VentasTikTok({
   if (!cuenta) return <SinCuenta titulo="Ventas TikTok Shop" />;
 
   const admin = clienteAdmin();
-  const [lectura, tiempo] = await Promise.all([
+  const [lectura, tiempo, fuentes] = await Promise.all([
     leerVentasTikTok(admin, cuenta.id, rango),
     servirVariosCanales(admin, [{ canal: "tiktok", accountId: cuenta.id }], rango),
+    cargarFuentesDeVenta(admin, cuenta.id, rango),
   ]);
   if (lectura.refrescar) {
     // Sin la marca la pantalla se quedaba con lo viejo hasta recargar a mano.
@@ -156,6 +159,8 @@ export default async function VentasTikTok({
       <Seccion titulo="Venta por día y por hora" descripcion={`${rango.desde} → ${rango.hasta}`}>
         <GraficaVentasTiempo datos={tiempo} desde={rango.desde} hasta={rango.hasta} />
       </Seccion>
+
+      <FuentesVentaTikTok fuentes={fuentes} rango={rango} />
 
       <Pestanas
         pestanas={[

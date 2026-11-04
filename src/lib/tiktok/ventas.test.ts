@@ -173,3 +173,46 @@ describe("venta = ingreso de TikTok (11-oct-2026)", () => {
     expect(origenDeVentas(ordenes, renglones, rango).total.cobrado).toBeCloseTo(170, 6);
   });
 });
+
+describe("origenDeVentas: por tipo de contenido del creador", () => {
+  const rango = { desde: "2026-09-01", hasta: "2026-09-30" };
+  const ordenes = [
+    { orderId: "1", estado: "COMPLETED", creadoEn: "2026-09-10T15:00:00Z", creador: "ana", afiliadoLeido: true, contenido: "LIVE" },
+    { orderId: "2", estado: "COMPLETED", creadoEn: "2026-09-11T15:00:00Z", creador: "ana", afiliadoLeido: true, contenido: "VIDEO" },
+    { orderId: "3", estado: "COMPLETED", creadoEn: "2026-09-12T15:00:00Z", creador: "beto", afiliadoLeido: true, contenido: "live" },
+    { orderId: "4", estado: "COMPLETED", creadoEn: "2026-09-13T15:00:00Z", creador: "beto", afiliadoLeido: true, contenido: "SHOP" },
+    { orderId: "5", estado: "COMPLETED", creadoEn: "2026-09-13T15:00:00Z", creador: "beto", afiliadoLeido: true, contenido: null },
+    { orderId: "6", estado: "COMPLETED", creadoEn: "2026-09-13T15:00:00Z", creador: null, afiliadoLeido: true, contenido: "LIVE" },
+  ];
+  const renglones = [
+    { orderId: "1", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 300, estado: "COMPLETED" },
+    { orderId: "2", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 100, estado: "COMPLETED" },
+    { orderId: "3", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 200, estado: "COMPLETED" },
+    { orderId: "4", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 50, estado: "COMPLETED" },
+    { orderId: "5", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 50, estado: "COMPLETED" },
+    { orderId: "6", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 500, estado: "COMPLETED" },
+  ];
+  it("reparte lo de los creadores en LIVE, video, vitrina y sin dato, con % sobre lo de creadores", () => {
+    const o = origenDeVentas(ordenes, renglones, rango);
+    expect(o.creadores.cobrado).toBe(700);
+    expect(o.porContenido.LIVE).toMatchObject({ pedidos: 2, cobrado: 500 });
+    expect(o.porContenido.LIVE.porcentaje).toBeCloseTo((500 / 700) * 100, 5);
+    expect(o.porContenido.VIDEO).toMatchObject({ pedidos: 1, cobrado: 100 });
+    expect(o.porContenido.SHOP).toMatchObject({ pedidos: 1, cobrado: 50 });
+    expect(o.porContenido.OTRO).toMatchObject({ pedidos: 1, cobrado: 50 });
+    expect(o.porContenido.LINKSHARE.cobrado).toBe(0);
+  });
+  it("cada creador dice cuánto vendió en LIVE; la tienda no entra al reparto", () => {
+    const o = origenDeVentas(ordenes, renglones, rango);
+    const ana = o.top.find((t) => t.creador === "ana")!;
+    expect(ana.porContenido).toEqual({ LIVE: 300, VIDEO: 100, SHOP: 0, LINKSHARE: 0, OTRO: 0 });
+    expect(ana.porcentajeLive).toBe(75);
+    const beto = o.top.find((t) => t.creador === "beto")!;
+    expect(beto.porContenido).toEqual({ LIVE: 200, VIDEO: 0, SHOP: 50, LINKSHARE: 0, OTRO: 50 });
+    expect(o.tienda.cobrado).toBe(500);
+  });
+  it("sin ventas, cada cubeta queda en cero", () => {
+    const o = origenDeVentas([], [], rango);
+    expect(o.porContenido.LIVE).toEqual({ pedidos: 0, unidades: 0, cobrado: 0, porcentaje: 0 });
+  });
+});

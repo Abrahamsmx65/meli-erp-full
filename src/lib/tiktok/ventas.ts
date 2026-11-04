@@ -76,6 +76,12 @@ export interface OrdenParaVentas {
   creador?: string | null;
   /** true si el pedido ya se revisó contra el endpoint de afiliados (sin creador = venta de la tienda) */
   afiliadoLeido?: boolean;
+  /**
+   * Con qué contenido lo vendió el creador, según el endpoint de afiliados:
+   * LIVE, VIDEO, SHOP (su vitrina) o LINKSHARE (un enlace). null = sin
+   * creador o TikTok no lo dijo.
+   */
+  contenido?: string | null;
   /** nombre del destinatario, para la lista de muestras */
   destinatario?: string | null;
 }
@@ -325,14 +331,33 @@ export interface BloqueOrigen {
   porcentaje: number;
 }
 
+/** Tipos de contenido con que vende un creador, como los escribe TikTok. */
+export type ContenidoCreador = "LIVE" | "VIDEO" | "SHOP" | "LINKSHARE" | "OTRO";
+
+export const NOMBRE_CONTENIDO: Record<ContenidoCreador, string> = {
+  LIVE: "LIVE",
+  VIDEO: "Video",
+  SHOP: "Vitrina",
+  LINKSHARE: "Enlace",
+  OTRO: "Sin dato",
+};
+
+export const ORDEN_CONTENIDO: ContenidoCreador[] = ["LIVE", "VIDEO", "SHOP", "LINKSHARE", "OTRO"];
+
 export interface CreadorTop extends BloqueOrigen {
   creador: string;
+  /** cobrado por tipo de contenido (LIVE, VIDEO, SHOP, LINKSHARE, OTRO) */
+  porContenido: Record<ContenidoCreador, number>;
+  /** % de lo cobrado del creador que vendió en LIVE (0–100) */
+  porcentajeLive: number;
 }
 
 export interface OrigenVentas {
   total: BloqueOrigen;
   /** pedidos que trajo un creador (afiliado) */
   creadores: BloqueOrigen;
+  /** lo de los creadores partido por tipo de contenido; % sobre el cobrado de creadores */
+  porContenido: Record<ContenidoCreador, BloqueOrigen>;
   /** pedidos sin creador, ya revisados: venta de la tienda (nuestra) */
   tienda: BloqueOrigen;
   /** pedidos que aún no se revisan contra el endpoint de afiliados: no se asume nada */
@@ -351,6 +376,12 @@ export interface OrigenVentas {
  * Un pedido sin revisar contra afiliados se declara aparte (`sinRevisar`):
  * contarlo como tienda inflaría nuestra parte.
  */
+/** El tipo de contenido como lo escribe TikTok → una de las cinco cubetas (lo desconocido va a OTRO). */
+export function contenidoDeCreador(x: string | null | undefined): ContenidoCreador {
+  const t = String(x ?? "").trim().toUpperCase();
+  return t === "LIVE" || t === "VIDEO" || t === "SHOP" || t === "LINKSHARE" ? t : "OTRO";
+}
+
 export function origenDeVentas(
   ordenes: OrdenParaVentas[],
   renglones: RenglonParaVentas[],
@@ -376,7 +407,9 @@ export function origenDeVentas(
   const creadores = vacio();
   const tienda = vacio();
   const sinRevisar = vacio();
-  const porCreador = new Map<string, BloqueOrigen>();
+  const contenidoVacio = (): Record<ContenidoCreador, number> => ({ LIVE: 0, VIDEO: 0, SHOP: 0, LINKSHARE: 0, OTRO: 0 });
+  const porContenido: Record<ContenidoCreador, BloqueOrigen> = { LIVE: vacio(), VIDEO: vacio(), SHOP: vacio(), LINKSHARE: vacio(), OTRO: vacio() };
+  const porCreador = new Map<string, BloqueOrigen & { porContenido: Record<ContenidoCreador, number> }>();
   const suma = (b: BloqueOrigen, v: { unidades: number; cobrado: number }) => {
     b.pedidos += 1;
     b.unidades += v.unidades;
@@ -387,8 +420,11 @@ export function origenDeVentas(
     suma(total, v);
     if (o.creador) {
       suma(creadores, v);
-      const c = porCreador.get(o.creador) ?? vacio();
+      const tipo = contenidoDeCreador(o.contenido);
+      suma(porContenido[tipo], v);
+      const c = porCreador.get(o.creador) ?? { ...vacio(), porContenido: contenidoVacio() };
       suma(c, v);
+      c.porContenido[tipo] += v.cobrado;
       porCreador.set(o.creador, c);
     } else if (o.afiliadoLeido) {
       suma(tienda, v);
@@ -400,13 +436,23 @@ export function origenDeVentas(
     b.porcentaje = total.cobrado > 0 ? (b.cobrado / total.cobrado) * 100 : 0;
     return b;
   };
-  const top = [...porCreador.entries()]
-    .map(([creador, b]) => ({ creador, ...pct(b) }))
+  const top: CreadorTop[] = [...porCreador.entries()]
+    .map(([creador, b]) => ({
+      creador,
+      ...pct(b),
+      porContenido: b.porContenido,
+      porcentajeLive: b.cobrado > 0 ? (b.porContenido.LIVE / b.cobrado) * 100 : 0,
+    }))
     .sort((a, b) => b.cobrado - a.cobrado || b.unidades - a.unidades || a.creador.localeCompare(b.creador))
     .slice(0, topN);
+  for (const k of ORDEN_CONTENIDO) {
+    const b = porContenido[k];
+    b.porcentaje = creadores.cobrado > 0 ? (b.cobrado / creadores.cobrado) * 100 : 0;
+  }
   return {
     total: pct(total),
     creadores: pct(creadores),
+    porContenido,
     tienda: pct(tienda),
     sinRevisar: pct(sinRevisar),
     top,
