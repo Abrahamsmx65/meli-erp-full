@@ -20,6 +20,7 @@ import { configuracionIndusther, sincronizarInventarioIndusther } from "./indust
 import { estanteDeSku, leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
+import { leerFuentesDeVenta, type ResultadoFuentes } from "./tiktok-fuentes";
 import { leerEstadosDeCuenta } from "./tiktok-estados";
 import { agregarVentasDiarias, deDesglose } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
@@ -1665,6 +1666,8 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
  */
 /** Rato de cada corrida de pagos para los afiliados (unos 5 tramos de 3 días). */
 const MS_AFILIADOS = 130_000;
+/** Rato para la analítica de fuentes de venta: cuatro llamadas a lo más (reciente + 3 tramos). */
+const MS_FUENTES = 40_000;
 
 export async function sincronizarPagosTikTok(
   admin: any,
@@ -1696,6 +1699,18 @@ export async function sincronizarPagosTikTok(
     });
     if (afiliados?.error) avisos.push(`Afiliados: ${afiliados.error}`);
   }
+  // Por dónde se vendió (LIVE, video, tarjeta de producto): la analítica de
+  // TikTok por día, con su propio rato corto (`MS_FUENTES`); deja su renglón
+  // `fuentes-venta` en la bitácora (dueño, 4-nov-2026).
+  let fuentes: ResultadoFuentes | null = null;
+  const clienteFuentes = await clienteDeCuenta(admin, accountId, Math.min(MS_FUENTES, cliente.msRestantes() - 60_000));
+  if (clienteFuentes && clienteFuentes.msRestantes() > 20_000) {
+    fuentes = await leerFuentesDeVenta(admin, accountId, clienteFuentes).catch((err) => {
+      avisos.push(`Fuentes de venta: ${(err as Error).message}`);
+      return null;
+    });
+    if (fuentes?.error) avisos.push(`Fuentes de venta: ${fuentes.error}`);
+  }
   // Los estados de cuenta: lo que TikTok cobra o abona FUERA de los pedidos
   // (ajustes); una lectura corta cada 3 h, antes de las liquidaciones que se
   // comen el tiempo que les den.
@@ -1715,7 +1730,13 @@ export async function sincronizarPagosTikTok(
     inicio,
     fin: new Date().toISOString(),
     estado: avisos.length ? "con avisos" : "ok",
-    detalle: { porLiquidar, liquidados, afiliados: afiliados ? { guardados: afiliados.guardados, creadores: afiliados.creadores, fondo: afiliados.fondo, llegoAlPrimero: afiliados.llegoAlPrimero } : null, avisos },
+    detalle: {
+      porLiquidar,
+      liquidados,
+      afiliados: afiliados ? { guardados: afiliados.guardados, creadores: afiliados.creadores, fondo: afiliados.fondo, llegoAlPrimero: afiliados.llegoAlPrimero } : null,
+      fuentes: fuentes ? { guardados: fuentes.guardados, version: fuentes.version, ventanas: fuentes.ventanas.length } : null,
+      avisos,
+    },
   });
   return { porLiquidar, liquidados, avisos };
 }

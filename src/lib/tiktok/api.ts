@@ -1470,3 +1470,45 @@ export async function buscarActividades(
   }
   return { actividades: salida, completo };
 }
+
+// ---------------------------------------------------------------------------
+// Analítica: por dónde se vendió (LIVE, video, tarjeta de producto…)
+// ---------------------------------------------------------------------------
+
+/**
+ * Versiones del «Get Shop Performance» de la analítica, de la más nueva a la
+ * más vieja (del esquema OpenAPI generado de la documentación de TikTok,
+ * nov-2026): la 202609 trae el GMV por fuente —`live_gmv`, `video_gmv`,
+ * `product_card_attributed_gmv`, buscador y pestaña Tienda— y cada una
+ * partida en vendedor / creadores. Si TikTok contesta que una versión no
+ * existe (36009004 / 36009009 / 404) se prueba la siguiente.
+ */
+export const VERSIONES_RENDIMIENTO = ["202609", "202405"] as const;
+
+/**
+ * El rendimiento de la tienda por DÍA entre `desde` (inclusive) y `hasta`
+ * (exclusivo), fechas YYYY-MM-DD en la zona de la tienda. Exige el permiso de
+ * analítica de la app; sin él TikTok contesta un error de permisos que se
+ * guarda en la bitácora tal cual. null si se acabó el tiempo de la función.
+ */
+export async function rendimientoDeTienda(
+  c: Cliente,
+  opciones: { desde: string; hasta: string },
+): Promise<{ crudo: any; version: string } | null> {
+  let ultimo: unknown = null;
+  for (const version of VERSIONES_RENDIMIENTO) {
+    try {
+      const d = await c.llamar<any>("GET", `/analytics/${version}/shop/performance`, {
+        params: { start_date_ge: opciones.desde, end_date_lt: opciones.hasta, granularity: "1D", currency: "LOCAL" },
+      });
+      if (d == null) return null;
+      return { crudo: d, version };
+    } catch (err) {
+      ultimo = err;
+      const codigo = err instanceof ErrorTikTok ? err.codigo : null;
+      if (codigo === 36009004 || codigo === 36009009 || codigo === 404) continue;
+      throw err;
+    }
+  }
+  throw ultimo instanceof Error ? ultimo : new Error("TikTok no reconoció ninguna versión de la analítica de la tienda.");
+}

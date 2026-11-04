@@ -1824,6 +1824,37 @@ guárdala numerada.
   de 3 días, 5,550 pedidos con creador y 298 creadores; TikTok NO exigió
   `program_id`. El tramo de fondo es de 3 días (`DIAS_POR_TRAMO`) porque
   con 7 no cabía en las 60 páginas de una corrida y el cursor no avanzaba.
+  **POR DÓNDE SE VENDIÓ: LIVE, video, tarjeta de producto** (`tiktok/
+  fuentes-venta.ts` puro con pruebas: `interpretarFuentes`, `sumarFuentes`,
+  `ventanasPorLeer`; `servicios/tiktok-fuentes.ts` `leerFuentesDeVenta` /
+  `cargarFuentesDeVenta`; `rendimientoDeTienda` en `tiktok/api.ts` = `GET
+  /analytics/202609/shop/performance` con `granularity=1D` (cae a la 202405
+  si TikTok dice que la versión no existe; ruta y campos del esquema OpenAPI
+  generado de la documentación de TikTok, nov-2026, porque la documentación
+  no se alcanza desde el entorno de Claude); tabla `tiktok_fuentes_dia`,
+  migración 0154; sección «Por dónde se vendió» en Ventas TikTok; dueño,
+  4-nov-2026: «saber cuánto fue por live, cuánto por video y cuánto de
+  tarjetas de producto»): el GMV por día de la ANALÍTICA de TikTok —`live_gmv`,
+  `video_gmv`, `product_card_attributed_gmv`, buscador y pestaña Tienda de
+  `shop_tab_and_search`, el resto «otros»— y cada fuente partida en lo
+  NUESTRO (`seller_*_gmv`, `seller_product_card_gmv`) y lo de CREADORES
+  (`creator_*_gmv`, `affiliate_product_card_attributed_gmv`). Es el número de
+  TikTok tal cual, no la venta del resumen (que sale de los pedidos). Corre
+  en el cron de PAGOS con su propio rato (`MS_FUENTES` 40 s): los últimos 4
+  días en cada corrida y hasta 3 tramos de 30 días hacia atrás desde lo más
+  viejo guardado hasta `TIKTOK_DESDE`; bitácora `tiktok_sync_log` tarea
+  `fuentes-venta` con el primer intervalo crudo; si TikTok rechaza (la app
+  necesita el permiso «Analytics»), la pantalla enseña el error tal cual.
+  **Y en los creadores, con qué contenido vendió cada uno** («en los
+  creadores poder saber si fue de live»): el endpoint de afiliados ya traía
+  `content_type` por SKU (`SkuDeAfiliado.tipoContenido`: LIVE, VIDEO, SHOP =
+  vitrina, LINKSHARE = enlace; en 30 días: 14,610 pedidos LIVE, 5,298 VIDEO,
+  160 enlace, 111 vitrina); `tiktok_ventas_pedidos` (0154) entrega por pedido
+  `contenido` (el del renglón del creador con más pares) y `origenDeVentas`
+  reparte lo de creadores en `porContenido` (% sobre lo de creadores) y cada
+  `CreadorTop` trae `porContenido` y `porcentajeLive`; la pestaña Creadores
+  enseña LIVE / Video / Otro por creador. Un pedido de la tienda no lleva
+  contenido: eso lo dice solo la analítica. `tiktok:ventas:v3`.
   **OFERTAS RELÁMPAGO desde el panel** (`tiktok/promociones.ts` puro con
   pruebas, `servicios/tiktok-promociones.ts`, `/tiktok/promociones`
   «Ofertas relámpago» en el menú, `POST /api/tiktok/promociones`, tabla

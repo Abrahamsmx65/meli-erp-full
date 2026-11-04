@@ -1,4 +1,4 @@
-import type { OrigenVentas } from "@/lib/tiktok/ventas";
+import { NOMBRE_CONTENIDO, ORDEN_CONTENIDO, type OrigenVentas } from "@/lib/tiktok/ventas";
 import { Seccion } from "@/components/ui/pagina";
 
 function n(x: number): string {
@@ -25,6 +25,9 @@ const SEGMENTOS: { clave: "creadores" | "tienda" | "sinRevisar"; nombre: string;
  * sin revisar con su % de lo cobrado, y el top 10 de creadores. Pedido del
  * dueño (1-oct-2026): «una gráfica de cuánto es por creadores y cuánto por
  * mí, y el top 10 de creadores que generaron la venta y su porcentaje».
+ * Desde el 4-nov-2026 lo de los creadores va partido por tipo de contenido
+ * (LIVE, video, vitrina, enlace) y cada creador dice cuánto vendió en LIVE
+ * («en los creadores poder saber si fue de live»).
  */
 export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
   const total = origen.total;
@@ -52,6 +55,13 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
                     <div className="num text-xs texto-2">
                       {pesos(b.cobrado)} · {n(b.pedidos)} pedidos · {n(b.unidades)} pares
                     </div>
+                    {s.clave === "creadores" && origen.porContenido ? (
+                      <div className="num mt-1 text-xs texto-2">
+                        {ORDEN_CONTENIDO.filter((k) => origen.porContenido[k].cobrado > 0)
+                          .map((k) => `${NOMBRE_CONTENIDO[k]} ${pct(origen.porContenido[k].porcentaje)}`)
+                          .join(" · ")}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -73,6 +83,9 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
               <th className="num">Pedidos</th>
               <th className="num">Pares</th>
               <th className="num">Cobrado</th>
+              <th className="num">LIVE</th>
+              <th className="num">Video</th>
+              <th className="num">Otro</th>
               <th className="num">% de la venta</th>
               <th aria-label="Proporción" />
             </tr>
@@ -85,6 +98,18 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
                 <td className="num cifra">{n(c.pedidos)}</td>
                 <td className="num cifra">{n(c.unidades)}</td>
                 <td className="num cifra">{pesos(c.cobrado)}</td>
+                <td className="num cifra" title={c.porContenido ? `${pct(c.porcentajeLive)} de lo que vendió fue en LIVE` : undefined}>
+                  {c.porContenido?.LIVE ? `${pesos(c.porContenido.LIVE)} · ${pct(c.porcentajeLive)}` : "—"}
+                </td>
+                <td className="num cifra">{c.porContenido?.VIDEO ? pesos(c.porContenido.VIDEO) : "—"}</td>
+                <td
+                  className="num cifra texto-2"
+                  title={c.porContenido ? `vitrina ${pesos(c.porContenido.SHOP)} · enlace ${pesos(c.porContenido.LINKSHARE)} · sin dato ${pesos(c.porContenido.OTRO)}` : undefined}
+                >
+                  {c.porContenido && c.porContenido.SHOP + c.porContenido.LINKSHARE + c.porContenido.OTRO > 0
+                    ? pesos(c.porContenido.SHOP + c.porContenido.LINKSHARE + c.porContenido.OTRO)
+                    : "—"}
+                </td>
                 <td className="num cifra font-semibold">{pct(c.porcentaje)}</td>
                 <td style={{ width: "22%" }}>
                   <div className="h-2 w-full rounded-[4px]" style={{ background: "var(--superficie-2, rgba(0,0,0,0.06))" }}>
@@ -95,7 +120,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
             ))}
             {!origen.top.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={10}>
                   {origen.sinRevisar.pedidos > 0 ? "Todavía no se leen los afiliados de estos pedidos." : "Ningún creador vendió en el rango."}
                 </td>
               </tr>
