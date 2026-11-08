@@ -13,7 +13,8 @@ import { cuentaAmazon } from "./amazon";
 // v2: trae el depósito por precio (`meliPorPrecio`, migración 0143).
 // v4: el envío por tramo de precio es lo que MELI COBRÓ en las ventas reales
 // (`meli_envio_por_modelo_tramo`), no el costo de lista del simulador.
-export const CLAVE_TARIFAS = "finanzas:tarifas-reales:v4";
+// v5: Amazon cuenta el envío que pagó el cliente en «otros» (migración 0156).
+export const CLAVE_TARIFAS = "finanzas:tarifas-reales:v5";
 export const DIAS_TARIFAS = 30;
 export const EDAD_TARIFAS_MS = 6 * 3_600_000;
 
