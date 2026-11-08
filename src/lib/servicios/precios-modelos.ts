@@ -9,7 +9,8 @@
  */
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
-import { calcularNumeros } from "../finanzas/numeros";
+import { calcularNumeros, type NumerosVivo } from "../finanzas/numeros";
+import { numerosEnVivo } from "./numeros-vivo";
 import { enLotes, type MeliClient } from "../meli/client";
 import { Cliente, ErrorAmazon, cuentasAmazon } from "../amazon/spapi";
 import {
@@ -91,14 +92,14 @@ export function normalizarModelos(x: unknown): string[] {
   return [...new Set(lista.map((m) => String(m).trim().toUpperCase()).filter((m) => /^[A-Z]{1,4}\d{2,5}[A-Z]?$/.test(m)))];
 }
 
-async function objetivosDe(db: DB, accountId: string, modelos: string[]): Promise<Objetivos[]> {
+async function objetivosDe(db: DB, accountId: string, modelos: string[], vivos: Map<string, NumerosVivo> = new Map()): Promise<Objetivos[]> {
   const tarifas = await leerCacheAppGuardado<TarifasGuardadas>(db, accountId, CLAVE_TARIFAS).catch(() => null);
   const porModelo = tarifas && tarifas.estado === "encontrado" ? tarifas.valor.datos.porModelo : {};
   const { renglones } = await listarNumeros(db, accountId, porModelo);
   return modelos.map((modelo) => {
     const r = renglones.find((x) => x.entrada.modelo === modelo);
     if (!r) return { modelo, relampago: null, normal: null, pvpDeal: null };
-    const c = calcularNumeros(r.entrada, r.costo, r.reales);
+    const c = calcularNumeros(r.entrada, r.costo, r.reales, vivos.get(modelo) ?? null);
     return {
       modelo,
       relampago: r.entrada.precioRelampago,
@@ -106,6 +107,27 @@ async function objetivosDe(db: DB, accountId: string, modelos: string[]): Promis
       pvpDeal: redondear99(c.pvpDeal),
     };
   });
+}
+
+async function vivosDe(db: DB, admin: DB, cliente: MeliClient, accountId: string, modelos: string[], avisos: string[]): Promise<Map<string, NumerosVivo>> {
+  const salida = new Map<string, NumerosVivo>();
+  const { data: cuenta } = await db.from("meli_accounts").select("meli_user_id").eq("id", accountId).maybeSingle();
+  const userId = Number((cuenta as { meli_user_id?: unknown } | null)?.meli_user_id);
+  if (!Number.isFinite(userId)) return salida;
+  const tarifas = await leerCacheAppGuardado<TarifasGuardadas>(db, accountId, CLAVE_TARIFAS).catch(() => null);
+  const { renglones } = await listarNumeros(db, accountId, tarifas && tarifas.estado === "encontrado" ? tarifas.valor.datos.porModelo : {});
+  for (const modelo of modelos) {
+    const r = renglones.find((x) => x.entrada.modelo === modelo);
+    if (!r || r.entrada.precioRelampago == null) continue;
+    try {
+      const v = await numerosEnVivo(db, admin, cliente, accountId, userId, r.entrada);
+      salida.set(modelo, v);
+      if (!v.amazon) avisos.push(`${modelo}: Amazon no se leyó en vivo (${v.avisos.join("; ") || "sin respuesta"}); su PVP sale con lo de 30 días.`);
+    } catch (err) {
+      avisos.push(`${modelo}: no se pudo leer en vivo — ${(err as Error).message}`);
+    }
+  }
+  return salida;
 }
 
 async function itemsDeModelos(db: DB, accountId: string, modelos: string[]): Promise<Map<string, string>> {
@@ -190,7 +212,10 @@ export async function revisarPrecios(
 ): Promise<RevisionPrecios> {
   const canal: CanalPrecios = opciones.soloMeli ? "meli" : opciones.canal ?? "ambos";
   const avisos: string[] = [];
-  const objetivos = await objetivosDe(db, accountId, modelos);
+  // A Amazon va el PVP con lo que Amazon y MELI cobran HOY a esos precios
+  // (lo mismo que enseña Números en vivo; dueño, 8-nov-2026).
+  const vivos = canal !== "meli" ? await vivosDe(db, admin, cliente, accountId, modelos, avisos) : new Map<string, NumerosVivo>();
+  const objetivos = await objetivosDe(db, accountId, modelos, vivos);
   const porModelo = new Map(objetivos.map((o) => [o.modelo, o]));
   for (const o of objetivos) {
     if (o.relampago == null) avisos.push(`${o.modelo}: no tiene precio relámpago en Números.`);

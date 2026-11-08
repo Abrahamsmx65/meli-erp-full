@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { calcularNumeros, type EntradaNumeros, type ResultadoNumeros } from "@/lib/finanzas/numeros";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { calcularNumeros, type EntradaNumeros, type NumerosVivo, type ResultadoNumeros } from "@/lib/finanzas/numeros";
 import type { RenglonNumeros } from "@/lib/servicios/numeros";
 
 const din = (x: number | null | undefined, dec = 2) =>
@@ -12,9 +12,10 @@ const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-
 const pct = (x: number, dec = 0) => `${(x * 100).toFixed(dec)}%`;
 
 /** Debajo de la cifra: con qué tasas salió (lo real de 30 días o tu estimación). */
-function Fuente({ fuente, children }: { fuente: "real" | "general" | "estimado"; children: React.ReactNode }) {
+function Fuente({ fuente, children }: { fuente: "vivo" | "real" | "general" | "estimado"; children: React.ReactNode }) {
   const t = {
-    real: { color: "var(--exito-texto)", texto: "real ", title: "Lo que cobró la plataforma por este modelo en los últimos 30 días" },
+    vivo: { color: "var(--exito-texto)", texto: "en vivo ", title: "Lo que la plataforma contesta HOY a este precio" },
+    real: { color: "var(--exito-texto)", texto: "real 30 d ", title: "Lo que cobró la plataforma por este modelo en los últimos 30 días" },
     general: {
       color: "var(--exito-texto)",
       texto: "real cuenta ",
@@ -32,15 +33,24 @@ function Fuente({ fuente, children }: { fuente: "real" | "general" | "estimado";
 
 type CampoNum = "envioMeli" | "precioRelampago" | "pvNormal" | "envioAmazon" | "pvpDeal";
 
+const leerNumero = (t: string): number | null | undefined => {
+  if (t.trim() === "") return null;
+  const v = Number(t.replace(/[$,\s]/g, ""));
+  return Number.isFinite(v) ? v : undefined;
+};
+
 function Celda({
   valor,
   placeholder,
   onCambio,
+  onTecleo,
   ancho = "w-20",
 }: {
   valor: number | null;
   placeholder?: string;
   onCambio: (v: number | null) => void;
+  /** mientras se teclea: la fila se recalcula sin guardar todavía */
+  onTecleo?: (v: number | null) => void;
   ancho?: string;
 }) {
   const [texto, setTexto] = useState(valor == null ? "" : String(valor));
@@ -51,11 +61,19 @@ function Celda({
       inputMode="decimal"
       placeholder={placeholder}
       value={texto}
-      onChange={(e) => setTexto(e.target.value)}
+      onChange={(e) => {
+        setTexto(e.target.value);
+        const v = leerNumero(e.target.value);
+        if (v !== undefined) onTecleo?.(v);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
       onBlur={() => {
-        const v = texto.trim() === "" ? null : Number(texto.replace(/[$,\s]/g, ""));
-        if (v != null && !Number.isFinite(v)) {
+        const v = leerNumero(texto);
+        if (v === undefined) {
           setTexto(valor == null ? "" : String(valor));
+          onTecleo?.(valor);
           return;
         }
         if (v !== valor) onCambio(v);
@@ -71,11 +89,51 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
   );
   const [estado, setEstado] = useState<Record<string, "guardando" | "ok" | string>>({});
   const [busca, setBusca] = useState("");
+  // Lo que se está tecleando (sin guardar): la fila se recalcula al momento
+  // (dueño, 8-nov-2026: «si juego con el precio que se recalcule»).
+  const [tecleo, setTecleo] = useState<{ modelo: string; cambio: Partial<EntradaNumeros> } | null>(null);
+  // Lo leído EN VIVO de MELI y Amazon por modelo (a los precios de ese momento).
+  const [vivos, setVivos] = useState<Record<string, NumerosVivo>>({});
+  const [leyendo, setLeyendo] = useState<Record<string, boolean>>({});
+  const ultimaLectura = useRef<Record<string, number>>({});
+  const relojes = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  async function pedirVivo(entrada: EntradaNumeros) {
+    const modelo = entrada.modelo;
+    if (entrada.precioRelampago == null) return;
+    const id = (ultimaLectura.current[modelo] ?? 0) + 1;
+    ultimaLectura.current[modelo] = id;
+    setLeyendo((l) => ({ ...l, [modelo]: true }));
+    try {
+      const r = await fetch("/api/finanzas/numeros/vivo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entrada),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (ultimaLectura.current[modelo] !== id) return;
+      if (!r.ok) throw new Error(j.error ?? "No se pudo leer en vivo.");
+      setVivos((v) => ({ ...v, [modelo]: j as NumerosVivo }));
+    } catch (err) {
+      if (ultimaLectura.current[modelo] === id)
+        setVivos((v) => ({ ...v, [modelo]: { leidoEn: new Date().toISOString(), meli: [], amazon: null, avisos: [(err as Error).message] } }));
+    } finally {
+      if (ultimaLectura.current[modelo] === id) setLeyendo((l) => ({ ...l, [modelo]: false }));
+    }
+  }
+
+  /** Pregunta en vivo cuando se deja de teclear un momento. */
+  function vivoEnUnRato(entrada: EntradaNumeros, ms = 900) {
+    clearTimeout(relojes.current[entrada.modelo]);
+    relojes.current[entrada.modelo] = setTimeout(() => void pedirVivo(entrada), ms);
+  }
   const [soloConCosto, setSoloConCosto] = useState(true);
 
   async function guardar(modelo: string, cambio: Partial<EntradaNumeros>) {
     const nueva = { ...entradas[modelo], ...cambio };
     setEntradas((e) => ({ ...e, [modelo]: nueva }));
+    setTecleo(null);
+    if ("precioRelampago" in cambio || "pvNormal" in cambio) vivoEnUnRato(nueva, 0);
     setEstado((s) => ({ ...s, [modelo]: "guardando" }));
     try {
       const r = await fetch("/api/finanzas/numeros", {
@@ -105,15 +163,32 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
   const cambioDe = (campo: CampoNum, v: number | null): Partial<EntradaNumeros> =>
     campo === "precioRelampago" ? { precioRelampago: v, pvNormal: null, pvpDeal: null } : ({ [campo]: v } as Partial<EntradaNumeros>);
 
-  const num = (modelo: string, campo: CampoNum, placeholder?: string, ancho?: string) => (
-    <Celda
-      key={`${modelo}-${campo}-${entradas[modelo][campo] ?? ""}`}
-      valor={entradas[modelo][campo] as number | null}
-      placeholder={placeholder}
-      ancho={ancho}
-      onCambio={(v) => guardar(modelo, cambioDe(campo, v))}
-    />
-  );
+  // Los pocos modelos que se están viendo (una búsqueda) se leen en vivo solos.
+  useEffect(() => {
+    if (visibles.length > 5) return;
+    for (const r of visibles) if (!vivos[r.entrada.modelo] && !leyendo[r.entrada.modelo]) void pedirVivo(entradas[r.entrada.modelo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibles]);
+
+  const num = (modelo: string, campo: CampoNum, placeholder?: string, ancho?: string) => {
+    // Mientras se teclea el relámpago, el PV normal y el deal fijados se sueltan también en pantalla.
+    const suelto = tecleo?.modelo === modelo && "precioRelampago" in tecleo.cambio && (campo === "pvNormal" || campo === "pvpDeal");
+    const valor = suelto ? null : (entradas[modelo][campo] as number | null);
+    return (
+      <Celda
+        key={`${modelo}-${campo}-${valor ?? ""}`}
+        valor={valor}
+        placeholder={placeholder}
+        ancho={ancho}
+        onCambio={(v) => guardar(modelo, cambioDe(campo, v))}
+        onTecleo={(v) => {
+          const cambio = cambioDe(campo, v);
+          setTecleo({ modelo, cambio });
+          if (campo === "precioRelampago" || campo === "pvNormal") vivoEnUnRato({ ...entradas[modelo], ...cambio });
+        }}
+      />
+    );
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -157,14 +232,32 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
           <tbody>
             {visibles.map((r) => {
               const m = r.entrada.modelo;
-              const e = entradas[m];
-              const c = calcularNumeros(e, r.costo, r.reales);
+              // Con lo tecleado encima, para ver los números a ese precio antes de guardar.
+              const e = tecleo?.modelo === m ? { ...entradas[m], ...tecleo.cambio } : entradas[m];
+              const vivo = vivos[m] ?? null;
+              const c = calcularNumeros(e, r.costo, r.reales, vivo);
               const u = c.usado;
               const st = estado[m];
               return (
                 <tr key={m}>
                   <td className="font-medium">
                     {m}
+                    <div className="text-[11px] font-normal">
+                      <button
+                        type="button"
+                        className="enlace"
+                        disabled={leyendo[m]}
+                        onClick={() => void pedirVivo(e)}
+                        title="Preguntar ahora a MELI y Amazon lo que cobran a estos precios"
+                      >
+                        {leyendo[m] ? "leyendo…" : vivo ? "releer en vivo" : "leer en vivo"}
+                      </button>
+                      {vivo?.avisos.length ? (
+                        <div style={{ color: "var(--alerta-texto)" }} title={vivo.avisos.join("\n")}>
+                          {vivo.avisos.length} aviso{vivo.avisos.length > 1 ? "s" : ""}
+                        </div>
+                      ) : null}
+                    </div>
                     {st && st !== "ok" ? (
                       <div className="text-[11px]" style={{ color: st === "guardando" ? "var(--ink-3)" : "var(--estado-critico)" }}>
                         {st === "guardando" ? "guardando…" : st}
@@ -178,7 +271,33 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                       {r.fuenteCosto === "contenedor" ? r.contenedor : r.fuenteCosto === "catalogo" ? "catálogo" : ""}
                     </div>
                   </td>
-                  <td className="num">{num(m, "envioMeli", "", "w-16")}</td>
+                  <td className="num">
+                    {u.meli.envioFuente === "tuyo" ? (
+                      <>
+                        {num(m, "envioMeli", "", "w-16")}
+                        <div className="texto-tenue text-[11px]" title="MELI no tiene medidas ni ventas de este modelo en ese tramo de precio: se usa el que capturaste">
+                          tuyo
+                        </div>
+                      </>
+                    ) : (
+                      <span className="cifra">
+                        {din(u.meli.envio)}
+                        <div
+                          className="text-[11px]"
+                          style={{ color: "var(--exito-texto)" }}
+                          title={
+                            u.meli.envioFuente === "vivo"
+                              ? "Lo que MELI contesta HOY a este precio con las medidas que ella capturó (abajo de $299 y desde $499 cambia)"
+                              : u.meli.envioFuente === "meli"
+                                ? "Lo que MELI cobra con las medidas que ella capturó, a un precio del mismo tramo ($299 / $499) que el relámpago"
+                                : "Mediana de lo que MELI cobró en las ventas directas de 30 días"
+                          }
+                        >
+                          {u.meli.envioFuente === "vivo" ? "en vivo" : u.meli.envioFuente === "meli" ? "MELI (tramo)" : "real ventas"}
+                        </div>
+                      </span>
+                    )}
+                  </td>
                   <td className="num">{num(m, "precioRelampago")}</td>
                   <td className="num cifra" style={{ color: c.ganancia != null && c.ganancia < 0 ? "var(--estado-critico)" : undefined }}>
                     {din(c.ganancia)}
@@ -223,10 +342,20 @@ function RecibidoMeli({ c }: { c: ResultadoNumeros }) {
   const r = c.recibidoMeli;
   const u = c.usado.meli;
   if (!r) return null;
+  const cargos = `${pct(u.comisionPct, 1)}${u.fijo ? ` + ${din(u.fijo)} fijo` : ""} · envío ${din(u.envio)}${u.retencionPct > 0 ? ` · ret ${pct(u.retencionPct, 1)}` : ""}`;
   const linea =
     r.fuente === "real" ? (
-      <div className="text-[11px]" style={{ color: "var(--exito-texto)" }} title={`Lo que Mercado Pago depositó por par en ${r.pares.toLocaleString("es-MX")} ventas a este precio en 30 días (reventa incluida).`}>
+      <div
+        className="text-[11px]"
+        style={{ color: "var(--exito-texto)" }}
+        title={`Lo que Mercado Pago depositó por par en ${r.pares.toLocaleString("es-MX")} ventas a este precio en 30 días (reventa incluida).`}
+      >
         real a {din(r.precio)}: recibes {din(r.porPar)}/par
+      </div>
+    ) : r.fuente === "vivo" ? (
+      <div className="text-[11px]" style={{ color: "var(--exito-texto)" }} title="Comisión y envío que MELI contesta HOY a este precio">
+        a {din(r.precio)} recibes {din(r.porPar)}/par
+        <div>en vivo: {cargos}</div>
       </div>
     ) : r.fuente === "desde_ventas" && r.base ? (
       <div
@@ -238,11 +367,14 @@ function RecibidoMeli({ c }: { c: ResultadoNumeros }) {
         <div className="texto-tenue">según lo real a {din(r.base.precio, 0)}</div>
       </div>
     ) : (
-      <div className="text-[11px]" style={{ color: u.fuente === "real" ? "var(--exito-texto)" : "var(--ink-3)" }} title="Sin ventas cerca de este precio: comisión, envío y retención de MELI.">
+      <div
+        className="text-[11px]"
+        style={{ color: u.fuente === "real" ? "var(--exito-texto)" : "var(--ink-3)" }}
+        title="Sin ventas cerca de este precio: comisión, envío y retención de MELI de 30 días."
+      >
         a {din(r.precio)} recibirías {din(r.porPar)}/par
         <div className="texto-tenue">
-          {u.fuente === "real" ? "tasas reales" : "estimado"} {pct(u.comisionPct)} · {din(u.envio)}
-          {u.retencionPct > 0 ? ` · ret ${pct(u.retencionPct, 1)}` : ""}
+          {u.fuente === "real" ? "tasas reales" : "estimado"} {cargos}
         </div>
       </div>
     );

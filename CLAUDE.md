@@ -3172,7 +3172,23 @@ guárdala numerada.
   fuente «general»; el envío de FBA capturado manda sobre la mediana) y la
   tabla ya no enseña el 8 / 24 % / ×1.11 de TikTok. «Llevar precios» deja
   aplicar solo a MELI o solo a Amazon (`canal`) y la última corrida de Buen
-  Fin ya no sale sola arriba («Ver último Buen Fin»). Los sueldos del dueño y de
+  Fin ya no sale sola arriba («Ver último Buen Fin»). **Y EN VIVO** (mismo día: «todo según lo real», «tiene que tomar
+  la info en tiempo real de MELI y de Amazon», «considerar la diferencia de
+  envío abajo y arriba de $299 en los dos», «si juego con el precio que se
+  recalcule»; `servicios/numeros-vivo.ts`, `POST /api/finanzas/numeros/vivo`,
+  `NumerosVivo`): al teclear un precio la fila se recalcula al momento y,
+  al dejar de teclear, se le pregunta a MELI la comisión (% y cargo fijo) en
+  `/sites/MLM/listing_prices` y el envío del simulador con las medidas de
+  MELI A ESE PRECIO (relámpago y PV normal, cada uno en su tramo), y a Amazon
+  `getMyFeesEstimateForSKU` al PVP, repreguntando hasta que el PVP deja de
+  moverse (abajo de $299 Amazon cobra otra cosa). Orden de lo recibido en
+  MELI: depositado real a ese precio → en vivo → real del precio vendido más
+  cercano del mismo tramo → tasas. La columna Envío enseña el de MELI (en
+  vivo, el del simulador guardado por tramo `envioMeliPorTramo` en
+  `finanzas:tarifas-reales:v3`, o la mediana de ventas directas); el
+  capturado solo sale si no hay nada real. Una búsqueda de ≤ 5 modelos se
+  lee en vivo sola; los demás con «leer en vivo». «Llevar precios» manda a
+  Amazon el PVP calculado en vivo. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
   con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,
