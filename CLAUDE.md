@@ -3208,7 +3208,16 @@ guárdala numerada.
   si el PVP cae del otro lado, el estimado en vivo y luego lo de la cuenta.
   En TikTok «lo que se queda» sale de lo que TikTok PAGA por pedido
   (liquidado o por liquidar): ya trae comisión, cargo por par, envío,
-  retenciones y los afiliados que hubo, en su proporción real. Los sueldos del dueño y de
+  retenciones y los afiliados que hubo, en su proporción real. **Cómo cobra Amazon de verdad** (revisado contra los
+  eventos crudos el 8-nov-2026, dueño: «el 15 % se paga sobre el precio de
+  venta y se le aumentan impuestos»): en 30 días la comisión que Amazon
+  descontó fue 11.8–12.7 % del precio que pagó el cliente (≈ 14–15 % del
+  precio sin IVA), la retención 6.8–7.1 % y aparte FBA y otras tarifas
+  (AmazonForAllFee…); GT114 se queda el 39 % del precio. Números usa esos
+  números tal cual, no el 15 % + IVA de la tabla de tarifas. La 0156 suma el
+  envío que pagó el cliente (`otrosCargos`) a «otros por par»: así precio −
+  comisión − retención − FBA − otros = el neto depositado
+  (`finanzas:tarifas-reales:v5`). Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
   con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,
