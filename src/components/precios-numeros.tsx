@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promociones";
 import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/lib/precios/promociones";
-import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
+import type { CanalPrecios, ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 import { confirmar } from "@/components/ui/confirmar";
 import { ResultadoBuenFin, ResultadoRelampagos, leerUltimoBuenFin, pedirConfirmarBuenFin, pedirConfirmarRelampagos, type ConfirmacionRelampagos } from "@/components/confirmar-relampagos";
@@ -38,6 +38,8 @@ function Accion({ a }: { a: string }) {
  */
 export function PreciosNumeros() {
   const [modelos, setModelos] = useState("");
+  // Solo un marketplace a la vez si se quiere (dueño, 8-nov-2026).
+  const [canal, setCanal] = useState<CanalPrecios>("ambos");
   const [cargando, setCargando] = useState<"revisar" | "aplicar" | "relampagos" | "buen-fin" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState<RevisionPrecios | null>(null);
@@ -63,15 +65,23 @@ export function PreciosNumeros() {
 
   const [buenFin, setBuenFin] = useState<ConfirmacionRelampagos | null>(null);
   const [finBuenFin, setFinBuenFin] = useState<string | undefined>(undefined);
-  // La última corrida de Buen Fin (del cron o a mano) con sus rechazos por precio.
-  useEffect(() => {
-    void leerUltimoBuenFin().then((u) => {
-      if (u && !u.error) {
-        setBuenFin((b) => b ?? u.r);
-        setFinBuenFin((f) => f ?? u.fin);
-      }
-    });
-  }, []);
+  // La última corrida de Buen Fin ya NO sale sola arriba (dueño, 8-nov-2026:
+  // «no me interesa ver las ofertas de Buen Fin todo el tiempo»): solo al
+  // pedirla o después de confirmar.
+  const [viendoBuenFin, setViendoBuenFin] = useState(false);
+  const verUltimoBuenFin = async () => {
+    if (viendoBuenFin) {
+      setViendoBuenFin(false);
+      return;
+    }
+    setViendoBuenFin(true);
+    if (buenFin) return;
+    const u = await leerUltimoBuenFin();
+    if (u && !u.error) {
+      setBuenFin((b) => b ?? u.r);
+      setFinBuenFin((f) => f ?? u.fin);
+    } else setError(u?.error ?? "No hay corridas de Buen Fin guardadas.");
+  };
   const confirmarBuenFin = async () => {
     setError(null);
     try {
@@ -80,6 +90,7 @@ export function PreciosNumeros() {
       if (r) {
         setBuenFin(r);
         setFinBuenFin(new Date().toISOString());
+        setViendoBuenFin(true);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -88,13 +99,13 @@ export function PreciosNumeros() {
     }
   };
 
-  const revisar = async (asig: Asignaciones = asignadas) => {
+  const revisar = async (asig: Asignaciones = asignadas, c: CanalPrecios = canal) => {
     setCargando("revisar");
     setError(null);
     setResultados(null);
     try {
       const r = await fetch(
-        `/api/finanzas/numeros/precios?modelos=${encodeURIComponent(modelos)}&asignadas=${encodeURIComponent(JSON.stringify(asig))}`,
+        `/api/finanzas/numeros/precios?modelos=${encodeURIComponent(modelos)}&asignadas=${encodeURIComponent(JSON.stringify(asig))}&canal=${c}`,
       );
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo revisar.");
@@ -113,14 +124,15 @@ export function PreciosNumeros() {
 
   const aplicar = async () => {
     if (!revision || !porHacer) return;
-    if (!(await confirmar({ titulo: `¿Cambiar ${porHacer} precios?`, mensaje: `Se van a cambiar ${porHacer} precios en Mercado Libre y Amazon.`, confirmar: "Cambiar precios" }))) return;
+    const donde = canal === "meli" ? "Mercado Libre (Amazon no se toca)" : canal === "amazon" ? "Amazon (Mercado Libre no se toca)" : "Mercado Libre y Amazon";
+    if (!(await confirmar({ titulo: `¿Cambiar ${porHacer} precios?`, mensaje: `Se van a cambiar ${porHacer} precios en ${donde}.`, confirmar: "Cambiar precios" }))) return;
     setCargando("aplicar");
     setError(null);
     try {
       const r = await fetch("/api/finanzas/numeros/precios", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ modelos, asignadas, stocks }),
+        body: JSON.stringify({ modelos, asignadas, stocks, canal }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo aplicar.");
@@ -212,8 +224,25 @@ export function PreciosNumeros() {
           className="min-w-[16rem] flex-1 rounded-lg border px-3 py-2 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
+        <select
+          value={canal}
+          disabled={!!cargando}
+          onChange={(e) => {
+            const c = e.target.value as CanalPrecios;
+            setCanal(c);
+            setResultados(null);
+            if (revision) void revisar(asignadas, c);
+          }}
+          className="rounded-lg border px-2 py-2 text-sm"
+          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          title="Dónde se cambian los precios"
+        >
+          <option value="ambos">MELI y Amazon</option>
+          <option value="meli">Solo MELI</option>
+          <option value="amazon">Solo Amazon</option>
+        </select>
         <button type="submit" className="boton boton-secundario" disabled={!!cargando || !modelos.trim()}>
-          {cargando === "revisar" ? "Leyendo MELI y Amazon…" : "Revisar precios"}
+          {cargando === "revisar" ? (canal === "meli" ? "Leyendo MELI…" : canal === "amazon" ? "Leyendo Amazon…" : "Leyendo MELI y Amazon…") : "Revisar precios"}
         </button>
         <button type="button" className="boton boton-primario" disabled={!!cargando || !porHacer} onClick={() => void aplicar()}>
           {cargando === "aplicar" ? "Aplicando…" : `Aplicar ${porHacer || ""}`.trim()}
@@ -236,10 +265,13 @@ export function PreciosNumeros() {
         >
           {cargando === "buen-fin" ? "Activando Buen Fin… (tarda unos minutos)" : "Confirmar Buen Fin"}
         </button>
+        <button type="button" className="enlace text-sm" disabled={!!cargando} onClick={() => void verUltimoBuenFin()}>
+          {viendoBuenFin ? "Ocultar Buen Fin" : "Ver último Buen Fin"}
+        </button>
       </form>
 
       {relampagos ? <ResultadoRelampagos r={relampagos} /> : null}
-      {buenFin ? <ResultadoBuenFin key={finBuenFin} r={buenFin} fin={finBuenFin} /> : null}
+      {buenFin && viendoBuenFin ? <ResultadoBuenFin key={finBuenFin} r={buenFin} fin={finBuenFin} /> : null}
 
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
       {revision?.avisos.map((a, i) => (

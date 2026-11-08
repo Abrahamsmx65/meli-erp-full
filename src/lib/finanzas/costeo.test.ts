@@ -182,7 +182,7 @@ describe("costosPorModelo", () => {
 describe("Números: las fórmulas del sheet del dueño", () => {
   it("G650 (renglón 2 del sheet)", () => {
     const r = calcularNumeros(
-      { modelo: "G650", ...ENTRADA_VACIA, envioMeli: 44, precioRelampago: 298.99, envioAmazon: 72 },
+      { modelo: "G650", ...ENTRADA_VACIA, envioMeli: 44, precioRelampago: 298.99, envioAmazon: 72, pvNormal: 298.99 * 1.065 },
       112.244872,
     );
     expect(r.ganancia).toBeCloseTo(97.896628, 5);
@@ -233,10 +233,10 @@ describe("Números: las fórmulas del sheet del dueño", () => {
       amazon: { unidades: 467, precioPar: 208.21, comisionPct: 0.1263, retencionPct: 0.0695, fbaPar: 35.43, otrosPar: 6.7, netoPar: 132 },
       tiktok: { pares: 991, precioPar: 113.37, pagoPar: 78.64, afiliadoPct: 0.0455 },
     });
-    expect(r.usado.meli).toEqual({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01 });
+    expect(r.usado.meli).toMatchObject({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01, envioFuente: "ventas" });
     expect(r.gananciaRelampago).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
-    // Sin ventas a $155.99 no hay depósito real a ese precio: manda la cuenta con las tasas.
-    expect(r.recibidoMeli).toBeNull();
+    // Sin ventas a $155.99 ni cerca: manda la cuenta con las tasas.
+    expect(r.recibidoMeli).toMatchObject({ fuente: "tasas", precio: 155.99 });
     expect(r.promedioMeli).toEqual({ porPar: 98.33, pares: 2229 });
     expect(r.ganancia).toBeCloseTo(r.gananciaRelampago!, 8);
     expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 35.43 + 6.7) / (1 - 0.1263 - 0.0695), 8);
@@ -253,7 +253,7 @@ describe("Números: las fórmulas del sheet del dueño", () => {
         { precio: 250, pares: 251, netoPar: 163.93 },
       ],
     });
-    expect(r.recibidoMeli).toMatchObject({ porPar: 126.87, pares: 413, precio: 200, ganancia: 126.87 - 58.54 });
+    expect(r.recibidoMeli).toMatchObject({ porPar: 126.87, pares: 413, fuente: "real", ganancia: 126.87 - 58.54 });
     expect(r.ganancia).toBeCloseTo(126.87 - 58.54, 8);
     expect(r.recibirAmazon).toBeCloseTo(126.87, 8);
     expect(r.promedioMeli?.porPar).toBe(139.8);
@@ -262,14 +262,14 @@ describe("Números: las fórmulas del sheet del dueño", () => {
   it("pocas ventas al precio relámpago: no se le cree", () => {
     const e = { modelo: "X", ...ENTRADA_VACIA, envioMeli: 41, precioRelampago: 199.99 };
     const r = calcularNumeros(e, 50, { meliPorPrecio: [{ precio: 200, pares: 3, netoPar: 150 }] });
-    expect(r.recibidoMeli).toBeNull();
+    expect(r.recibidoMeli?.fuente).toBe("tasas");
   });
 
   it("pocas ventas: se queda la estimación del dueño", () => {
     const e = { modelo: "X", ...ENTRADA_VACIA, envioMeli: 38, precioRelampago: 200, envioAmazon: 39 };
     const r = calcularNumeros(e, 50, { meli: { pares: 3, paresDirecta: 3, comisionPct: 0.15, envioPar: 99, retencionPct: 0.09, netoPar: 1 } });
     expect(r.usado.meli.fuente).toBe("estimado");
-    expect(r.recibidoMeli).toBeNull();
+    expect(r.recibidoMeli?.fuente).toBe("tasas");
     expect(r.ganancia).toBeCloseTo(200 - 30 - 38 - 50, 8);
   });
 
@@ -282,7 +282,7 @@ describe("Números: las fórmulas del sheet del dueño", () => {
   it("sin costo no inventa precios", () => {
     const r = calcularNumeros({ modelo: "X", ...ENTRADA_VACIA, precioRelampago: 200 }, null);
     expect(r.ganancia).toBeNull();
-    expect(r.pvNormal).toBeCloseTo(213, 6);
+    expect(r.pvNormal).toBeCloseTo(210, 6);
   });
 });
 
@@ -296,29 +296,123 @@ describe("utilidades", () => {
   });
 });
 
-describe("Números con histórico de MELI (16-oct-2026)", () => {
-  it("sin ventas al relámpago del sheet, toma el relámpago REAL del histórico", async () => {
-    const { calcularNumeros, escalonRelampago, ENTRADA_VACIA } = await import("./numeros");
-    const escalones = [
-      { precio: 370, pares: 232, netoPar: 229.4 },
-      { precio: 350, pares: 52, netoPar: 211.74 },
-      { precio: 548, pares: 6, netoPar: 314.19 },
-    ];
-    expect(escalonRelampago(escalones)?.precio).toBe(350);
-    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT150", precioRelampago: 298.88, envioMeli: 44 } as never, 100, {
-      meliPorPrecio: escalones,
-    } as never);
-    expect(r.recibidoMeli).toMatchObject({ precio: 350, porPar: 211.74, deHistorico: true });
-    expect(r.ganancia).toBeCloseTo(111.74, 2);
-  });
-  it("si se vendió al relámpago del sheet, manda ese precio", async () => {
+describe("Números: el relámpago de aquí manda (8-nov-2026)", () => {
+  it("sin ventas a ese precio, lleva lo real del precio vendido más cercano (GT190 a $499.99)", async () => {
     const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
-    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT148", precioRelampago: 199.99, envioMeli: 41 } as never, 50, {
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT190", precioRelampago: 499.99, envioMeli: 95 }, 241.51, {
+      meliPorPrecio: [{ precio: 530, pares: 40, netoPar: 356.44 }],
+    });
+    const queda = 1 - (356.44 + 95) / 530;
+    expect(r.recibidoMeli).toMatchObject({ fuente: "desde_ventas", precio: 499.99, base: { precio: 530, porPar: 356.44, pares: 40 } });
+    expect(r.recibidoMeli!.porPar).toBeCloseTo(499.99 * (1 - queda) - 95, 6);
+    expect(r.ganancia).toBeCloseTo(r.recibidoMeli!.porPar - 241.51, 6);
+    // El relámpago real de MELI se enseña solo como referencia.
+    expect(r.relampagoMeli).toEqual({ precio: 530, porPar: 356.44, pares: 40 });
+    // PV normal = 5 % arriba y Amazon / TikTok salen de lo que se recibe aquí.
+    expect(r.pvNormal).toBeCloseTo(499.99 * 1.05, 6);
+    expect(r.recibirAmazon).toBeCloseTo(r.recibidoMeli!.porPar, 6);
+  });
+
+  it("no compara precios de distinto tramo de envío ($299)", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT150", precioRelampago: 298.88, envioMeli: 44 }, 100, {
+      meliPorPrecio: [
+        { precio: 370, pares: 232, netoPar: 229.4 },
+        { precio: 350, pares: 52, netoPar: 211.74 },
+      ],
+    });
+    expect(r.recibidoMeli?.fuente).toBe("tasas");
+    expect(r.relampagoMeli?.precio).toBe(350);
+  });
+
+  it("si se vendió al relámpago de aquí, manda ese depósito", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT148", precioRelampago: 199.99, envioMeli: 41 }, 50, {
       meliPorPrecio: [
         { precio: 211, pares: 951, netoPar: 128.85 },
         { precio: 200, pares: 408, netoPar: 126.99 },
       ],
-    } as never);
-    expect(r.recibidoMeli).toMatchObject({ precio: 200, deHistorico: false });
+    });
+    expect(r.recibidoMeli).toMatchObject({ fuente: "real", porPar: 126.99 });
+  });
+
+  it("Amazon y TikTok sin ventas del modelo usan lo que cobran en toda la cuenta", async () => {
+    const { calcularNumeros, tarifasGenerales, ENTRADA_VACIA, FIJO_TIKTOK } = await import("./numeros");
+    const general = tarifasGenerales({
+      A: {
+        amazon: { unidades: 100, precioPar: 300, comisionPct: 0.15, retencionPct: 0.05, fbaPar: 60, otrosPar: 5, netoPar: 0 },
+        tiktok: { pares: 100, precioPar: 200, pagoPar: 130, afiliadoPct: 0 },
+      },
+      B: {
+        amazon: { unidades: 300, precioPar: 300, comisionPct: 0.13, retencionPct: 0.05, fbaPar: 40, otrosPar: 0, netoPar: 0 },
+        tiktok: { pares: 300, precioPar: 100, pagoPar: 60, afiliadoPct: 0 },
+        // poquitas ventas: no cuenta
+      },
+      C: { tiktok: { pares: 2, precioPar: 100, pagoPar: 10, afiliadoPct: 0 } },
+    });
+    expect(general.amazon!.pctTotal).toBeCloseTo((0.2 * 100 + 0.18 * 300) / 400, 9);
+    expect(general.tiktok!.pctTotal).toBeCloseTo(1 - ((130 + FIJO_TIKTOK) * 100 + (60 + FIJO_TIKTOK) * 300) / (200 * 100 + 100 * 300), 9);
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "N", precioRelampago: 300, envioMeli: 40 }, 100, { general });
+    expect(r.usado.amazon).toMatchObject({ fuente: "general", pctTotal: general.amazon!.pctTotal, porPar: general.amazon!.porPar });
+    expect(r.usado.tiktok).toEqual({ fuente: "general", pctTotal: general.tiktok!.pctTotal, fijo: FIJO_TIKTOK });
+    expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + FIJO_TIKTOK) / (1 - general.tiktok!.pctTotal), 6);
+    // El envío de FBA capturado para el modelo manda sobre la mediana de la cuenta.
+    const conEnvio = calcularNumeros({ ...ENTRADA_VACIA, modelo: "N", precioRelampago: 300, envioMeli: 40, envioAmazon: 70 }, 100, { general });
+    expect(conEnvio.usado.amazon.porPar).toBe(70);
+  });
+});
+
+describe("Números: el envío de MELI es el real (8-nov-2026)", () => {
+  it("manda lo que MELI cobra con sus medidas en el tramo del relámpago; luego ventas; luego el tuyo", async () => {
+    const { calcularNumeros, ENTRADA_VACIA, tramoEnvio } = await import("./numeros");
+    expect([tramoEnvio(298.99), tramoEnvio(299), tramoEnvio(498.99), tramoEnvio(499)]).toEqual([0, 1, 1, 2]);
+    const meli = { pares: 50, paresDirecta: 20, comisionPct: 0.15, envioPar: 70, retencionPct: 0, netoPar: 300 };
+    const base = { ...ENTRADA_VACIA, modelo: "GT190", envioMeli: 95 };
+    const simulado = { 2: { costo: 112.5, variantes: 8 }, 1: { costo: 60, variantes: 2 } };
+    const a = calcularNumeros({ ...base, precioRelampago: 499.99 }, 240, { meli, envioMeliPorTramo: simulado });
+    expect(a.usado.meli).toMatchObject({ envio: 112.5, envioFuente: "meli" });
+    // Bajar el relámpago a otro tramo cambia el envío solo.
+    const b = calcularNumeros({ ...base, precioRelampago: 449.99 }, 240, { meli, envioMeliPorTramo: simulado });
+    expect(b.usado.meli).toMatchObject({ envio: 60, envioFuente: "meli" });
+    const c = calcularNumeros({ ...base, precioRelampago: 249.99 }, 240, { meli, envioMeliPorTramo: simulado });
+    expect(c.usado.meli).toMatchObject({ envio: 70, envioFuente: "ventas" });
+    const d = calcularNumeros({ ...base, precioRelampago: 249.99 }, 240, {});
+    expect(d.usado.meli).toMatchObject({ envio: 95, envioFuente: "tuyo" });
+  });
+});
+
+describe("Números en vivo (8-nov-2026)", () => {
+  it("MELI en vivo a ese precio manda (con el cargo fijo de abajo de $299) y el PV normal usa su propio precio", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const e = { ...ENTRADA_VACIA, modelo: "GT148", precioRelampago: 199.99, envioMeli: 41 };
+    const vivo = {
+      leidoEn: "",
+      avisos: [],
+      amazon: null,
+      meli: [
+        { precio: 199.99, comisionPct: 0.15, fijo: 25, envio: 30 },
+        { precio: 209.99, comisionPct: 0.15, fijo: 25, envio: 31 },
+      ],
+    };
+    const r = calcularNumeros(e, 50, {}, vivo);
+    expect(r.recibidoMeli).toMatchObject({ fuente: "vivo" });
+    expect(r.recibidoMeli!.porPar).toBeCloseTo(199.99 * 0.85 - 25 - 30, 6);
+    expect(r.usado.meli).toMatchObject({ fuente: "vivo", fijo: 25, envio: 30, envioFuente: "vivo" });
+    expect(r.gananciaNormal).toBeCloseTo(199.99 * 1.05 * 0.85 - 25 - 31 - 50, 6);
+    // Lo depositado de verdad a ese precio le gana a lo en vivo.
+    const conVentas = calcularNumeros(e, 50, { meliPorPrecio: [{ precio: 200, pares: 400, netoPar: 126.87 }] }, vivo);
+    expect(conVentas.recibidoMeli).toMatchObject({ fuente: "real", porPar: 126.87 });
+  });
+
+  it("Amazon en vivo al PVP; si el PVP cae en otro tramo, se queda con lo de 30 días", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const e = { ...ENTRADA_VACIA, modelo: "X", precioRelampago: 300, envioMeli: 40, envioAmazon: 70 };
+    const base = calcularNumeros(e, 100, {});
+    const vivo = { leidoEn: "", avisos: [], meli: [], amazon: { precio: 420, comisionPct: 0.12, porPar: 65, sku: "X-BLK-25-MX" } };
+    const r = calcularNumeros(e, 100, {}, vivo);
+    expect(r.usado.amazon.fuente).toBe("vivo");
+    expect(r.pvpAmazon).toBeCloseTo((base.recibirAmazon! + 65) / (1 - 0.12), 6);
+    const otroTramo = calcularNumeros(e, 100, {}, { ...vivo, amazon: { ...vivo.amazon, precio: 250 } });
+    expect(otroTramo.usado.amazon.fuente).toBe("estimado");
   });
 });

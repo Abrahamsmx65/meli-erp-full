@@ -30,6 +30,8 @@ const CUOTAS: Record<string, [number, number]> = {
   searchListingsItems: [5, 5],
   getListingsItem: [5, 10],
   patchListingsItem: [5, 5],
+  // Product Fees: 1 por segundo, ráfaga de 2 (Números en vivo).
+  getMyFeesEstimateForSKU: [1, 2],
   // Finances API: 0.5 por segundo, ráfaga de 30 (cuota publicada).
   listFinancialEventGroups: [0.5, 30],
   listFinancialEvents: [0.5, 30],
