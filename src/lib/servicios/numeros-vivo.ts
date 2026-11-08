@@ -8,8 +8,9 @@
  *          `/sites/MLM/listing_prices` con la categoría y el tipo de la
  *          publicación, y el envío del simulador
  *          `/users/{id}/shipping_options/free` con las medidas que MELI
- *          capturó (consenso de las tallas) y `item_price` = ese precio: el
- *          simulador ya cobra distinto abajo de $299 y desde $499.
+ *          capturó (consenso de las tallas) y `item_price` = ese precio, solo
+ *          el costo CON descuento; pero si hubo ventas en ese tramo de precio,
+ *          manda lo que MELI cobró en ellas (`envioMeliPorTramo`).
  *   Amazon comisión y FBA de `getMyFeesEstimateForSKU` al PVP. El PVP
  *          depende de lo que Amazon cobra y lo que cobra depende del precio
  *          (abajo de $299 la tarifa es otra), así que se vuelve a preguntar
@@ -95,7 +96,9 @@ async function meliEnVivo(
     if (medida) {
       try {
         const r = await preguntarTarifa(cliente, meliUserId, medida, precio, tipo);
-        envio = r.costoConDescuento ?? r.costo;
+        // Solo lo que paga el vendedor con descuento: el costo de LISTA
+        // ($139.50 en GT190) no es lo que MELI descuenta ($88.50).
+        envio = r.costoConDescuento ?? null;
       } catch (err) {
         avisos.push(`MELI no contestó el envío a $${precio.toFixed(2)}: ${mensajeMeli(err)}`);
       }

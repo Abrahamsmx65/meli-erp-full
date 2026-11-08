@@ -56,6 +56,8 @@ export interface EntradaNumeros {
 
 /** Mínimo de pares vendidos en el periodo para creerle a lo real. */
 export const PARES_MINIMOS_REALES = 10;
+/** Ventas en Amazon del modelo que bastan para usar lo que Amazon le cobró. */
+export const PARES_MINIMOS_AMAZON = 5;
 /** Cargo fijo de TikTok por par (sale aparte de lo que se queda en %). */
 export const FIJO_TIKTOK = 6;
 
@@ -69,9 +71,10 @@ export interface TarifasReales {
   amazon?: { unidades: number; precioPar: number | null; comisionPct: number | null; retencionPct: number | null; fbaPar: number | null; otrosPar: number | null; netoPar: number | null };
   tiktok?: { pares: number; precioPar: number | null; pagoPar: number | null; afiliadoPct: number | null };
   /**
-   * Envío que MELI cobra HOY al vendedor con las medidas que ella capturó
-   * (simulador de Costos de envío al precio de venta), mediana por TRAMO de
-   * precio (`tramoEnvio`: < $299, $299–$498, desde $499).
+   * Envío que MELI COBRÓ de verdad en las ventas de 30 días de UN par sin
+   * carrito (reventa incluida), mediana por TRAMO del precio que pagó el
+   * cliente (`tramoEnvio`: < $299, $299–$498, desde $499); `variantes` =
+   * pares. RPC `meli_envio_por_modelo_tramo` (migración 0155).
    */
   envioMeliPorTramo?: Partial<Record<number, { costo: number; variantes: number }>>;
   /** Lo que cobra cada plataforma en TODA la cuenta (para el modelo que no vendió ahí). */
@@ -142,9 +145,10 @@ export function tramoEnvio(precio: number): number {
 
 export interface UsadoNumeros {
   /**
-   * `envioFuente`: «meli» = lo que MELI cobra hoy con sus medidas a un precio
-   * del mismo tramo; «ventas» = mediana de las ventas directas de 30 días;
-   * «tuyo» = el capturado en Números (no hay nada real).
+   * `envioFuente`: «tramo» = lo que MELI cobró en tus ventas de 30 días a
+   * precios del mismo tramo; «vivo» = el simulador de MELI con descuento a
+   * ese precio (solo sin ventas en el tramo); «ventas» = mediana de las
+   * ventas directas; «tuyo» = el capturado en Números (no hay nada real).
    */
   meli: {
     fuente: "real" | "estimado" | "vivo";
@@ -153,7 +157,7 @@ export interface UsadoNumeros {
     fijo: number;
     envio: number;
     retencionPct: number;
-    envioFuente: "vivo" | "meli" | "ventas" | "tuyo";
+    envioFuente: "tramo" | "vivo" | "ventas" | "tuyo";
   };
   /** «general» = lo que cobra la plataforma en toda la cuenta (el modelo no vendió ahí); «vivo» = Amazon al PVP */
   amazon: { fuente: "vivo" | "real" | "general" | "estimado"; pctTotal: number; porPar: number | null };
@@ -215,12 +219,15 @@ export const ENTRADA_VACIA: Omit<EntradaNumeros, "modelo"> = {
 };
 
 /** Qué tasas usa cada canal: lo real si hay ventas suficientes; si no, la estimación del dueño. */
-/** El envío de MELI a `precio`: el que cobra MELI con sus medidas en ese tramo; si no, el de ventas; si no, el tuyo. */
+/** Ventas de un tramo que bastan para creerle a su envío. */
+export const PARES_MINIMOS_TRAMO = 3;
+
+/** El envío de MELI a `precio`: lo que MELI cobró en ese tramo; si no, las ventas directas; si no, el tuyo. */
 export function envioMeliA(e: EntradaNumeros, reales: TarifasReales | null | undefined, precio: number | null) {
   const m = reales?.meli;
   const simulado = precio != null ? reales?.envioMeliPorTramo?.[tramoEnvio(precio)] : undefined;
   const deVentas = m != null && m.pares >= PARES_MINIMOS_REALES && m.envioPar != null && m.paresDirecta >= 5 ? m.envioPar : null;
-  if (simulado) return { envio: simulado.costo, envioFuente: "meli" as const };
+  if (simulado && simulado.variantes >= PARES_MINIMOS_TRAMO) return { envio: simulado.costo, envioFuente: "tramo" as const };
   if (deVentas != null) return { envio: deVentas, envioFuente: "ventas" as const };
   return { envio: e.envioMeli ?? 0, envioFuente: "tuyo" as const };
 }
@@ -243,19 +250,23 @@ export function tasasUsadas(e: EntradaNumeros, reales?: TarifasReales | null, vi
         comisionPct: enVivo.comisionPct,
         fijo: enVivo.fijo,
         retencionPct,
-        ...(enVivo.envio != null ? { envio: enVivo.envio, envioFuente: "vivo" as const } : envio),
+        // El envío de tus ventas en ese tramo manda; el simulador solo sin ventas.
+        ...(envio.envioFuente !== "tramo" && enVivo.envio != null ? { envio: enVivo.envio, envioFuente: "vivo" as const } : envio),
       }
     : meliReal
       ? { fuente: "real" as const, comisionPct: m!.comisionPct ?? P.comisionMeli, fijo: 0, retencionPct, ...envio }
       : { fuente: "estimado" as const, comisionPct: P.comisionMeli, fijo: 0, retencionPct, ...envio };
   const a = reales?.amazon;
-  const amazonReal = a != null && a.unidades >= PARES_MINIMOS_REALES && a.comisionPct != null;
+  // Lo que Amazon COBRÓ de verdad al modelo manda sobre su estimado en vivo
+  // (8-nov-2026: GT190 pagó 5 % de comisión y $81.80 de FBA en 8 ventas; el
+  // estimado decía 13 % y $70.50). Con 5 ventas ya se le cree.
+  const amazonReal = a != null && a.unidades >= PARES_MINIMOS_AMAZON && a.comisionPct != null;
   const g = reales?.general ?? null;
   const retAmazon = (amazonReal ? a!.retencionPct : null) ?? g?.amazon?.retencionPct ?? 0;
-  const amazon = vivo?.amazon
-    ? { fuente: "vivo" as const, pctTotal: vivo.amazon.comisionPct + retAmazon, porPar: vivo.amazon.porPar }
-    : amazonReal
+  const amazon = amazonReal
     ? { fuente: "real" as const, pctTotal: (a!.comisionPct ?? 0) + (a!.retencionPct ?? 0), porPar: (a!.fbaPar ?? 0) + (a!.otrosPar ?? 0) }
+    : vivo?.amazon
+    ? { fuente: "vivo" as const, pctTotal: vivo.amazon.comisionPct + retAmazon, porPar: vivo.amazon.porPar }
     : g?.amazon
       ? // El envío de FBA depende del tamaño de la caja: el que capturó el dueño manda; si no, la mediana de la cuenta.
         { fuente: "general" as const, pctTotal: g.amazon.pctTotal, porPar: e.envioAmazon ?? g.amazon.porPar }
@@ -304,7 +315,11 @@ export function calcularNumeros(
   const cargosA = (precio: number): CargosMeli => {
     const v = vivoMeliA(vivo, precio);
     const sinVivo = tasasUsadas(e, reales).meli;
-    if (v) return { comisionPct: v.comisionPct, fijo: v.fijo, envio: v.envio ?? envioMeliA(e, reales, precio).envio, retencionPct: sinVivo.retencionPct, vivo: true };
+    if (v) {
+      const real = envioMeliA(e, reales, precio);
+      const envio = real.envioFuente === "tramo" || v.envio == null ? real.envio : v.envio;
+      return { comisionPct: v.comisionPct, fijo: v.fijo, envio, retencionPct: sinVivo.retencionPct, vivo: true };
+    }
     return { comisionPct: sinVivo.comisionPct, fijo: 0, envio: envioMeliA(e, reales, precio).envio, retencionPct: sinVivo.retencionPct, vivo: false };
   };
   const recibidoMeli = pr != null ? recibidoAlPrecio(pr, escalones, cargosA, costo) : null;
@@ -336,11 +351,24 @@ export function calcularNumeros(
   const recibirAmazon = costo + ganancia;
   const pvp = (a: UsadoNumeros["amazon"]) => (a.porPar != null && a.pctTotal < 1 ? (recibirAmazon + a.porPar) / (1 - a.pctTotal) : null);
   let pvpAmazon = pvp(usado.amazon);
-  // Lo de Amazon en vivo vale en el tramo de precio donde se preguntó: abajo
-  // de $299 Amazon cobra otra cosa. Si el PVP cae en otro tramo, se espera la
-  // siguiente lectura y mientras tanto sale con lo de 30 días.
-  if (vivo?.amazon && pvpAmazon != null && tramoEnvio(pvpAmazon) !== tramoEnvio(vivo.amazon.precio)) {
-    usado = { ...usado, amazon: tasasUsadas(e, reales).amazon };
+  // Lo que Amazon cobró (o contesta en vivo) vale en el tramo de precio donde
+  // se cobró: abajo de $299 Amazon cobra otra cosa. Si el PVP cae en otro
+  // tramo, se usa lo siguiente que sí sea de ese tramo.
+  const precioDe = (f: UsadoNumeros["amazon"]["fuente"]) => (f === "real" ? reales?.amazon?.precioPar ?? null : f === "vivo" ? vivo?.amazon?.precio ?? null : null);
+  // En Amazon el único corte es $299 (FBA de precio bajo); el de $499 es de MELI.
+  const tramoAmazon = (p: number) => (p < 299 ? 0 : 1);
+  const otroTramo = () => {
+    const p0 = precioDe(usado.amazon.fuente);
+    return pvpAmazon != null && p0 != null && tramoAmazon(pvpAmazon) !== tramoAmazon(p0);
+  };
+  if (otroTramo() && usado.amazon.fuente === "real" && vivo?.amazon) {
+    const ret = reales?.amazon?.retencionPct ?? reales?.general?.amazon?.retencionPct ?? 0;
+    usado = { ...usado, amazon: { fuente: "vivo", pctTotal: vivo.amazon.comisionPct + ret, porPar: vivo.amazon.porPar } };
+    pvpAmazon = pvp(usado.amazon);
+  }
+  if (otroTramo()) {
+    const sinModelo = tasasUsadas(e, { ...(reales ?? {}), amazon: undefined }).amazon;
+    usado = { ...usado, amazon: sinModelo };
     pvpAmazon = pvp(usado.amazon);
   }
   const pvpDeal = e.pvpDeal ?? (pvpAmazon != null ? pvpAmazon * P.factorDeal : null);

@@ -3188,7 +3188,27 @@ guárdala numerada.
   `finanzas:tarifas-reales:v3`, o la mediana de ventas directas); el
   capturado solo sale si no hay nada real. Una búsqueda de ≤ 5 modelos se
   lee en vivo sola; los demás con «leer en vivo». «Llevar precios» manda a
-  Amazon el PVP calculado en vivo. Los sueldos del dueño y de
+  Amazon el PVP calculado en vivo. **El envío de MELI es lo que MELI COBRÓ por MODELO
+  y tramo** (migración 0155, `meli_envio_por_modelo_tramo`,
+  `finanzas:tarifas-reales:v4`; dueño, 8-nov-2026: «no cuadra lo que dices
+  que recibo contra lo que recibo de verdad», «depende del tamaño del
+  producto, toma el real por modelo»): mediana de `envio_vendedor` de las
+  órdenes de un renglón y un par sin pack de ese modelo, reventa incluida,
+  por tramo del precio que pagó el cliente (≥ 3 pares,
+  `PARES_MINIMOS_TRAMO`). El simulador contestaba el costo de LISTA ($139.50
+  en GT190) y MELI descuenta $88.50: la orden 2000019378989864 (reventa a
+  $539.79) depositó $370.32 = 539.79 × 0.85 − 88.50. El simulador en vivo
+  solo entra sin ventas del modelo en ese tramo y solo con su costo CON
+  descuento. **Y en Amazon manda lo que Amazon COBRÓ al modelo**
+  (`PARES_MINIMOS_AMAZON` 5; mismo día): GT190 pagó 5 % de comisión, 6.9 %
+  de retención y $81.80 de FBA en 8 ventas y el estimado en vivo decía 13 %
+  y $70.50. Todo es sobre el precio CON IVA que paga el cliente: el 15 % de
+  comisión y el 8 % de retención van sobre la base sin IVA (≈ 12.9 % + 6.9 %
+  del precio). Lo real vale en su tramo de Amazon (un solo corte en $299);
+  si el PVP cae del otro lado, el estimado en vivo y luego lo de la cuenta.
+  En TikTok «lo que se queda» sale de lo que TikTok PAGA por pedido
+  (liquidado o por liquidar): ya trae comisión, cargo por par, envío,
+  retenciones y los afiliados que hubo, en su proporción real. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
   con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,
