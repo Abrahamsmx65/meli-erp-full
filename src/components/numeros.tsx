@@ -286,14 +286,14 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                           className="text-[11px]"
                           style={{ color: "var(--exito-texto)" }}
                           title={
-                            u.meli.envioFuente === "vivo"
-                              ? "Lo que MELI contesta HOY a este precio con las medidas que ella capturó (abajo de $299 y desde $499 cambia)"
-                              : u.meli.envioFuente === "meli"
-                                ? "Lo que MELI cobra con las medidas que ella capturó, a un precio del mismo tramo ($299 / $499) que el relámpago"
+                            u.meli.envioFuente === "tramo"
+                              ? "Lo que MELI te cobró de envío en tus ventas de un par de 30 días, a precios del mismo tramo que el relámpago (abajo de $299, $299 a $498, desde $499)"
+                              : u.meli.envioFuente === "vivo"
+                                ? "Sin ventas en este tramo: lo que el simulador de MELI dice que pagas con descuento a este precio"
                                 : "Mediana de lo que MELI cobró en las ventas directas de 30 días"
                           }
                         >
-                          {u.meli.envioFuente === "vivo" ? "en vivo" : u.meli.envioFuente === "meli" ? "MELI (tramo)" : "real ventas"}
+                          {u.meli.envioFuente === "tramo" ? "real tramo" : u.meli.envioFuente === "vivo" ? "simulador" : "real ventas"}
                         </div>
                       </span>
                     )}

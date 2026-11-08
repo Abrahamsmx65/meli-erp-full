@@ -363,17 +363,17 @@ describe("Números: el relámpago de aquí manda (8-nov-2026)", () => {
 });
 
 describe("Números: el envío de MELI es el real (8-nov-2026)", () => {
-  it("manda lo que MELI cobra con sus medidas en el tramo del relámpago; luego ventas; luego el tuyo", async () => {
+  it("manda lo que MELI cobró en tus ventas del tramo del relámpago; luego ventas directas; luego el tuyo", async () => {
     const { calcularNumeros, ENTRADA_VACIA, tramoEnvio } = await import("./numeros");
     expect([tramoEnvio(298.99), tramoEnvio(299), tramoEnvio(498.99), tramoEnvio(499)]).toEqual([0, 1, 1, 2]);
     const meli = { pares: 50, paresDirecta: 20, comisionPct: 0.15, envioPar: 70, retencionPct: 0, netoPar: 300 };
     const base = { ...ENTRADA_VACIA, modelo: "GT190", envioMeli: 95 };
-    const simulado = { 2: { costo: 112.5, variantes: 8 }, 1: { costo: 60, variantes: 2 } };
+    const simulado = { 2: { costo: 88.5, variantes: 14 }, 1: { costo: 60, variantes: 5 }, 0: { costo: 41, variantes: 2 } };
     const a = calcularNumeros({ ...base, precioRelampago: 499.99 }, 240, { meli, envioMeliPorTramo: simulado });
-    expect(a.usado.meli).toMatchObject({ envio: 112.5, envioFuente: "meli" });
+    expect(a.usado.meli).toMatchObject({ envio: 88.5, envioFuente: "tramo" });
     // Bajar el relámpago a otro tramo cambia el envío solo.
     const b = calcularNumeros({ ...base, precioRelampago: 449.99 }, 240, { meli, envioMeliPorTramo: simulado });
-    expect(b.usado.meli).toMatchObject({ envio: 60, envioFuente: "meli" });
+    expect(b.usado.meli).toMatchObject({ envio: 60, envioFuente: "tramo" });
     const c = calcularNumeros({ ...base, precioRelampago: 249.99 }, 240, { meli, envioMeliPorTramo: simulado });
     expect(c.usado.meli).toMatchObject({ envio: 70, envioFuente: "ventas" });
     const d = calcularNumeros({ ...base, precioRelampago: 249.99 }, 240, {});
@@ -414,5 +414,34 @@ describe("Números en vivo (8-nov-2026)", () => {
     expect(r.pvpAmazon).toBeCloseTo((base.recibirAmazon! + 65) / (1 - 0.12), 6);
     const otroTramo = calcularNumeros(e, 100, {}, { ...vivo, amazon: { ...vivo.amazon, precio: 250 } });
     expect(otroTramo.usado.amazon.fuente).toBe("estimado");
+  });
+});
+
+describe("GT190 contra la orden real 2000019378989864 (8-nov-2026)", () => {
+  it("a $539.79 en vivo (15 %) con el envío real del tramo da los $370.32 que depositó MELI", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const reales = {
+      meli: { pares: 29, paresDirecta: 0, comisionPct: null, envioPar: null, retencionPct: 0, netoPar: 380 },
+      envioMeliPorTramo: { 2: { costo: 88.5, variantes: 14 } },
+    };
+    // El simulador decía $139.50 (costo de LISTA): no manda si hay ventas en el tramo.
+    const vivo = { leidoEn: "", avisos: [], amazon: null, meli: [{ precio: 539.79, comisionPct: 0.15, fijo: 0, envio: 139.5 }] };
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT190", precioRelampago: 539.79, envioMeli: 95 }, 241.51, reales, vivo);
+    expect(r.usado.meli).toMatchObject({ envio: 88.5, envioFuente: "tramo" });
+    expect(r.recibidoMeli!.porPar).toBeCloseTo(370.32, 2);
+  });
+});
+
+describe("Amazon: lo que Amazon cobró al modelo manda sobre el estimado en vivo (8-nov-2026)", () => {
+  it("GT190: 8 ventas a $614.59 con 5 % de comisión, 6.9 % de retención y $81.80 de FBA", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const reales = {
+      amazon: { unidades: 8, precioPar: 614.59, comisionPct: 0.05, retencionPct: 0.069, fbaPar: 81.8, otrosPar: 0, netoPar: 459.67 },
+    };
+    const vivo = { leidoEn: "", avisos: [], meli: [], amazon: { precio: 444.54, comisionPct: 0.13, porPar: 70.5, sku: "GT190-BLK-25-MX" } };
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT190", precioRelampago: 499.99, envioMeli: 95 }, 241.51, reales, vivo);
+    expect(r.usado.amazon).toMatchObject({ fuente: "real", porPar: 81.8 });
+    expect(r.usado.amazon.pctTotal).toBeCloseTo(0.119, 9);
+    expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 81.8) / (1 - 0.119), 6);
   });
 });
