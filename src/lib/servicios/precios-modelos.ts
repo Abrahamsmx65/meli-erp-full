@@ -44,6 +44,13 @@ export interface RenglonAmazon {
   accion: "cambiar" | "igual" | "sin_precio";
 }
 
+/** En qué marketplace se aplican los precios (dueño, 8-nov-2026: «solo Amazon o solo MELI»). */
+export type CanalPrecios = "ambos" | "meli" | "amazon";
+
+export function leerCanal(x: unknown): CanalPrecios {
+  return x === "meli" || x === "amazon" ? x : "ambos";
+}
+
 export interface RevisionPrecios {
   objetivos: Objetivos[];
   meli: RenglonPromo[];
@@ -179,8 +186,9 @@ export async function revisarPrecios(
   accountId: string,
   modelos: string[],
   asignadas: Asignaciones = {},
-  opciones: { soloMeli?: boolean } = {},
+  opciones: { soloMeli?: boolean; canal?: CanalPrecios } = {},
 ): Promise<RevisionPrecios> {
+  const canal: CanalPrecios = opciones.soloMeli ? "meli" : opciones.canal ?? "ambos";
   const avisos: string[] = [];
   const objetivos = await objetivosDe(db, accountId, modelos);
   const porModelo = new Map(objetivos.map((o) => [o.modelo, o]));
@@ -188,12 +196,15 @@ export async function revisarPrecios(
     if (o.relampago == null) avisos.push(`${o.modelo}: no tiene precio relámpago en Números.`);
   }
 
-  const items = await itemsDeModelos(db, accountId, modelos);
-  const leidas = await promosDeItems(cliente, items, porModelo, asignadas);
-  const meli = leidas.meli;
-  avisos.push(...leidas.avisos);
+  let meli: RenglonPromo[] = [];
+  if (canal !== "amazon") {
+    const items = await itemsDeModelos(db, accountId, modelos);
+    const leidas = await promosDeItems(cliente, items, porModelo, asignadas);
+    meli = leidas.meli;
+    avisos.push(...leidas.avisos);
+  }
 
-  if (opciones.soloMeli) return { objetivos, meli: ordenarPlan(meli), amazon: [], avisos };
+  if (canal === "meli") return { objetivos, meli: ordenarPlan(meli), amazon: [], avisos };
 
   const { filas } = await publicacionesAmazon(admin, modelos);
   const amazon: RenglonAmazon[] = filas.map((f) => {
@@ -214,9 +225,11 @@ export async function aplicarPrecios(
   modelos: string[],
   asignadas: Asignaciones = {},
   stocks: Record<string, number> = {},
+  canal: CanalPrecios = "ambos",
 ): Promise<{ revision: RevisionPrecios; resultados: ResultadoPrecio[] }> {
-  // Se relee justo antes: lo que se aplica es lo que MELI y Amazon tienen ahora.
-  const revision = await revisarPrecios(db, admin, cliente, accountId, modelos, asignadas);
+  // Se relee justo antes: lo que se aplica es lo que MELI y Amazon tienen ahora
+  // (solo el marketplace elegido: lo del otro ni se lee ni se toca).
+  const revision = await revisarPrecios(db, admin, cliente, accountId, modelos, asignadas, { canal });
   const resultados: ResultadoPrecio[] = [];
 
   for (const r of revision.meli) {

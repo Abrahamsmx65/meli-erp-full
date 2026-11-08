@@ -7,7 +7,7 @@
  */
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
-import { ENTRADA_VACIA, type EntradaNumeros, type TarifasReales } from "../finanzas/numeros";
+import { ENTRADA_VACIA, tarifasGenerales, type EntradaNumeros, type TarifasReales } from "../finanzas/numeros";
 import { CAMPOS_NUMEROS, marcarEditados, type GuardadoNumeros, type ValoresNumeros } from "../finanzas/numeros-sheet";
 import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_COSTEO, type ResultadoCosteo } from "./costeo";
@@ -66,6 +66,8 @@ export async function listarNumeros(
     });
   }
   const modelos = new Set<string>([...entradas.keys(), ...ultimo.keys()]);
+  // Lo que Amazon y TikTok cobran en toda la cuenta: para el modelo que aún no vende ahí.
+  const general = tarifasGenerales(tarifas);
   const renglones: RenglonNumeros[] = [...modelos].map((modelo) => {
     const u = ultimo.get(modelo) ?? null;
     const cfg = config.get(modelo) ?? null;
@@ -77,7 +79,7 @@ export async function listarNumeros(
       fuenteCosto: u ? "contenedor" : costo != null ? "catalogo" : null,
       contenedor: u?.id ?? null,
       guardado: entradas.has(modelo),
-      reales: tarifas[modelo] ?? null,
+      reales: { ...(tarifas[modelo] ?? {}), general },
     };
   });
   renglones.sort((a, b) => a.entrada.modelo.localeCompare(b.entrada.modelo, "es", { numeric: true }));

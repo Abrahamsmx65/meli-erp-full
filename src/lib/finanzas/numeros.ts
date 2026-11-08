@@ -7,7 +7,7 @@
  * Las fórmulas son las de su sheet «Números» (pestaña CALZADO), columna
  * por columna:
  *   ganancia relámpago = PR − 15 % PR − envío MELI [− (PR / 1.16) × 10.5 %] − costo
- *   PV normal          = PR × 1.065 (o el que fije el dueño)
+ *   PV normal          = PR × 1.05 (o el que fije el dueño; era 1.065 hasta el 8-nov-2026)
  *   recibir en Amazon  = costo + ganancia relámpago
  *   PVP Amazon sin ads = (recibir + envío Amazon) / (1 − 0.2405205)
  *   PVP Amazon deal    = PVP × 1.12 (o el que fije el dueño)
@@ -32,7 +32,8 @@
 
 export const PARAMETROS_NUMEROS = {
   comisionMeli: 0.15,
-  factorPvNormal: 1.065,
+  // Dueño, 8-nov-2026: «el precio de no relámpago es 5 % arriba» (era 6.5 %).
+  factorPvNormal: 1.05,
   retencion: 0.105,
   iva: 1.16,
   comisionAmazon: 0.2405205,
@@ -67,13 +68,54 @@ export interface TarifasReales {
   meli?: { pares: number; paresDirecta: number; comisionPct: number | null; envioPar: number | null; retencionPct: number | null; netoPar: number | null };
   amazon?: { unidades: number; precioPar: number | null; comisionPct: number | null; retencionPct: number | null; fbaPar: number | null; otrosPar: number | null; netoPar: number | null };
   tiktok?: { pares: number; precioPar: number | null; pagoPar: number | null; afiliadoPct: number | null };
+  /** Lo que cobra cada plataforma en TODA la cuenta (para el modelo que no vendió ahí). */
+  general?: TarifasGenerales | null;
+}
+
+/**
+ * Lo que Amazon y TikTok cobran HOY en toda la cuenta (30 días, modelos con
+ * venta suficiente, ponderado por pares). Dueño, 8-nov-2026: «Amazon y
+ * TikTok se tienen que calcular según los números reales que se nos cobran
+ * hoy en día […] ya no interesa el 8 % y el 24 %»: un modelo que todavía no
+ * vende en Amazon o TikTok usa esto en vez de la estimación fija.
+ */
+export interface TarifasGenerales {
+  amazon: { pctTotal: number; porPar: number; unidades: number } | null;
+  tiktok: { pctTotal: number; pares: number } | null;
+}
+
+export function tarifasGenerales(porModelo: Record<string, TarifasReales>): TarifasGenerales {
+  let aU = 0, aPct = 0;
+  const aPorPar: number[] = [];
+  let tPrecio = 0, tRecibe = 0, tPares = 0;
+  for (const r of Object.values(porModelo)) {
+    const a = r.amazon;
+    if (a && a.unidades >= PARES_MINIMOS_REALES && a.comisionPct != null) {
+      aU += a.unidades;
+      aPct += ((a.comisionPct ?? 0) + (a.retencionPct ?? 0)) * a.unidades;
+      if (a.fbaPar != null) aPorPar.push((a.fbaPar ?? 0) + (a.otrosPar ?? 0));
+    }
+    const t = r.tiktok;
+    if (t && t.pares >= PARES_MINIMOS_REALES && t.precioPar != null && t.pagoPar != null && t.precioPar > 0) {
+      tPrecio += t.precioPar * t.pares;
+      tRecibe += (t.pagoPar + FIJO_TIKTOK) * t.pares;
+      tPares += t.pares;
+    }
+  }
+  aPorPar.sort((x, y) => x - y);
+  const mediana = aPorPar.length ? aPorPar[Math.floor(aPorPar.length / 2)] : null;
+  return {
+    amazon: aU > 0 && mediana != null ? { pctTotal: aPct / aU, porPar: mediana, unidades: aU } : null,
+    tiktok: tPares > 0 ? { pctTotal: 1 - tRecibe / tPrecio, pares: tPares } : null,
+  };
 }
 
 /** Lo que de verdad se usó en cada canal (real o estimado) para enseñarlo. */
 export interface UsadoNumeros {
   meli: { fuente: "real" | "estimado"; comisionPct: number; envio: number; retencionPct: number };
-  amazon: { fuente: "real" | "estimado"; pctTotal: number; porPar: number | null };
-  tiktok: { fuente: "real" | "estimado"; pctTotal: number; fijo: number };
+  /** «general» = lo que cobra la plataforma en toda la cuenta (el modelo no vendió ahí) */
+  amazon: { fuente: "real" | "general" | "estimado"; pctTotal: number; porPar: number | null };
+  tiktok: { fuente: "real" | "general" | "estimado"; pctTotal: number; fijo: number };
 }
 
 export interface ResultadoNumeros {
@@ -82,19 +124,27 @@ export interface ResultadoNumeros {
   /** Lo que dejaría el precio relámpago con las tasas de arriba (solo referencia si hay ganancia real). */
   gananciaRelampago: number | null;
   /**
-   * Lo que MELI DEPOSITÓ de verdad por par en 30 días en las ventas AL PRECIO
-   * RELÁMPAGO (reventa incluida: ahí MELI paga precio − comisión − envío sin
-   * retenciones) y lo que dejó sobre el costo. Cuando existe, ES la ganancia
-   * de MELI y de ahí salen «Recibir» y los precios de Amazon y TikTok (dueño,
-   * 15-oct-2026). Al precio relámpago, no el promedio del mes: el GT148
-   * promediaba $139.80 porque mezclaba ventas a $250–$356, y a $199.99
-   * recibe $126.87.
+   * Lo que MELI deposita por par AL PRECIO RELÁMPAGO DE NÚMEROS (dueño,
+   * 8-nov-2026: «a relámpago de 499.99 no sale cuánto recibiría real»; el
+   * relámpago que se escribe aquí es el ancla y todo lo demás se calcula de
+   * él). `fuente`:
+   *   «real»          se vendió a ese precio (±$1, ≥ 5 pares): lo depositado;
+   *   «desde_ventas»  no se vendió a ese precio, pero sí cerca (mismo lado de
+   *                   los $299): lo que MELI se quedó de verdad en ESE precio
+   *                   (`base`) llevado al precio de aquí;
+   *   «tasas»         sin ventas: comisión, envío y retención de `usado.meli`.
+   * Es la ganancia de MELI y de ahí salen «Recibir», Amazon y TikTok.
    */
-  /**
-   * `deHistorico`: el precio relámpago del sheet no tiene ventas y se tomó el
-   * relámpago real de MELI (el escalón más bajo con volumen).
-   */
-  recibidoMeli: { porPar: number; pares: number; precio: number; ganancia: number | null; deHistorico: boolean } | null;
+  recibidoMeli: {
+    porPar: number;
+    precio: number;
+    pares: number;
+    ganancia: number | null;
+    fuente: "real" | "desde_ventas" | "tasas";
+    base: { precio: number; porPar: number; pares: number } | null;
+  } | null;
+  /** El relámpago REAL de MELI en 30 días (precio más bajo con volumen), solo referencia. */
+  relampagoMeli: { precio: number; porPar: number; pares: number } | null;
   /** Promedio depositado por par en 30 días a todos los precios (solo referencia). */
   promedioMeli: { porPar: number; pares: number } | null;
   porcentaje: number | null;
@@ -142,14 +192,20 @@ export function tasasUsadas(e: EntradaNumeros, reales?: TarifasReales | null): U
       };
   const a = reales?.amazon;
   const amazonReal = a != null && a.unidades >= PARES_MINIMOS_REALES && a.comisionPct != null;
+  const g = reales?.general ?? null;
   const amazon = amazonReal
     ? { fuente: "real" as const, pctTotal: (a!.comisionPct ?? 0) + (a!.retencionPct ?? 0), porPar: (a!.fbaPar ?? 0) + (a!.otrosPar ?? 0) }
-    : { fuente: "estimado" as const, pctTotal: P.comisionAmazon, porPar: e.envioAmazon };
+    : g?.amazon
+      ? // El envío de FBA depende del tamaño de la caja: el que capturó el dueño manda; si no, la mediana de la cuenta.
+        { fuente: "general" as const, pctTotal: g.amazon.pctTotal, porPar: e.envioAmazon ?? g.amazon.porPar }
+      : { fuente: "estimado" as const, pctTotal: P.comisionAmazon, porPar: e.envioAmazon };
   const t = reales?.tiktok;
   const tiktokReal = t != null && t.pares >= PARES_MINIMOS_REALES && t.precioPar != null && t.pagoPar != null && t.precioPar > 0;
   const tiktok = tiktokReal
     ? { fuente: "real" as const, pctTotal: 1 - (t!.pagoPar! + FIJO_TIKTOK) / t!.precioPar!, fijo: FIJO_TIKTOK }
-    : { fuente: "estimado" as const, pctTotal: e.tiktokComision, fijo: e.tiktokExtra };
+    : g?.tiktok
+      ? { fuente: "general" as const, pctTotal: g.tiktok.pctTotal, fijo: FIJO_TIKTOK }
+      : { fuente: "estimado" as const, pctTotal: e.tiktokComision, fijo: e.tiktokExtra };
   return { meli, amazon, tiktok };
 }
 
@@ -174,26 +230,16 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const pvNormal = e.pvNormal ?? (pr != null ? pr * P.factorPvNormal : null);
   const m = reales?.meli;
   const promedioMeli = m != null && m.pares >= PARES_MINIMOS_REALES && m.netoPar != null ? { porPar: m.netoPar, pares: m.pares } : null;
-  // Con histórico en MELI se fija el precio con él (dueño, 16-oct-2026: «si
-  // ya hay histórico en MELI nos basamos en ese para fijar precios»): el
-  // depósito al precio relámpago del sheet si se vendió a ese precio; si no,
-  // el del relámpago REAL del histórico (`escalonRelampago`).
   const escalones = reales?.meliPorPrecio ?? [];
-  const alPrecio = pr != null ? escalones.find((x) => Math.abs(x.precio - pr) <= 1 && x.pares >= PARES_MINIMOS_AL_PRECIO) : undefined;
-  const elegido = alPrecio ?? escalonRelampago(escalones);
-  const recibidoMeli = elegido
-    ? {
-        porPar: elegido.netoPar,
-        pares: elegido.pares,
-        precio: elegido.precio,
-        ganancia: costo != null ? elegido.netoPar - costo : null,
-        deHistorico: !alPrecio,
-      }
-    : null;
+  const historico = escalonRelampago(escalones);
+  const relampagoMeli = historico ? { precio: historico.precio, porPar: historico.netoPar, pares: historico.pares } : null;
+  const { comisionPct, envio, retencionPct } = usado.meli;
+  const recibidoMeli = pr != null ? recibidoAlPrecio(pr, escalones, usado.meli, costo) : null;
   const vacio: ResultadoNumeros = {
     ganancia: null,
     gananciaRelampago: null,
     recibidoMeli,
+    relampagoMeli,
     promedioMeli,
     porcentaje: null,
     pvNormal,
@@ -206,11 +252,10 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
     tiktokRelampago: null,
     usado,
   };
-  if (costo == null || pr == null) return vacio;
-  const { comisionPct, envio, retencionPct } = usado.meli;
+  if (costo == null || pr == null || !recibidoMeli) return vacio;
   const gananciaMeli = (precio: number) => precio * (1 - comisionPct - retencionPct) - envio - costo;
   const gananciaRelampago = gananciaMeli(pr);
-  const ganancia = recibidoMeli?.ganancia ?? gananciaRelampago;
+  const ganancia = recibidoMeli.porPar - costo;
   const gananciaNormal = pvNormal != null ? gananciaMeli(pvNormal) : null;
   const recibirAmazon = costo + ganancia;
   const pvpAmazon =
@@ -222,6 +267,7 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
     ganancia,
     gananciaRelampago,
     recibidoMeli,
+    relampagoMeli,
     promedioMeli,
     porcentaje: costo > 0 ? ganancia / costo : null,
     pvNormal,
@@ -234,4 +280,45 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
     tiktokRelampago: tiktokOferta != null ? tiktokOferta * P.factorRelampagoTikTok : null,
     usado,
   };
+}
+
+/** El envío de MELI cambia de tramo en $299: dos precios de lados distintos no se comparan. */
+const TRAMO_ENVIO = 299;
+
+/**
+ * Cuánto deposita MELI por par a `precio`: lo real si se vendió ahí; si no,
+ * lo que MELI se quedó en el precio vendido más cercano (mismo tramo de
+ * envío) llevado a este precio —el envío fijo y el resto como porcentaje—;
+ * si no, las tasas.
+ */
+export function recibidoAlPrecio(
+  precio: number,
+  escalones: { precio: number; pares: number; netoPar: number }[],
+  tasas: { comisionPct: number; envio: number; retencionPct: number },
+  costo: number | null,
+): NonNullable<ResultadoNumeros["recibidoMeli"]> {
+  const ganancia = (porPar: number) => (costo != null ? porPar - costo : null);
+  const alPrecio = escalones.find((x) => Math.abs(x.precio - precio) <= 1 && x.pares >= PARES_MINIMOS_AL_PRECIO);
+  if (alPrecio)
+    return { porPar: alPrecio.netoPar, precio, pares: alPrecio.pares, ganancia: ganancia(alPrecio.netoPar), fuente: "real", base: null };
+  const lado = precio >= TRAMO_ENVIO;
+  const cercano = escalones
+    .filter((x) => x.pares >= PARES_MINIMOS_AL_PRECIO && x.precio > 0 && x.precio >= TRAMO_ENVIO === lado)
+    .sort((a, b) => Math.abs(a.precio - precio) - Math.abs(b.precio - precio) || b.pares - a.pares)[0];
+  if (cercano) {
+    const pctQueda = 1 - (cercano.netoPar + tasas.envio) / cercano.precio;
+    if (pctQueda >= 0 && pctQueda < 1) {
+      const porPar = precio * (1 - pctQueda) - tasas.envio;
+      return {
+        porPar,
+        precio,
+        pares: 0,
+        ganancia: ganancia(porPar),
+        fuente: "desde_ventas",
+        base: { precio: cercano.precio, porPar: cercano.netoPar, pares: cercano.pares },
+      };
+    }
+  }
+  const porPar = precio * (1 - tasas.comisionPct - tasas.retencionPct) - tasas.envio;
+  return { porPar, precio, pares: 0, ganancia: ganancia(porPar), fuente: "tasas", base: null };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { calcularNumeros, type EntradaNumeros } from "@/lib/finanzas/numeros";
+import { calcularNumeros, type EntradaNumeros, type ResultadoNumeros } from "@/lib/finanzas/numeros";
 import type { RenglonNumeros } from "@/lib/servicios/numeros";
 
 const din = (x: number | null | undefined, dec = 2) =>
@@ -12,20 +12,25 @@ const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-
 const pct = (x: number, dec = 0) => `${(x * 100).toFixed(dec)}%`;
 
 /** Debajo de la cifra: con qué tasas salió (lo real de 30 días o tu estimación). */
-function Fuente({ real, children }: { real: boolean; children: React.ReactNode }) {
+function Fuente({ fuente, children }: { fuente: "real" | "general" | "estimado"; children: React.ReactNode }) {
+  const t = {
+    real: { color: "var(--exito-texto)", texto: "real ", title: "Lo que cobró la plataforma por este modelo en los últimos 30 días" },
+    general: {
+      color: "var(--exito-texto)",
+      texto: "real cuenta ",
+      title: "El modelo no vendió lo suficiente aquí: lo que la plataforma cobra hoy en toda la cuenta (30 días)",
+    },
+    estimado: { color: "var(--ink-3)", texto: "estimado ", title: "Tu estimación: no hay ventas suficientes para saber lo real" },
+  }[fuente];
   return (
-    <div
-      className="text-[11px]"
-      style={{ color: real ? "var(--exito-texto)" : "var(--ink-3)" }}
-      title={real ? "Lo que cobró la plataforma en los últimos 30 días" : "Tu estimación: el modelo no vendió lo suficiente en 30 días"}
-    >
-      {real ? "real " : "estimado "}
+    <div className="text-[11px]" style={{ color: t.color }} title={t.title}>
+      {t.texto}
       {children}
     </div>
   );
 }
 
-type CampoNum = "envioMeli" | "precioRelampago" | "pvNormal" | "envioAmazon" | "pvpDeal" | "tiktokExtra" | "tiktokComision" | "tiktokOferta";
+type CampoNum = "envioMeli" | "precioRelampago" | "pvNormal" | "envioAmazon" | "pvpDeal";
 
 function Celda({
   valor,
@@ -95,13 +100,18 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
     );
   }, [renglones, busca, soloConCosto]);
 
+  // Cambiar el relámpago recalcula todo lo demás (dueño, 8-nov-2026): el PV
+  // normal y el PVP deal fijados a mano se sueltan para que sigan al relámpago.
+  const cambioDe = (campo: CampoNum, v: number | null): Partial<EntradaNumeros> =>
+    campo === "precioRelampago" ? { precioRelampago: v, pvNormal: null, pvpDeal: null } : ({ [campo]: v } as Partial<EntradaNumeros>);
+
   const num = (modelo: string, campo: CampoNum, placeholder?: string, ancho?: string) => (
     <Celda
-      key={`${modelo}-${campo}`}
+      key={`${modelo}-${campo}-${entradas[modelo][campo] ?? ""}`}
       valor={entradas[modelo][campo] as number | null}
       placeholder={placeholder}
       ancho={ancho}
-      onCambio={(v) => guardar(modelo, { [campo]: v } as Partial<EntradaNumeros>)}
+      onCambio={(v) => guardar(modelo, cambioDe(campo, v))}
     />
   );
 
@@ -122,7 +132,7 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
               <th colSpan={3} />
               <th colSpan={7} className="text-center">Mercado Libre</th>
               <th colSpan={4} className="text-center">Amazon</th>
-              <th colSpan={6} className="text-center">TikTok</th>
+              <th colSpan={3} className="text-center">TikTok</th>
             </tr>
             <tr>
               <th>Modelo</th>
@@ -139,12 +149,9 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
               <th className="num">Envío</th>
               <th className="num">PVP sin ads</th>
               <th className="num">PVP deal</th>
-              <th className="num">Lives</th>
+              <th className="num" title="El precio que deja en TikTok lo mismo que el relámpago de MELI">Gana igual</th>
               <th className="num">Relámpagos</th>
               <th className="num">Oferta campañas</th>
-              <th className="num" title="Lo que se suma antes de dividir">+</th>
-              <th className="num" title="Comisión (0.24 = 24 %)">Com.</th>
-              <th className="num" title="Oferta = lives × este factor">×</th>
             </tr>
           </thead>
           <tbody>
@@ -175,46 +182,7 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                   <td className="num">{num(m, "precioRelampago")}</td>
                   <td className="num cifra" style={{ color: c.ganancia != null && c.ganancia < 0 ? "var(--estado-critico)" : undefined }}>
                     {din(c.ganancia)}
-                    {c.recibidoMeli ? (
-                      <>
-                        <div
-                          className="text-[11px]"
-                          style={{ color: "var(--exito-texto)" }}
-                          title={`Lo que Mercado Pago depositó por par en las ventas a ${din(c.recibidoMeli.precio, 0)} de los últimos 30 días (${c.recibidoMeli.pares.toLocaleString("es-MX")} pares, reventa incluida). De aquí salen Recibir, Amazon y TikTok.`}
-                        >
-                          real a {din(c.recibidoMeli.precio, 0)}: recibes {din(c.recibidoMeli.porPar)}/par
-                        </div>
-                        {c.recibidoMeli.deHistorico ? (
-                          <div
-                            className="text-[11px]"
-                            style={{ color: "var(--alerta-texto)" }}
-                            title="Al precio relámpago de Números no hubo ventas en 30 días: se usó el relámpago real de MELI (el precio más bajo con volumen)."
-                          >
-                            sin ventas al relámpago de aquí: histórico
-                          </div>
-                        ) : null}
-                        <div className="texto-tenue text-[11px]" title="Lo que dejaría el precio relámpago con las tasas de MELI">
-                          con tasas: {din(c.gananciaRelampago)}
-                        </div>
-                        {c.promedioMeli ? (
-                          <div className="texto-tenue text-[11px]" title="Promedio depositado por par en 30 días, a todos los precios">
-                            promedio mes: {din(c.promedioMeli.porPar)}/par
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        <Fuente real={u.meli.fuente === "real"}>
-                          {pct(u.meli.comisionPct)} · {din(u.meli.envio)}
-                          {u.meli.retencionPct > 0 ? ` · ret ${pct(u.meli.retencionPct, 1)}` : ""}
-                        </Fuente>
-                        {c.promedioMeli ? (
-                          <div className="texto-tenue text-[11px]" title="Promedio depositado por par en 30 días, a todos los precios. Sin ventas suficientes a tu precio relámpago, la ganancia sale de las tasas.">
-                            promedio mes: {din(c.promedioMeli.porPar)}/par
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+                    <RecibidoMeli c={c} />
                   </td>
                   <td className="num cifra">{c.porcentaje == null ? "—" : `${(c.porcentaje * 100).toFixed(0)}%`}</td>
                   <td className="num">{num(m, "pvNormal", c.pvNormal != null ? c.pvNormal.toFixed(2) : "")}</td>
@@ -226,7 +194,7 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                   <td className="num">{num(m, "envioAmazon", "", "w-16")}</td>
                   <td className="num cifra">
                     {din(c.pvpAmazon)}
-                    <Fuente real={u.amazon.fuente === "real"}>
+                    <Fuente fuente={u.amazon.fuente}>
                       {pct(u.amazon.pctTotal, 1)}
                       {u.amazon.porPar != null ? ` + ${din(u.amazon.porPar)}` : ""}
                     </Fuente>
@@ -234,15 +202,12 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                   <td className="num">{num(m, "pvpDeal", c.pvpAmazon != null ? (c.pvpAmazon * 1.12).toFixed(2) : "")}</td>
                   <td className="num cifra">
                     {din(c.tiktokLives)}
-                    <Fuente real={u.tiktok.fuente === "real"}>
+                    <Fuente fuente={u.tiktok.fuente}>
                       {pct(u.tiktok.pctTotal, 1)} + {din(u.tiktok.fijo, 0)}
                     </Fuente>
                   </td>
                   <td className="num cifra">{din(c.tiktokRelampago)}</td>
                   <td className="num cifra">{din(c.tiktokOferta)}</td>
-                  <td className="num">{num(m, "tiktokExtra", "8", "w-12")}</td>
-                  <td className="num">{num(m, "tiktokComision", "0.24", "w-16")}</td>
-                  <td className="num">{num(m, "tiktokOferta", "1.11", "w-14")}</td>
                 </tr>
               );
             })}
@@ -250,5 +215,50 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+/** Debajo de la ganancia: cuánto deposita MELI al relámpago de aquí y de dónde salió. */
+function RecibidoMeli({ c }: { c: ResultadoNumeros }) {
+  const r = c.recibidoMeli;
+  const u = c.usado.meli;
+  if (!r) return null;
+  const linea =
+    r.fuente === "real" ? (
+      <div className="text-[11px]" style={{ color: "var(--exito-texto)" }} title={`Lo que Mercado Pago depositó por par en ${r.pares.toLocaleString("es-MX")} ventas a este precio en 30 días (reventa incluida).`}>
+        real a {din(r.precio)}: recibes {din(r.porPar)}/par
+      </div>
+    ) : r.fuente === "desde_ventas" && r.base ? (
+      <div
+        className="text-[11px]"
+        style={{ color: "var(--exito-texto)" }}
+        title={`No hubo ventas a ${din(r.precio)}. Lo que MELI se quedó de verdad en las ${r.base.pares.toLocaleString("es-MX")} ventas a ${din(r.base.precio, 0)} (recibiste ${din(r.base.porPar)}/par), llevado a este precio con envío de ${din(u.envio)}.`}
+      >
+        a {din(r.precio)} recibirías {din(r.porPar)}/par
+        <div className="texto-tenue">según lo real a {din(r.base.precio, 0)}</div>
+      </div>
+    ) : (
+      <div className="text-[11px]" style={{ color: u.fuente === "real" ? "var(--exito-texto)" : "var(--ink-3)" }} title="Sin ventas cerca de este precio: comisión, envío y retención de MELI.">
+        a {din(r.precio)} recibirías {din(r.porPar)}/par
+        <div className="texto-tenue">
+          {u.fuente === "real" ? "tasas reales" : "estimado"} {pct(u.comisionPct)} · {din(u.envio)}
+          {u.retencionPct > 0 ? ` · ret ${pct(u.retencionPct, 1)}` : ""}
+        </div>
+      </div>
+    );
+  return (
+    <>
+      {linea}
+      {c.relampagoMeli && Math.abs(c.relampagoMeli.precio - r.precio) > 1 ? (
+        <div className="texto-tenue text-[11px]" title="El precio más bajo con volumen al que se vendió en MELI en 30 días">
+          relámpago real en MELI: {din(c.relampagoMeli.precio, 0)} → {din(c.relampagoMeli.porPar)}/par
+        </div>
+      ) : null}
+      {c.promedioMeli ? (
+        <div className="texto-tenue text-[11px]" title="Promedio depositado por par en 30 días, a todos los precios">
+          promedio mes: {din(c.promedioMeli.porPar)}/par
+        </div>
+      ) : null}
+    </>
   );
 }

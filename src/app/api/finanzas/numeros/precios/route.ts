@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
-import { aplicarPrecios, normalizarModelos, revisarPrecios } from "@/lib/servicios/precios-modelos";
+import { aplicarPrecios, leerCanal, normalizarModelos, revisarPrecios } from "@/lib/servicios/precios-modelos";
 import { leerAsignaciones, leerStocks } from "@/lib/precios/promociones";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,8 @@ export const maxDuration = 300;
 
 /**
  * Precios de Números → MELI (relámpago, Buen Fin, todos los días) y Amazon
- * (PVP deal). GET revisa sin escribir; POST aplica lo revisado.
+ * (PVP deal). GET revisa sin escribir; POST aplica lo revisado. `canal`
+ * (meli | amazon | ambos) limita a un solo marketplace.
  */
 async function preparar(req: NextRequest, modelosCrudos: unknown) {
   const supabase = await clienteServidor();
@@ -39,18 +40,19 @@ export async function GET(req: NextRequest) {
     } catch {
       /* sin asignaciones */
     }
-    return NextResponse.json(await revisarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, asignadas));
+    const canal = leerCanal(req.nextUrl.searchParams.get("canal"));
+    return NextResponse.json(await revisarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, asignadas, { canal }));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown; asignadas?: unknown; stocks?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown; asignadas?: unknown; stocks?: unknown; canal?: unknown };
   const p = await preparar(req, body.modelos);
   if ("error" in p) return p.error;
   try {
-    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, leerAsignaciones(body.asignadas), leerStocks(body.stocks)));
+    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, leerAsignaciones(body.asignadas), leerStocks(body.stocks), leerCanal(body.canal)));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

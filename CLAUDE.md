@@ -3158,7 +3158,21 @@ guárdala numerada.
   dice en ámbar; dueño, 16-oct-2026: «si ya hay histórico en MELI nos
   basamos en ese para fijar precios»: GT150 decía 298.88 y se vende a 350 y
   370, GT129, GT169, GT229, GT252 y GT259 igual). Solo sin ninguna venta
-  con volumen, la cuenta con las tasas. Los sueldos del dueño y de
+  con volumen, la cuenta con las tasas. **Desde el 8-nov-2026 el relámpago de Números es el ANCLA**
+  (dueño: «cuando bajo un precio relámpago se debe calcular todo lo demás»,
+  «a relámpago de 499.99 no sale cuánto recibiría real»; `recibidoAlPrecio`):
+  lo recibido se calcula SIEMPRE a ese precio —real si se vendió ahí; si no,
+  lo que MELI se quedó de verdad en el precio vendido más cercano del MISMO
+  tramo de envío ($299) llevado a este precio (`desde_ventas`); si no, las
+  tasas— y el relámpago real del histórico solo se enseña como referencia
+  (`relampagoMeli`). PV normal = relámpago × 1.05 (era 1.065; el sheet con
+  ×1.065 o ×1.05 se lee como «sigue al relámpago») y cambiar el relámpago en
+  la tabla suelta el PV normal y el PVP deal fijados. Amazon y TikTok sin
+  ventas del modelo usan lo que cobran en TODA la cuenta (`tarifasGenerales`,
+  fuente «general»; el envío de FBA capturado manda sobre la mediana) y la
+  tabla ya no enseña el 8 / 24 % / ×1.11 de TikTok. «Llevar precios» deja
+  aplicar solo a MELI o solo a Amazon (`canal`) y la última corrida de Buen
+  Fin ya no sale sola arriba («Ver último Buen Fin»). Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
   con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,

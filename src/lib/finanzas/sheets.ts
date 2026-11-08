@@ -367,7 +367,10 @@ export interface NumerosSheet {
   tiktokOferta: number;
 }
 
-const FACTOR_PV_NORMAL = 1.065;
+// El factor DE SIEMPRE del PV normal: 1.065 en el sheet viejo, 1.05 desde el
+// 8-nov-2026 (dueño: «el precio de no relámpago es 5 % arriba»). Los dos se
+// leen como «sigue al relámpago» y el ERP pone el suyo.
+const FACTORES_PV_NORMAL = [1.065, 1.05];
 const FACTOR_DEAL = 1.12;
 const sinEspacios = (f?: string) => (f ?? "").replace(/\s+/g, "").toUpperCase();
 
@@ -377,10 +380,11 @@ const sinEspacios = (f?: string) => (f ?? "").replace(/\s+/g, "").toUpperCase();
  * otro (un número a mano, «=I5*1.053», «=P2*1.12+20») se guarda con el valor
  * que el sheet enseña.
  */
-function precioOFactor(c: Celda, letra: string, factor: number): number | null {
+function precioOFactor(c: Celda, letra: string, factor: number | number[]): number | null {
   const f = sinEspacios(c.f);
   const m = f.match(new RegExp(`^${letra}\\d+\\*([\\d.]+)$`));
-  if (m && Math.abs(Number(m[1]) - factor) < 1e-9) return null;
+  const factores = Array.isArray(factor) ? factor : [factor];
+  if (m && factores.some((x) => Math.abs(Number(m[1]) - x) < 1e-9)) return null;
   return num(c);
 }
 
@@ -427,7 +431,7 @@ export function leerNumeros(libro: Libro): { modelos: NumerosSheet[]; avisos: st
       modelo,
       envioMeli: num(celda(h, i, iEnvio)),
       precioRelampago: num(celda(h, i, iPr)),
-      pvNormal: precioOFactor(celda(h, i, iPv), "I", FACTOR_PV_NORMAL),
+      pvNormal: precioOFactor(celda(h, i, iPv), "I", FACTORES_PV_NORMAL),
       retencion: /0\.105/.test(fGan),
       envioAmazon: num(celda(h, i, iEnvAmz)) ?? (envioEnPvp ? Number(envioEnPvp[1]) : null),
       pvpDeal: precioOFactor(celda(h, i, iDeal), "P", FACTOR_DEAL),
