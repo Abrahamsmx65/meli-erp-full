@@ -12,8 +12,33 @@ import {
 } from "@/components/videos";
 import { ConectarHiggsfield } from "@/components/conectar-higgsfield";
 import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { modeloUnificado } from "@/lib/servicios/costos-unificados";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * El modelo (GT148, MY2304…) que sale JUNTO al video en Generaciones
+ * (pedido del dueño, 10-nov-2026): del SKU guardado en el video o del
+ * primer SKU de su publicación (`modeloUnificado`, el mismo criterio que
+ * Inicio); un video viejo sin publicación activa lo rescata del título.
+ */
+function modeloDelVideo(
+  sku: string | null,
+  itemId: string | null,
+  titulo: string | null,
+  porItem: Map<string, string>,
+): string {
+  if (sku) {
+    const m = modeloUnificado(sku);
+    if (m) return m;
+  }
+  if (itemId) {
+    const m = porItem.get(itemId);
+    if (m) return m;
+  }
+  const enTitulo = /\b([A-Z]{2,4}\d{2,4}(?:-\d+)?)\b/.exec((titulo ?? "").toUpperCase());
+  return enTitulo?.[1] ?? "";
+}
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
   creado: { texto: "Creado", color: "var(--ink-muted)" },
@@ -53,6 +78,14 @@ export default async function Videos() {
   const enCurso = (videos ?? []).filter((v) =>
     ["enviado", "en_progreso"].includes(v.estado as string),
   ).length;
+
+  // item → modelo, con el primer SKU de la publicación (el campo `modelo`
+  // de `skus` parte mal los modelos con guion, GT104-1).
+  const modeloPorItem = new Map<string, string>();
+  for (const p of publicaciones) {
+    const m = p.skus.length ? modeloUnificado(p.skus[0]) : (p.modelo || "").toUpperCase();
+    if (m) modeloPorItem.set(p.itemId, m);
+  }
 
   return (
     <Pagina>
@@ -130,6 +163,12 @@ export default async function Videos() {
                     formato === "ugc" ||
                     formato === "studio";
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
+                  const modelo = modeloDelVideo(
+                    (v.sku as string | null) ?? null,
+                    (v.item_id as string | null) ?? null,
+                    (v.titulo as string | null) ?? null,
+                    modeloPorItem,
+                  );
                   const detalleEtapa =
                     formato === "studio" && generando
                       ? v.modelo === "voice-change"
@@ -169,6 +208,11 @@ export default async function Videos() {
                             className="w-24 rounded-md opacity-60"
                           />
                         )}
+                        {modelo ? (
+                          <div className="mt-1 text-sm font-semibold" style={{ color: "var(--acento)" }}>
+                            {modelo}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="align-top">
                         <div className="text-sm font-medium">{(v.titulo as string) || "—"}</div>
