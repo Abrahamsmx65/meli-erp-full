@@ -19,6 +19,24 @@ describe("leerPreciosFundas (pestaña FUNDAS de Números)", () => {
     expect(de("686")).toMatchObject({ pvMeli: 364.92, relampago: 384.99, bloque: "FUNDAS TABLETA" });
   });
 
+  it("encabezados del 10-nov-2026: «PV MELI RELAMPAGO» es la relámpago y «PVP» el normal", async () => {
+    const libro = await libroDeXlsx(readFileSync(join(process.cwd(), "fixtures", "sheet-numeros-2026-11-10.xlsx")));
+    const { precios } = leerPreciosFundas(libro);
+    const de = (d: string) => precios.find((p) => p.diseno === d);
+    expect(de("437")).toMatchObject({ pvMeli: 147.38, relampago: 139.7, bloque: "FUNDAS TABLETA" });
+    expect(de("499")).toMatchObject({ pvMeli: 104.21, relampago: 98.78, bloque: "FUNDAS" });
+    // Micas: un solo precio, sin relámpago (su «PVP» es otra fórmula).
+    expect(de("462")).toMatchObject({ pvMeli: 71.62, relampago: null, bloque: "MICAS" });
+    for (const p of precios) if (p.relampago != null) expect(p.relampago).toBeLessThanOrEqual(p.pvMeli);
+  });
+
+  it("sin «PVP» al lado de «PV MELI RELAMPAGO» usa el mismo precio y lo avisa", () => {
+    const libro: Libro = new Map([["FUNDAS", [[{ v: "MODELO" }, { v: "PV MELI RELAMPAGO" }], [{ v: "514" }, { v: 94.18 }]]]]);
+    const { precios, avisos } = leerPreciosFundas(libro);
+    expect(precios[0]).toMatchObject({ pvMeli: 94.18, relampago: 94.18 });
+    expect(avisos.join(" ")).toMatch(/no trae al lado una «PVP»/);
+  });
+
   it("un diseño en dos renglones se queda con el precio más alto", async () => {
     const { precios, avisos } = leerPreciosFundas(await abrir());
     expect(precios.find((p) => p.diseno === "380")).toMatchObject({ renglones: ["380 GRANDE", "380 CHICO"], pvMeli: 135.96 });

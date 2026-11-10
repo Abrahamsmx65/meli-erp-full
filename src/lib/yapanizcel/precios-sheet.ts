@@ -13,6 +13,9 @@
  * categoría en MELI no permite relámpago (dueño, 23-oct-2026): sin precio
  * de relámpago, el motor no les inscribe ninguna.
  *
+ * Desde el 10-nov-2026 los encabezados son «PV MELI RELAMPAGO | PVP»: la
+ * primera es la relámpago (la más baja) y «PVP» el precio normal.
+ *
  * Un diseño en dos renglones (582 con dos costos, 380 GRANDE y CHICO) se
  * queda con el precio MÁS ALTO: la publicación no dice cuál de los dos es,
  * y un precio alto a lo más lo rechaza MELI; uno bajo vendería con pérdida.
@@ -53,10 +56,21 @@ export function leerPreciosFundas(libro: Libro): { precios: PrecioFunda[]; aviso
     const textos = fila.map((c) => txt(c).toUpperCase());
     const pv = textos.findIndex((t) => /^PV MELI/.test(t));
     if (pv >= 0) {
-      iPv = pv;
-      iRel = textos.findIndex((t) => /RELAMPAGO/.test(t));
       const a = textos[0] ?? "";
       bloque = a === "MODELO" || !a ? "FUNDAS" : a;
+      iPv = pv;
+      iRel = textos.findIndex((t) => /RELAMPAGO/.test(t));
+      // Desde el 10-nov-2026 la columna se llama «PV MELI RELAMPAGO» (el
+      // precio bajo, de relámpago) y el normal va en «PVP» (dueño: «el más
+      // bajo era para relámpago, necesitamos tener el precio alto en lo
+      // normal»). En MICAS no hay relámpago y su «PVP» sale de otra fórmula:
+      // ahí la columna de PV sigue siendo el único precio.
+      if (iRel === pv) {
+        const iPvp = textos.findIndex((t, i) => i > pv && /^PVP$/.test(t));
+        if (bloque === "MICAS") iRel = -1;
+        else if (iPvp >= 0) iPv = iPvp;
+        else avisos.push(`Bloque ${bloque}: la columna «${textos[pv]}» no trae al lado una «PVP»; se usa el mismo precio para todo.`);
+      }
       continue;
     }
     if (iPv < 0) continue;
