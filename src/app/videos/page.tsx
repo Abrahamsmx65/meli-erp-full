@@ -267,9 +267,18 @@ export default async function Videos() {
                       <td className="align-top">
                         <div className="flex flex-col items-start gap-1">
                           {v.video_guardado ? (
+                            // El archivo baja con el MODELO como nombre
+                            // (GT148.mp4): el `?download=` lo sirve el bucket
+                            // de Supabase con Content-Disposition (el atributo
+                            // `download` solo no puede: la URL es de otro
+                            // dominio y el navegador lo ignora).
                             <a
-                              href={v.video_guardado as string}
-                              download
+                              href={
+                                modelo
+                                  ? `${v.video_guardado as string}${(v.video_guardado as string).includes("?") ? "&" : "?"}download=${encodeURIComponent(`${modelo}.mp4`)}`
+                                  : (v.video_guardado as string)
+                              }
+                              download={modelo ? `${modelo}.mp4` : true}
                               className="text-xs enlace"
                             >
                               Descargar MP4
