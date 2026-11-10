@@ -45,7 +45,13 @@ interface FilaMedida {
   tipo_publicacion: string | null;
 }
 
-/** La caja del modelo como la mide MELI (consenso de las tallas) y su tipo de publicación. */
+/**
+ * La caja del modelo como la mide MELI (consenso de las tallas), su tipo de
+ * publicación y su categoría. La publicación y la categoría salen también
+ * del catálogo (`skus`): un modelo sin medidas guardadas (GT074) se quedaba
+ * sin categoría y `listing_prices` contestaba la tarifa genérica (18 %)
+ * en vez de la de su categoría (15 %, MLM192717).
+ */
 async function cajaDelModelo(db: DB, accountId: string, modelo: string) {
   const filas = await traerTodo<FilaMedida>(db, "medidas_envio", "item_id, alto, ancho, largo, peso, tipo_publicacion, sku", (q) =>
     q.eq("account_id", accountId).eq("modelo", modelo),
@@ -59,9 +65,18 @@ async function cajaDelModelo(db: DB, accountId: string, modelo: string) {
     if (f.tipo_publicacion) tipos.set(f.tipo_publicacion, (tipos.get(f.tipo_publicacion) ?? 0) + 1);
     itemId ??= f.item_id;
   }
+  const catalogo = await traerTodo<{ item_id: string | null; categoria_id: string | null }>(db, "skus", "item_id, categoria_id, sku", (q) =>
+    q.eq("account_id", accountId).eq("modelo", modelo).eq("activo", true),
+  );
+  const categorias = new Map<string, number>();
+  for (const f of catalogo) {
+    if (f.categoria_id) categorias.set(f.categoria_id, (categorias.get(f.categoria_id) ?? 0) + 1);
+    itemId ??= f.item_id;
+  }
   const medida = medidaDeConsenso(medidas.map((medida) => ({ medida }) as VarianteEnvio)) ?? medidas[0] ?? null;
-  const tipo = [...tipos].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "gold_special";
-  return { medida, tipo, itemId };
+  const tipo = [...tipos].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const categoria = [...categorias].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  return { medida, tipo, itemId, categoria };
 }
 
 async function meliEnVivo(
@@ -73,20 +88,31 @@ async function meliEnVivo(
   precios: number[],
   avisos: string[],
 ): Promise<NumerosVivo["meli"]> {
-  const { medida, tipo, itemId } = await cajaDelModelo(db, accountId, modelo);
-  let categoria: string | null = null;
-  if (itemId) {
+  const caja = await cajaDelModelo(db, accountId, modelo);
+  const { medida, itemId } = caja;
+  let categoria: string | null = caja.categoria;
+  let tipo: string | null = caja.tipo;
+  if (itemId && (!categoria || !tipo)) {
     try {
-      const item = await cliente.get<{ category_id?: string }>(`/items/${itemId}`, { attributes: "category_id" });
-      categoria = item?.category_id ?? null;
+      const item = await cliente.get<{ category_id?: string; listing_type_id?: string }>(`/items/${itemId}`, {
+        attributes: "category_id,listing_type_id",
+      });
+      categoria ??= item?.category_id ?? null;
+      tipo ??= item?.listing_type_id ?? null;
     } catch (err) {
       avisos.push(`MELI no contestó la categoría de ${itemId}: ${mensajeMeli(err)}`);
     }
-  } else avisos.push(`${modelo}: no hay publicación de MELI con medidas; la comisión sale sin categoría.`);
+  }
+  tipo ??= "gold_special";
   if (!medida) avisos.push(`${modelo}: MELI no tiene medidas de la caja; el envío sale de lo de 30 días.`);
+  if (!categoria) {
+    // Sin categoría MELI contesta su tarifa genérica, que no es la del modelo.
+    avisos.push(`${modelo}: no hay publicación de MELI con categoría; la comisión sale de lo de 30 días.`);
+  }
   const tarifas = new CacheTarifas(cliente);
   const salida: NumerosVivo["meli"] = [];
   for (const precio of precios) {
+    if (!categoria) continue;
     const t = await tarifas.tarifa(precio, categoria, tipo);
     if (!t) {
       avisos.push(`MELI no contestó la comisión a $${precio.toFixed(2)}.`);
