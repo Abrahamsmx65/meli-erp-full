@@ -89,6 +89,31 @@ export const VOZ_FLUIDA =
   "pronunciations (say 'sandalias', never 'sandals'; 'ampollas', never 'ampolas'), " +
   "and pronounce every Spanish word completely and correctly";
 
+/**
+ * Regla de VESTUARIO por tipo de producto (dueño, 10-nov-2026: «cuando se
+ * generan botas el pantalón tapa el producto; cuando se generan pantuflas
+ * quiero que tengan calcetas puestas»): con BOTAS el pantalón va fajado
+ * dentro de la bota, arremangado o corto — nunca encima—; con PANTUFLAS la
+ * persona trae CALCETAS visibles. Va en TODOS los prompts que generan video
+ * (UGC y Studio); vacía para los demás tipos.
+ */
+export function vestuarioDeTipo(tipo: TipoCalzado): string {
+  if (tipo === "bota" || tipo === "bota_industrial") {
+    return (
+      " WARDROBE RULE: the boots stay FULLY visible at all times — the pants are " +
+      "tucked INTO the boots, rolled up or cropped above the boot shaft; the pants " +
+      "NEVER cover, overlap or hide any part of the boots."
+    );
+  }
+  if (tipo === "pantufla") {
+    return (
+      " WARDROBE RULE: the person wears cozy SOCKS with the slippers, clearly " +
+      "visible at the ankle — never bare feet inside the slippers."
+    );
+  }
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // Rasgos del producto: lo que el TÍTULO dice que el producto ES. Con ellos
 // el guion habla del frío si son pantuflas térmicas, de la lluvia si son
@@ -1515,13 +1540,14 @@ export function armarConceptoUGC(datos: {
     `three-quarter body in frame, ordinary lighting, slightly imperfect framing, mild ` +
     `phone-camera grain, real unretouched skin — a regular person's TikTok clip, ` +
     `amateur and spontaneous. NO studio lighting, NO advertising polish, NO cinematic ` +
-    `look, NO posing.` + CANDADO_UGC;
+    `look, NO posing.` + vestuarioDeTipo(datos.tipo) + CANDADO_UGC;
 
   const narrativa =
     `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}, ${ESTILO_PERSONA}. ` +
     `${narrativaBase}.` +
     (concepto.conCortes ? IMPERFECCIONES_CORTES : IMPERFECCIONES) +
-    IDENTIDAD;
+    IDENTIDAD +
+    vestuarioDeTipo(datos.tipo);
 
   const guionSugerido = llenar(
     datos.largo
@@ -1580,6 +1606,7 @@ export function promptUGCDesdeFoto(datos: {
     `continuous take within the same continuous space: no cuts, no jump transitions, ` +
     `no teleporting, fluid smooth motion, natural speech pauses. It must feel like a ` +
     `real person's TikTok recommendation — NOT an ad, NOT cinematic, no posing.` +
+    vestuarioDeTipo(datos.tipo) +
     CANDADO_UGC
   );
 }

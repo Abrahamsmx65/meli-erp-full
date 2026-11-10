@@ -742,6 +742,19 @@ export function GeneradorVideo({
         `Estética: cuidada y real — creador arreglado con un outfit que le ` +
         `quede a la ocasión, buena luz natural; la locación VARÍA (casa, ` +
         `calle, café, parque o exterior urbano), no siempre en casa.`;
+      // Vestuario por tipo (dueño, 10-nov-2026): con botas el pantalón
+      // tapaba el producto; con pantuflas van calcetas puestas.
+      const vestuario =
+        datos.tipo === "bota" || datos.tipo === "bota_industrial"
+          ? `REGLA DE VESTUARIO: las botas se ven COMPLETAS todo el video — ` +
+            `el pantalón va FAJADO dentro de la bota, arremangado o corto ` +
+            `arriba de la caña; el pantalón NUNCA tapa ni cubre ninguna ` +
+            `parte de las botas. `
+          : datos.tipo === "pantufla"
+            ? `REGLA DE VESTUARIO: la persona trae CALCETAS puestas con las ` +
+              `pantuflas, visibles en el tobillo — nunca pies descalzos ` +
+              `dentro de la pantufla. `
+            : "";
       setPromptVideo(
         sinVoz
           ? // Modo MODELAJE: nadie habla; el único audio es música.
@@ -756,7 +769,7 @@ export function GeneradorVideo({
               `ÚNICO audio es música instrumental moderna SIN letra ni voces. ` +
               `La MISMA persona aparece de principio a fin, con el mismo ` +
               `peinado y el mismo cuerpo; solo la ropa puede cambiar si el ` +
-              `video enseña outfits. ${estetica} Concepto: ${c.etiqueta}. ` +
+              `video enseña outfits. ${estetica} ${vestuario}Concepto: ${c.etiqueta}. ` +
               candadoProducto
           : `Video UGC vertical 9:16 de ${dur} segundos, TODO en español de México. ` +
               `Voz y acento: hablante NATIVO de español mexicano, entonación ` +
@@ -767,7 +780,7 @@ export function GeneradorVideo({
               `'ampolas'; 'ya', jamás 'já'; 'corcho', jamás 'corclo'; 'nube', jamás ` +
               `'nuve'; 'suavecita', 'hay' y 'mijito' bien dichas); cada palabra se ` +
               `pronuncia completa y correcta en español. ` +
-              `${estetica} Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
+              `${estetica} ${vestuario}Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
               `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
               `y movimientos reales y fluidos, en una sola locación con acciones ` +
               `variadas (lo muestra de cerca, se lo pone, camina). ${candadoProducto} ` +

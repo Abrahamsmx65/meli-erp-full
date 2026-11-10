@@ -7,6 +7,7 @@ import {
   promptUGCConVozIA,
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
+  vestuarioDeTipo,
 } from "./ugc";
 import type { Genero, TipoCalzado } from "./escenas";
 
@@ -384,5 +385,33 @@ describe("motor de conceptos UGC", () => {
       ),
     );
     expect(variantes.size).toBeGreaterThan(1);
+  });
+});
+
+describe("vestuarioDeTipo (dueño, 10-nov-2026)", () => {
+  it("con botas el pantalón nunca tapa el producto, en narrativa y prompt de foto", () => {
+    for (const tipo of ["bota", "bota_industrial"] as const) {
+      const c = armarConceptoUGC({ tipo, genero: "mujer", semilla: 0.3, texto: "Botas térmicas" });
+      expect(c.narrativa).toContain("tucked INTO the boots");
+      expect(c.narrativa).toContain("NEVER cover");
+      expect(c.promptImagen).toContain("tucked INTO the boots");
+      const desdeFoto = promptUGCDesdeFoto({ tipo, genero: "mujer", semilla: 0.3, guion: "Hola." });
+      expect(desdeFoto).toContain("tucked INTO the boots");
+    }
+  });
+
+  it("con pantuflas la persona trae calcetas puestas", () => {
+    const c = armarConceptoUGC({ tipo: "pantufla", genero: "mujer", semilla: 0.5, texto: "Pantuflas" });
+    expect(c.narrativa).toContain("SOCKS");
+    expect(c.narrativa).toContain("never bare feet");
+    expect(
+      promptUGCDesdeFoto({ tipo: "pantufla", genero: null, semilla: 0.5, guion: "Hola." }),
+    ).toContain("SOCKS");
+  });
+
+  it("los demás tipos no llevan regla de vestuario", () => {
+    expect(vestuarioDeTipo("tenis")).toBe("");
+    const c = armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: 0.7, texto: "Sandalias" });
+    expect(c.narrativa).not.toContain("WARDROBE RULE");
   });
 });
