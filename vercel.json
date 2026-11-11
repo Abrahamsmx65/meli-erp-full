@@ -85,6 +85,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/todos-los-dias",
+      "schedule": "0 14 * * *"
+    },
+    {
       "path": "/api/cron/relampagos",
       "schedule": "0 16 * * *"
     },

@@ -3172,7 +3172,7 @@ guárdala numerada.
   fuente «general»; el envío de FBA capturado manda sobre la mediana) y la
   tabla ya no enseña el 8 / 24 % / ×1.11 de TikTok. «Llevar precios» deja
   aplicar solo a MELI o solo a Amazon (`canal`) y la última corrida de Buen
-  Fin ya no sale sola arriba («Ver último Buen Fin»). **Y EN VIVO** (mismo día: «todo según lo real», «tiene que tomar
+  Fin ya no sale sola arriba («Ver último Buen Fin»). **«Descargar Excel»** (`GET /api/finanzas/numeros/excel`; dueño, 11-nov-2026): un renglón por modelo con todos los precios de MELI, Amazon y TikTok, lo recibido, la ganancia y las tasas con su fuente (la misma cuenta que la tabla, sin la lectura en vivo). **Y la oferta de TODOS LOS DÍAS se confirma sola a las 8:00 de México** (`/api/cron/todos-los-dias`, 14:00Z; mismo motor que Buen Fin con `clases: ["todos_los_dias"]`, al PV normal a .99; bitácora `sync_log` tarea `todos-los-dias-auto`; dueño, mismo día). Solo entra lo que MELI propone en la campaña: una publicación activada después de su fecha límite no aparece. **Y EN VIVO** (mismo día: «todo según lo real», «tiene que tomar
   la info en tiempo real de MELI y de Amazon», «considerar la diferencia de
   envío abajo y arriba de $299 en los dos», «si juego con el precio que se
   recalcule»; `servicios/numeros-vivo.ts`, `POST /api/finanzas/numeros/vivo`,

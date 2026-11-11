@@ -32,7 +32,15 @@ export default async function Numeros() {
 
   return (
     <Pagina>
-      <Encabezado ceja="Negocio" titulo="Números" frescura={tarifas?.generadoEn ?? costeoEn} refrescando={tarifas?.refrescando} acciones={<LeerSheets leidoEn={(await ultimaLecturaSheets(supabase as DB, cuenta.id))?.leidoEn ?? null} />} />
+      <Encabezado ceja="Negocio" titulo="Números" frescura={tarifas?.generadoEn ?? costeoEn} refrescando={tarifas?.refrescando} acciones={
+          <div className="flex items-center gap-2">
+            <a href="/api/finanzas/numeros/excel" className="boton-secundario">
+              Descargar Excel
+            </a>
+            <LeerSheets leidoEn={(await ultimaLecturaSheets(supabase as DB, cuenta.id))?.leidoEn ?? null} />
+          </div>
+        }
+      />
       {!tarifas ? <Aviso tono="alerta">No se pudieron leer las tarifas reales: todo se calcula con tus estimaciones.</Aviso> : null}
       {tarifas?.datos.avisos.map((a, i) => (
         <Aviso key={i} tono="alerta">Tarifas reales de {a}</Aviso>
