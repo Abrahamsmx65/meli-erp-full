@@ -390,6 +390,7 @@ async function inscribirRelampago(
 export const TAREA_RELAMPAGOS = "relampagos-auto";
 export const TAREA_BUEN_FIN = "buen-fin-auto";
 export const TAREA_BUEN_FIN_ACEPTAR = "buen-fin-aceptar";
+export const TAREA_TODOS_LOS_DIAS = "todos-los-dias-auto";
 
 /**
  * Lo que el dueño ya aceptó a mano al máximo de MELI (bitácora
@@ -647,7 +648,7 @@ export async function confirmarBuenFinPendientes(
   accountId: string,
   origen: "cron" | "manual" = "cron",
   previa?: RevisionDeNumeros,
-  opciones: { bitacora?: Bitacora; clases?: ClasePromo[] } = {},
+  opciones: { bitacora?: Bitacora; clases?: ClasePromo[]; tarea?: string } = {},
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
   const { modelos, revision } = previa ?? (await revisarTodoNumeros(admin, cliente, accountId));
   const bitacora = opciones.bitacora ?? bitacoraCalzado(admin, accountId);
@@ -763,8 +764,9 @@ export async function confirmarBuenFinPendientes(
     }
   });
 
-  await bitacora.anotar(TAREA_BUEN_FIN, fallidas.length ? "error" : "ok", {
+  await bitacora.anotar(opciones.tarea ?? TAREA_BUEN_FIN, fallidas.length ? "error" : "ok", {
     origen,
+    clases,
     modelos: modelos.length,
     buenFin: buenFin.length,
     inscritas,
