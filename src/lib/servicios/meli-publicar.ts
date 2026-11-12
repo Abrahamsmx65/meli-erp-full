@@ -301,11 +301,17 @@ function aGuardada(f: Record<string, unknown>): PublicacionGuardada {
 
 const COLUMNAS = "id, modelo, titulo, categoria_id, precio, estado, error, variantes, creado_en, actualizado_en";
 
-export async function listarPublicaciones(db: DB, accountId: string, limite = 15): Promise<PublicacionGuardada[]> {
+export async function listarPublicaciones(
+  db: DB,
+  accountId: string,
+  limite = 15,
+  canal: "meli" | "amazon" = "meli",
+): Promise<PublicacionGuardada[]> {
   const { data, error } = await db
     .from("meli_publicaciones")
     .select(COLUMNAS)
     .eq("account_id", accountId)
+    .eq("canal", canal)
     .order("creado_en", { ascending: false })
     .limit(limite);
   if (error) throw new Error(`meli_publicaciones: ${error.message}`);
