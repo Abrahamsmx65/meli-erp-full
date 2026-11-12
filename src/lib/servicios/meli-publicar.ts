@@ -23,10 +23,12 @@ import {
   type GuiaMeli,
   type ItemMeli,
   type PedidoPublicacion,
+  type TipoCalzado,
   type VarianteGuardada,
 } from "@/lib/meli/publicar";
 import { conCandado, porTandas, traerTodo } from "@/lib/datos/repos";
 import { conCacheApp, invalidarApp } from "@/lib/servicios/cache-app";
+import { BOCETOS_PNG } from "@/lib/meli/bocetos-datos";
 import { procesarItem } from "@/lib/servicios/webhooks";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,6 +121,19 @@ async function tiendaOficial(cliente: MeliClient, vendedor: number | null): Prom
   }
 }
 
+/**
+ * El id en MELI del boceto de ese tipo de calzado. Se sube una vez y se
+ * recuerda menos de un día: una foto subida que no se pega a ninguna
+ * publicación MELI la puede tirar.
+ */
+async function bocetoEnMeli(admin: DB, accountId: string, cliente: MeliClient, tipo: TipoCalzado): Promise<string> {
+  return conCacheApp<string>(admin, accountId, `meli:publicar:boceto:${tipo}`, 20 * 3_600_000, async () => {
+    const bytes = Buffer.from(BOCETOS_PNG[tipo], "base64");
+    const subida = await cliente.subirImagen(new Blob([new Uint8Array(bytes)], { type: "image/png" }), `boceto-${tipo}.png`);
+    return subida.id;
+  });
+}
+
 /** Lee EN VIVO una publicación del modelo y arma la ficha que se copia. */
 export async function leerFicha(admin: DB, accountId: string, cliente: MeliClient, modelo: string): Promise<FichaPlantilla> {
   const m = normalizarModelo(modelo);
@@ -149,12 +164,18 @@ export async function leerFicha(admin: DB, accountId: string, cliente: MeliClien
       .catch(() => ""),
   ]);
 
-  return fichaDeItem(m, item, Array.isArray(atributos) ? atributos : [], guia, {
+  const ficha = fichaDeItem(m, item, Array.isArray(atributos) ? atributos : [], guia, {
     categoriaNombre: categoria?.name ?? categoriaId,
     descripcion,
     maxTitulo: categoria?.settings?.max_title_length ?? 60,
     tienda,
   });
+  try {
+    ficha.fotos = [{ id: await bocetoEnMeli(admin, accountId, cliente, ficha.boceto), url: `/bocetos/${ficha.boceto}.png` }];
+  } catch {
+    // Sin boceto la pantalla pide fotos propias: no se publica sin foto.
+  }
+  return ficha;
 }
 
 // ---------------------------------------------------------------------------

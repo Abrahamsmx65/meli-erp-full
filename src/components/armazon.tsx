@@ -32,7 +32,7 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
   }, [ruta]);
 
   const publica =
-    ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
+    ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/publicar/") || ruta.startsWith("/login");
 
   // El login se dibuja a pantalla completa, sin marco.
   if (ruta.startsWith("/login")) return <>{children}</>;

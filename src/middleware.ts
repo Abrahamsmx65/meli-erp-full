@@ -100,6 +100,10 @@ export async function middleware(request: NextRequest) {
     // puerta es el token de la URL (acceso-preparar.ts), no la sesión.
     ruta.startsWith("/preparar/") ||
     ruta.startsWith("/api/preparar-publico/") ||
+    // El link para publicar productos nuevos en MELI sin entrar al ERP
+    // (dueño, 12-nov-2026): la puerta es el token (acceso-publicar.ts).
+    ruta.startsWith("/publicar/") ||
+    ruta.startsWith("/api/publicar-publico/") ||
     ruta.startsWith("/api/contenido-publico/") ||
     ruta.startsWith("/auth");
 

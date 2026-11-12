@@ -77,9 +77,12 @@ const colorVacio = (): ColorForma => ({
 export function PublicarMeli({
   categorias,
   publicacionesIniciales,
+  api = "/api/meli/publicar",
 }: {
   categorias: CategoriaConModelos[];
   publicacionesIniciales: PublicacionGuardada[];
+  /** Base de las rutas: la de sesión o la del link con token. */
+  api?: string;
 }) {
   const [categoriaId, setCategoriaId] = useState(categorias[0]?.id ?? "");
   const categoria = categorias.find((c) => c.id === categoriaId);
@@ -109,7 +112,7 @@ export function PublicarMeli({
     pedida.current = plantilla;
     setCargandoFicha(true);
     setErrorFicha(null);
-    fetch(`/api/meli/publicar?ficha=${encodeURIComponent(plantilla)}`)
+    fetch(`${api}?ficha=${encodeURIComponent(plantilla)}`)
       .then(async (r) => {
         const j = await r.json();
         if (pedida.current !== plantilla) return;
@@ -168,7 +171,7 @@ export function PublicarMeli({
       try {
         const forma = new FormData();
         forma.append("file", await reducirFoto(archivo), archivo.name.replace(/\.\w+$/, "") + ".jpg");
-        const r = await fetch("/api/meli/publicar/foto", { method: "POST", body: forma });
+        const r = await fetch(`${api}/foto`, { method: "POST", body: forma });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? "No se pudo subir.");
         const foto: Foto = { id: j.id, url: j.url ?? URL.createObjectURL(archivo) };
@@ -190,7 +193,7 @@ export function PublicarMeli({
     setFicha((f) => (f ? { ...f, atributos: f.atributos.map((a) => (a.id === id ? { ...a, ...cambio } : a)) } : f));
 
   const refrescar = useCallback(async () => {
-    const r = await fetch("/api/meli/publicar").catch(() => null);
+    const r = await fetch(api).catch(() => null);
     if (!r?.ok) return;
     const j = await r.json();
     if (Array.isArray(j.publicaciones)) setPublicaciones(j.publicaciones);
@@ -208,7 +211,7 @@ export function PublicarMeli({
     setOcupado(accion);
     setMensaje(null);
     try {
-      const r = await fetch("/api/meli/publicar", {
+      const r = await fetch(api, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accion, ...pedido }),
@@ -238,7 +241,7 @@ export function PublicarMeli({
 
   const retomar = async (id: string, accion: "continuar" | "reintentar") => {
     setPublicaciones((ps) => ps.map((p) => (p.id === id ? { ...p, estado: "publicando", error: null } : p)));
-    await fetch("/api/meli/publicar", {
+    await fetch(api, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accion, id }),
@@ -321,7 +324,7 @@ export function PublicarMeli({
         titulo="Colores"
         descripcion={
           ficha?.fotos.length
-            ? `De mientras llevan las ${ficha.fotos.length} fotos de ${ficha.modelo}; las propias se cambian después en MELI o se suben aquí.`
+            ? `De mientras llevan un boceto de ${ficha.boceto}, para que se note que no tienen fotos; las propias se cambian después en MELI o se suben aquí.`
             : undefined
         }
         acciones={
@@ -396,7 +399,7 @@ export function PublicarMeli({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img key={f.id} src={f.url} alt="" className="h-12 w-12 rounded-md border object-cover" />
                   ))}
-                  <span className="texto-tenue text-xs">fotos de {ficha.modelo}, de mientras</span>
+                  <span className="texto-tenue text-xs">boceto, de mientras</span>
                 </div>
               ) : null}
               {c.error ? <p className="mt-2 text-xs text-red-700">{c.error}</p> : null}

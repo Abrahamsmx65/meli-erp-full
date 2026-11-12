@@ -32,7 +32,7 @@ export function EstadoConexion({ oculto = false }: { oculto?: boolean } = {}) {
   // ahí solo daría 401 cada 30 segundos, y esa barra habla de Mercado Libre,
   // que no es asunto de quien entra a trabajar el contenido.
   const publica =
-    ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
+    ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/publicar/") || ruta.startsWith("/login");
 
   // Solo las pantallas que enseñan el plan se recargan cuando sale uno nuevo;
   // las demás (ventas, TikTok, cortes) no lo usan y recargarlas era rehacer
