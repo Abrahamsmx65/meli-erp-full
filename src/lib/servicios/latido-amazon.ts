@@ -153,12 +153,6 @@ export async function refrescarPantallasAmazon(admin: DB, meliAccountId: string 
   const hechas: object[] = [];
   for (const cuenta of cuentas) {
     if (Date.now() > limite - 10_000) break;
-    // Sonda de solo lectura, una vez: cómo está armada una publicación real
-    // (para crear productos nuevos desde el ERP). Se quita al terminar eso.
-    await paso(admin, cuenta.accountId, "sonda-publicacion", 60 * 24 * 3_600_000, async () => {
-      const { sondaPublicacionAmazon } = await import("./amazon-sonda-publicacion");
-      return sondaPublicacionAmazon(admin, new Cliente(cuenta, limite));
-    }).catch(() => undefined);
     await paso(admin, cuenta.accountId, "cron_pantallas", 9 * 60_000, async () => {
       const r = await precalcularPantallasAmazon(admin, cuenta.accountId, meliAccountId, limite);
       hechas.push(r);

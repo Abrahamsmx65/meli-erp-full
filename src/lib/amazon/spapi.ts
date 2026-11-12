@@ -30,6 +30,7 @@ const CUOTAS: Record<string, [number, number]> = {
   searchListingsItems: [5, 5],
   getListingsItem: [5, 10],
   patchListingsItem: [5, 5],
+  putListingsItem: [5, 10],
   // Product Fees: 1 por segundo, ráfaga de 2 (Números en vivo).
   getMyFeesEstimateForSKU: [1, 2],
   // Finances API: 0.5 por segundo, ráfaga de 30 (cuota publicada).
@@ -167,7 +168,7 @@ export class Cliente {
   }
 
   async llamar<T = any>(
-    metodo: "GET" | "POST" | "PATCH",
+    metodo: "GET" | "POST" | "PATCH" | "PUT",
     ruta: string,
     operacion: string,
     opciones: { params?: Record<string, string | number | undefined>; cuerpo?: unknown } = {},

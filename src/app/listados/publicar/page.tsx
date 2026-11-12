@@ -3,6 +3,9 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { listarPublicaciones, opcionesDeFicha, type CategoriaConModelos } from "@/lib/servicios/meli-publicar";
 import { PublicarMeli } from "@/components/publicar-meli";
+import { PublicarAmazon } from "@/components/publicar-amazon";
+import { Pestanas } from "@/components/ui/pestanas";
+import { datosDePantallaAmazon } from "@/lib/servicios/amazon-publicar";
 import { EnlacePublicar } from "@/components/enlace-publicar";
 import { tokenDePublicar } from "@/lib/servicios/acceso-publicar";
 import { rolDeSesion } from "@/lib/acceso/roles";
@@ -36,16 +39,40 @@ export default async function PaginaPublicarMeli() {
     error = (err as Error).message;
   }
   const publicaciones = await listarPublicaciones(supabase, cuenta.id).catch(() => []);
+  const amazon = await datosDePantallaAmazon(admin, cuenta.id);
 
   return (
     <Pagina>
       <Encabezado
         ceja="Mercado Libre"
         titulo="Publicar productos"
-        descripcion="Un producto nuevo de calzado: una publicación por color y talla, con la ficha copiada de un modelo de la misma categoría."
+        descripcion="Un producto nuevo de calzado en Mercado Libre o en Amazon, con la ficha copiada de un modelo parecido."
       />
-      {error ? <Aviso tono="critico">{error}</Aviso> : null}
-      <PublicarMeli categorias={categorias} publicacionesIniciales={publicaciones} />
+      <Pestanas
+        parametro="canal"
+        pestanas={[
+          {
+            id: "meli",
+            titulo: "Mercado Libre",
+            contenido: (
+              <div className="flex flex-col gap-4">
+                {error ? <Aviso tono="critico">{error}</Aviso> : null}
+                <PublicarMeli categorias={categorias} publicacionesIniciales={publicaciones} />
+              </div>
+            ),
+          },
+          {
+            id: "amazon",
+            titulo: "Amazon",
+            contenido: (
+              <div className="flex flex-col gap-4">
+                {amazon.error ? <Aviso tono="critico">{amazon.error}</Aviso> : null}
+                <PublicarAmazon modelos={amazon.modelos} publicacionesIniciales={amazon.publicaciones} />
+              </div>
+            ),
+          },
+        ]}
+      />
       {esDueno ? <EnlacePublicar tokenInicial={token} /> : null}
     </Pagina>
   );
