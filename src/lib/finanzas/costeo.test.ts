@@ -39,7 +39,7 @@ describe("leerExcelCosteo", () => {
   it("separa contenedores con su año, ISO y flete total", () => {
     expect(det.map((d) => [d.id, d.anio, d.iso, d.fleteUsd])).toEqual([
       ["S252", 2026, "MRSU6229114", 5030],
-      ["S270", 2026, "TIIU9082344", null],
+      ["S270", 2026, "TIIU9082344", 7430], // sin renglón «US$…»: la suma del flete de sus grupos
     ]);
   });
 

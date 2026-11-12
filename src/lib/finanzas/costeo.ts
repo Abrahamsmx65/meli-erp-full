@@ -86,7 +86,11 @@ export interface DetalleContenedor {
   lineas: LineaCosteo[];
 }
 
-type EnArmado = DetalleContenedor & { grupos: { cbm: number | null; lineas: LineaCosteo[] }[] };
+type EnArmado = DetalleContenedor & {
+  grupos: { cbm: number | null; lineas: LineaCosteo[] }[];
+  /** suma del flete (columna G) de sus grupos: el total cuando no hay renglón «US$…» */
+  fleteGrupos: number | null;
+};
 
 /**
  * Lee el Excel de costeo de la fábrica. Cada contenedor es un bloque:
@@ -117,7 +121,9 @@ export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
       const pares = g.lineas.reduce((s, l) => s + l.pares, 0);
       for (const l of g.lineas) l.cbm = g.cbm != null && pares > 0 ? (g.cbm * l.pares) / pares : null;
     }
-    const { grupos: _g, ...resto } = actual;
+    // S277 (nov-2026) trae un solo grupo con su flete y sin renglón «US$…».
+    if (actual.fleteUsd == null && actual.fleteGrupos != null) actual.fleteUsd = actual.fleteGrupos;
+    const { grupos: _g, fleteGrupos: _f, ...resto } = actual;
     if (resto.lineas.length) salida.push(resto);
     actual = null;
   };
@@ -128,7 +134,7 @@ export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
     const id = idContenedor(c(0));
     if (id) {
       cerrar();
-      actual = { ...id, iso: null, fuente: "excel", fleteUsd: null, lineas: [], grupos: [] };
+      actual = { ...id, iso: null, fuente: "excel", fleteUsd: null, lineas: [], grupos: [], fleteGrupos: null };
       grupo = null;
       ultimoModelo = null;
       pedido = null;
@@ -145,6 +151,7 @@ export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
     if (norm(c(8)) === "CBM" && numeroCelda(c(6)) != null) {
       grupo = { cbm: numeroCelda(c(7)), lineas: [] };
       det.grupos.push(grupo);
+      det.fleteGrupos = (det.fleteGrupos ?? 0) + numeroCelda(c(6))!;
       ultimoModelo = null;
     }
 
