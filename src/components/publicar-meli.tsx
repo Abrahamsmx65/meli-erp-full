@@ -316,7 +316,12 @@ export function PublicarMeli({
       </Seccion>
 
       <Seccion
-        titulo="Colores y fotos"
+        titulo="Colores"
+        descripcion={
+          ficha?.fotos.length
+            ? `De mientras llevan las ${ficha.fotos.length} fotos de ${ficha.modelo}; las propias se cambian después en MELI o se suben aquí.`
+            : undefined
+        }
         acciones={
           <button type="button" className="boton boton-chico" onClick={() => setColores((cs) => [...cs, colorVacio()])}>
             + Color
@@ -341,7 +346,7 @@ export function PublicarMeli({
                   />
                 </label>
                 <label className="boton boton-chico cursor-pointer">
-                  {c.subiendo ? `Subiendo ${c.subiendo}…` : "Subir fotos"}
+                  {c.subiendo ? `Subiendo ${c.subiendo}…` : "Fotos propias (opcional)"}
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -382,6 +387,14 @@ export function PublicarMeli({
                       </button>
                     </div>
                   ))}
+                </div>
+              ) : ficha?.fotos.length ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 opacity-70">
+                  {ficha.fotos.slice(0, 6).map((f) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={f.id} src={f.url} alt="" className="h-12 w-12 rounded-md border object-cover" />
+                  ))}
+                  <span className="texto-tenue text-xs">fotos de {ficha.modelo}, de mientras</span>
                 </div>
               ) : null}
               {c.error ? <p className="mt-2 text-xs text-red-700">{c.error}</p> : null}
@@ -433,8 +446,8 @@ export function PublicarMeli({
       </Seccion>
 
       {ficha ? (
-        <Seccion titulo="Ficha y descripción">
-          <details>
+        <Seccion titulo="Ficha y descripción" descripcion="Ya viene llena con lo de la publicación copiada: revisa y corrige lo que cambie.">
+          <details open>
             <summary className="cursor-pointer text-sm font-semibold">
               Ficha copiada de {ficha.modelo}: {ficha.atributos.length} atributos
               {ficha.atributos.some((a) => a.requerido && !a.valor.trim()) ? <span className="ml-2 text-red-700">· falta llenar</span> : null}
@@ -519,7 +532,7 @@ export function PublicarMeli({
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={pausar} onChange={(e) => setPausar(e.target.checked)} />
-            Dejarlas pausadas
+            Crearlas pausadas
           </label>
           <button type="button" className="boton" disabled={!pedido || !!faltantes.length || !!ocupado || subiendo} onClick={() => mandar("validar")}>
             {ocupado === "validar" ? "Validando…" : "Validar con MELI"}

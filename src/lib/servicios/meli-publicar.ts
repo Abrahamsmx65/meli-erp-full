@@ -184,6 +184,10 @@ export function leerPedido(b: Record<string, unknown>): PedidoPublicacion {
       atributos,
       saleTerms,
       maxTitulo: Number(f.maxTitulo) > 0 ? Number(f.maxTitulo) : 60,
+      fotos: (Array.isArray(f.fotos) ? f.fotos : [])
+        .map((x: Record<string, unknown>) => ({ id: texto(x?.id, 80), url: "" }))
+        .filter((x: { id: string }) => /^[\w-]{5,80}$/.test(x.id))
+        .slice(0, 10),
     },
   };
 }

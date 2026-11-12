@@ -38,6 +38,7 @@ const ITEM: ItemMeli = {
     { id: "SIZE_GRID_ROW_ID", name: "Fila", value_name: "260076:3" },
     { id: "WITH_VIRTUAL_TRY_ON", name: "Con probador virtual", value_id: "242085", value_name: "Sí" },
   ],
+  pictures: [{ id: "607377-MLM117375051211_092026", secure_url: "https://http2.mlstatic.com/D_607377-MLM117375051211_092026-O.jpg" }],
   sale_terms: [
     { id: "WARRANTY_TYPE", value_id: "2230280", value_name: "Garantía del vendedor" },
     { id: "WARRANTY_TIME", value_name: "30 días" },
@@ -129,6 +130,8 @@ describe("publicar en MELI", () => {
     const c = cuerpoDeVariante(p, variantesDePedido(p)[2]);
     expect(c.family_name).toBe("Botas Para Hombre Casuales Con Cierre Lateral");
     expect(c.title).toBeUndefined();
+    expect(c.status).toBe("paused");
+    expect(cuerpoDeVariante({ ...p, pausar: false }, variantesDePedido(p)[2]).status).toBeUndefined();
     expect(c.pictures).toEqual([{ id: "222-MLM" }, { id: "333-MLM" }]);
     expect(c.official_store_id).toBe(51289);
     const attrs = c.attributes as { id: string; value_id?: string; value_name?: string }[];
@@ -143,10 +146,19 @@ describe("publicar en MELI", () => {
     expect(attrs.filter((a) => a.id === "MODEL")).toHaveLength(1);
   });
 
+  it("sin fotos propias el color lleva las de la ficha copiada", () => {
+    const p = pedido({ colores: [{ codigo: "BLK", nombre: "Negro", fotos: [] }] });
+    expect(faltantesDePedido(p)).toEqual([]);
+    expect(cuerpoDeVariante(p, variantesDePedido(p)[0]).pictures).toEqual([{ id: "607377-MLM117375051211_092026" }]);
+  });
+
   it("dice lo que falta", () => {
     expect(faltantesDePedido(pedido())).toEqual([]);
+    const sinFotos = pedido();
+    sinFotos.ficha.fotos = [];
     const f = faltantesDePedido(
       pedido({
+        ficha: sinFotos.ficha,
         titulo: "x".repeat(70),
         tallas: ["25", "40"],
         colores: [{ codigo: "BLK-RED", nombre: "", fotos: [] }],

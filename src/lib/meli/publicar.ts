@@ -86,6 +86,12 @@ export interface FichaPlantilla {
   saleTerms: { id: string; value_name: string }[];
   descripcion: string;
   maxTitulo: number;
+  /**
+   * Fotos de la publicación copiada: van «de mientras» en los colores que
+   * no traen fotos propias (así se hicieron a mano GT305–GT311: con las
+   * fotos de otro modelo hasta tener las suyas). Dueño, 12-nov-2026.
+   */
+  fotos: { id: string; url: string }[];
 }
 
 export interface ColorPedido {
@@ -108,7 +114,7 @@ export interface PedidoPublicacion {
   tallas: string[];
   ficha: Pick<
     FichaPlantilla,
-    "categoriaId" | "listingTypeId" | "officialStoreId" | "gridId" | "filas" | "atributos" | "saleTerms" | "maxTitulo"
+    "categoriaId" | "listingTypeId" | "officialStoreId" | "gridId" | "filas" | "atributos" | "saleTerms" | "maxTitulo" | "fotos"
   >;
 }
 
@@ -283,6 +289,9 @@ export function fichaDeItem(
       .filter((s) => s.id && s.value_name),
     descripcion: extra.descripcion,
     maxTitulo: extra.maxTitulo,
+    fotos: (item.pictures ?? [])
+      .filter((f) => f.id)
+      .map((f) => ({ id: f.id as string, url: f.secure_url ?? "" })),
   };
 }
 
@@ -334,7 +343,7 @@ export function faltantesDePedido(p: PedidoPublicacion): string[] {
     codigos.add(codigo);
     if (codigo.includes("-")) f.push(`El color ${codigo} lleva guion: el SKU se parte por guiones, usa espacio.`);
     if (!limpio(c.nombre)) f.push(`Falta el nombre en español del color ${codigo}.`);
-    if (!c.fotos.length) f.push(`El color ${codigo || "?"} no tiene fotos.`);
+    if (!c.fotos.length && !p.ficha.fotos.length) f.push(`El color ${codigo || "?"} no tiene fotos y la ficha copiada tampoco.`);
   }
   if (!p.ficha.gridId) f.push("La ficha no trae guía de tallas: copia de otro modelo de la misma categoría.");
   else {
@@ -382,12 +391,15 @@ export function cuerpoDeVariante(p: PedidoPublicacion, v: VariantePorPublicar): 
     buying_mode: "buy_it_now",
     condition: "new",
     listing_type_id: p.ficha.listingTypeId || "gold_special",
-    pictures: (color?.fotos ?? []).map((id) => ({ id })),
+    // Sin fotos propias del color, las de la ficha copiada (de mientras).
+    pictures: (color?.fotos.length ? color.fotos : p.ficha.fotos.map((f) => f.id)).map((id) => ({ id })),
     sale_terms: p.ficha.saleTerms,
     shipping: { mode: "me2", free_shipping: true, local_pick_up: false },
     attributes: atributos,
   };
   if (p.ficha.officialStoreId) cuerpo.official_store_id = p.ficha.officialStoreId;
+  // Nace pausada si MELI lo respeta (el validador no lo objeta); si no, el servicio la pausa en seguida.
+  if (p.pausar) cuerpo.status = "paused";
   return cuerpo;
 }
 
