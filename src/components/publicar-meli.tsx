@@ -126,7 +126,6 @@ export function PublicarMeli({
   const cambiarCategoria = (id: string) => {
     setCategoriaId(id);
     setFicha(null);
-    setTallas([]);
     setPlantilla(categorias.find((c) => c.id === id)?.modelos[0] ?? "");
   };
 
@@ -186,14 +185,6 @@ export function PublicarMeli({
     setColores((cs) =>
       cs.map((c) => (c.llave === llave ? { ...c, fotos: [c.fotos[i], ...c.fotos.filter((_, k) => k !== i)] } : c)),
     );
-
-  const alternarTalla = (t: string) => setTallas((ts) => (ts.includes(t) ? ts.filter((x) => x !== t) : [...ts, t].sort((a, b) => Number(a) - Number(b))));
-
-  const aplicarTextoTallas = () => {
-    const pedidas = tallasDeTexto(textoTallas);
-    if (pedidas.length) setTallas([...new Set([...tallas, ...pedidas])].sort((a, b) => Number(a) - Number(b)));
-    setTextoTallas("");
-  };
 
   const cambiarAtributo = (id: string, cambio: Partial<AtributoFicha>) =>
     setFicha((f) => (f ? { ...f, atributos: f.atributos.map((a) => (a.id === id ? { ...a, ...cambio } : a)) } : f));
@@ -403,46 +394,30 @@ export function PublicarMeli({
         </div>
       </Seccion>
 
-      <Seccion titulo="Tallas" descripcion={ficha?.guiaNombre ? `De la guía de tallas «${ficha.guiaNombre}»` : undefined}>
+      <Seccion titulo="Tallas">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="texto-2">Escribe las tallas: un rango (23-28) o sueltas (23, 24, 25.5)</span>
+          <input
+            className={`${CAMPO} max-w-md`}
+            placeholder="23-28"
+            value={textoTallas}
+            onChange={(e) => {
+              setTextoTallas(e.target.value);
+              setTallas(tallasDeTexto(e.target.value).sort((a, b) => Number(a) - Number(b)));
+            }}
+          />
+        </label>
+        {tallas.length ? (
+          <p className="mt-2 text-sm">
+            <span className="cifra">{tallas.length}</span> tallas: <span className="num">{tallas.join(", ")}</span>
+          </p>
+        ) : null}
         {ficha?.filas.length ? (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {ficha.filas.map((f) => {
-                const puesta = tallas.includes(f.talla);
-                return (
-                  <button
-                    key={f.rowId}
-                    type="button"
-                    aria-pressed={puesta}
-                    onClick={() => alternarTalla(f.talla)}
-                    className={`num rounded-full border px-3 py-1 text-sm ${puesta ? "boton-primario" : ""}`}
-                  >
-                    {f.talla}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                className={`${CAMPO} w-48`}
-                placeholder="23-28"
-                value={textoTallas}
-                onChange={(e) => setTextoTallas(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && aplicarTextoTallas()}
-              />
-              <button type="button" className="boton boton-chico" onClick={aplicarTextoTallas}>
-                Agregar rango
-              </button>
-              {tallas.length ? (
-                <button type="button" className="boton boton-chico boton-fantasma" onClick={() => setTallas([])}>
-                  Limpiar
-                </button>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <p className="texto-tenue text-sm">{cargandoFicha ? "Leyendo la guía de tallas…" : "Elige de qué modelo se copia la ficha."}</p>
-        )}
+          <p className="texto-tenue mt-1 text-xs">
+            MELI acepta en esta categoría («{ficha.guiaNombre || "guía de tallas"}») de la {ficha.filas[0].talla} a la{" "}
+            {ficha.filas[ficha.filas.length - 1].talla}.
+          </p>
+        ) : null}
       </Seccion>
 
       {ficha ? (
