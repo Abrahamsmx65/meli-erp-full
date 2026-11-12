@@ -229,6 +229,40 @@ export class MeliClient {
     return this.conCuerpo<T>("PUT", ruta, cuerpo, opts);
   }
 
+  /**
+   * Sube una foto a MELI (`/pictures/items/upload`, multipart) y devuelve su
+   * id, que luego viaja en `pictures: [{ id }]` al publicar. Sin reintentos
+   * largos: la sube una persona desde la pantalla y prefiere el error ya.
+   */
+  async subirImagen(bytes: Blob, nombre: string): Promise<{ id: string; url: string | null }> {
+    await this.asegurarToken();
+    const ruta = "/pictures/items/upload";
+    for (let intento = 0; intento < 2; intento++) {
+      const forma = new FormData();
+      forma.append("file", bytes, nombre);
+      const res = await fetch(`${MELI_API}${ruta}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.cred.accessToken}`, Accept: "application/json" },
+        body: forma,
+        cache: "no-store",
+      });
+      if (res.status === 401 && intento === 0) {
+        await this.renovar();
+        continue;
+      }
+      const texto = await res.text();
+      const json = (texto ? safeJson(texto) : null) as {
+        id?: string;
+        variations?: { secure_url?: string; size?: string }[];
+      } | null;
+      if (!res.ok || !json?.id) {
+        throw new MeliError(`MELI ${res.status} en ${ruta}: ${texto.slice(0, 400)}`, res.status, json, ruta);
+      }
+      return { id: json.id, url: json.variations?.[0]?.secure_url ?? null };
+    }
+    throw new MeliError(`Falló ${ruta}`, 0, null, ruta);
+  }
+
   private async conCuerpo<T = unknown>(
     metodo: "POST" | "PUT",
     ruta: string,
