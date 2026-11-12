@@ -68,8 +68,9 @@ export function PublicarAmazon({
   const [mensaje, setMensaje] = useState<{ tono: "bien" | "critico"; texto: string } | null>(null);
   const [publicaciones, setPublicaciones] = useState(publicacionesIniciales);
 
-  // La ficha del modelo elegido, leída en vivo de Amazon. Los textos se
-  // rellenan con los suyos: son el punto de partida para corregir.
+  // La ficha del modelo elegido, leída en vivo de Amazon. La descripción y
+  // las palabras se rellenan con las suyas; el título y las viñetas NO
+  // (dueño, 12-nov-2026: «las viñetas no las prerrellenes»): describen otro zapato.
   const pedida = useRef("");
   useEffect(() => {
     if (!plantilla) return;
@@ -84,7 +85,6 @@ export function PublicarAmazon({
         const f = j.ficha as FichaAmazon;
         setFicha(f);
         setSimples(f.simples);
-        setVinetas(f.vinetas.join("\n"));
         setDescripcion(f.descripcion === "." ? "" : f.descripcion);
         setPalabras(f.palabras);
         setPrecio((p) => p || (f.precio != null ? String(f.precio) : ""));
@@ -259,7 +259,7 @@ export function PublicarAmazon({
       {ficha ? (
         <Seccion titulo="Ficha" descripcion={`Ya viene llena con lo de ${ficha.modelo}: revisa y corrige lo que cambie.`}>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="texto-2">Viñetas (una por renglón, hasta 5)</span>
+            <span className="texto-2">Viñetas (una por renglón, hasta 5; Amazon exige al menos una)</span>
             <textarea className={`${CAMPO} min-h-40`} value={vinetas} onChange={(e) => setVinetas(e.target.value)} />
           </label>
           <label className="mt-3 flex flex-col gap-1 text-sm">
