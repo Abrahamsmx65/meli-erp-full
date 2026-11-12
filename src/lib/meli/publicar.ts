@@ -349,7 +349,7 @@ export function faltantesDePedido(p: PedidoPublicacion): string[] {
   else {
     const filas = new Set(p.ficha.filas.map((x) => x.talla));
     const fuera = [...new Set(p.tallas.map(normalizarTalla))].filter((t) => t && !filas.has(t));
-    if (fuera.length) f.push(`La guía de tallas no tiene: ${fuera.join(", ")}.`);
+    if (fuera.length) f.push(`MELI no tiene en la guía de tallas de esta ficha: ${fuera.join(", ")}. Copia la ficha de un modelo que sí las lleve (hombre o mujer).`);
   }
   for (const a of p.ficha.atributos) {
     if (a.requerido && !limpio(a.valor)) f.push(`Falta «${a.nombre}» (MELI lo exige en esta categoría).`);

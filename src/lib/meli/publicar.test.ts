@@ -165,7 +165,7 @@ describe("publicar en MELI", () => {
       }),
     );
     expect(f.join(" ")).toMatch(/pasa de 60/);
-    expect(f.join(" ")).toMatch(/no tiene: 40/);
+    expect(f.join(" ")).toMatch(/de esta ficha: 40/);
     expect(f.join(" ")).toMatch(/guion/);
     expect(f.join(" ")).toMatch(/no tiene fotos/);
     expect(f.join(" ")).toMatch(/nombre en español/);
