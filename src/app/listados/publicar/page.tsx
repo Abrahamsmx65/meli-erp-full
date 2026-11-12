@@ -3,6 +3,9 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { listarPublicaciones, opcionesDeFicha, type CategoriaConModelos } from "@/lib/servicios/meli-publicar";
 import { PublicarMeli } from "@/components/publicar-meli";
+import { EnlacePublicar } from "@/components/enlace-publicar";
+import { tokenDePublicar } from "@/lib/servicios/acceso-publicar";
+import { rolDeSesion } from "@/lib/acceso/roles";
 import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +17,13 @@ export const dynamic = "force-dynamic";
  */
 export default async function PaginaPublicarMeli() {
   const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Publicar productos" />;
+  const esDueno = rolDeSesion(user) === "dueño";
+  const token = esDueno ? await tokenDePublicar(cuenta.id).catch(() => null) : null;
 
   const admin = clienteAdmin();
   const cliente = await clienteDeCuenta(admin, cuenta.id);
@@ -38,6 +46,7 @@ export default async function PaginaPublicarMeli() {
       />
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
       <PublicarMeli categorias={categorias} publicacionesIniciales={publicaciones} />
+      {esDueno ? <EnlacePublicar tokenInicial={token} /> : null}
     </Pagina>
   );
 }

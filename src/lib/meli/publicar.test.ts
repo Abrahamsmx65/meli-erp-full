@@ -8,6 +8,7 @@ import {
   skuDeVariante,
   soloAdvertencias,
   tallasDeTexto,
+  tipoDeCalzado,
   variantesDePedido,
   type GuiaMeli,
   type ItemMeli,
@@ -146,10 +147,35 @@ describe("publicar en MELI", () => {
     expect(attrs.filter((a) => a.id === "MODEL")).toHaveLength(1);
   });
 
-  it("sin fotos propias el color lleva las de la ficha copiada", () => {
+  it("elige el boceto por la categoría y, si no lo dice, por el título", () => {
+    expect(tipoDeCalzado("Botas y Botines")).toBe("bota");
+    expect(tipoDeCalzado("Sandalias y Chanclas")).toBe("sandalia");
+    expect(tipoDeCalzado("Calzado", "Pantufla Zuecos Hombre Afelpado")).toBe("pantufla");
+    expect(tipoDeCalzado("Calzado", "Botas Largas Para Mujer Tacón Aguja")).toBe("bota");
+    expect(tipoDeCalzado("Zapatillas", "")).toBe("tacon");
+    expect(tipoDeCalzado("Tenis", "Tenis Para Agua")).toBe("tenis");
+    expect(tipoDeCalzado("Flats", "Flats Para Mujer Tejido")).toBe("zapato");
+    expect(ficha().boceto).toBe("bota");
+    expect(ficha().fotos).toEqual([]);
+  });
+
+  it("sin fotos propias el color lleva el boceto", () => {
     const p = pedido({ colores: [{ codigo: "BLK", nombre: "Negro", fotos: [] }] });
+    p.ficha.fotos = [{ id: "607377-MLM117375051211_092026", url: "/bocetos/bota.png" }];
     expect(faltantesDePedido(p)).toEqual([]);
     expect(cuerpoDeVariante(p, variantesDePedido(p)[0]).pictures).toEqual([{ id: "607377-MLM117375051211_092026" }]);
+  });
+
+  it("la tienda oficial de la cuenta manda sobre la de la publicación copiada", () => {
+    const sinTienda = fichaDeItem("GT100", { ...ITEM, official_store_id: null }, CATEGORIA, GUIA, {
+      categoriaNombre: "Botas",
+      descripcion: "",
+      maxTitulo: 60,
+      tienda: { id: 51289, nombre: "Getac" },
+    });
+    expect(sinTienda.officialStoreId).toBe(51289);
+    expect(sinTienda.tiendaNombre).toBe("Getac");
+    expect(ficha().officialStoreId).toBe(51289);
   });
 
   it("dice lo que falta", () => {

@@ -39,6 +39,7 @@ export interface ItemMeli {
   price?: number;
   listing_type_id?: string;
   official_store_id?: number | null;
+  seller_id?: number | null;
   attributes?: AtributoMeli[];
   sale_terms?: AtributoMeli[];
   pictures?: { id?: string; secure_url?: string }[];
@@ -79,6 +80,8 @@ export interface FichaPlantilla {
   precio: number | null;
   listingTypeId: string;
   officialStoreId: number | null;
+  /** Nombre de la tienda oficial («Getac»); vacío si la cuenta no tiene. */
+  tiendaNombre: string;
   gridId: string | null;
   guiaNombre: string;
   filas: FilaGuia[];
@@ -87,11 +90,14 @@ export interface FichaPlantilla {
   descripcion: string;
   maxTitulo: number;
   /**
-   * Fotos de la publicación copiada: van «de mientras» en los colores que
-   * no traen fotos propias (así se hicieron a mano GT305–GT311: con las
-   * fotos de otro modelo hasta tener las suyas). Dueño, 12-nov-2026.
+   * La foto «de mientras» de los colores sin fotos propias: un BOCETO del
+   * tipo de calzado (bota, sandalia…), no las fotos de otro modelo (dueño,
+   * 12-nov-2026: «un sketch de una sola foto […] para que pueda saber que
+   * no tiene fotos y no me confunda con la nueva»). La pone el servicio.
    */
   fotos: { id: string; url: string }[];
+  /** Qué boceto le tocó. */
+  boceto: TipoCalzado;
 }
 
 export interface ColorPedido {
@@ -160,6 +166,28 @@ export const ATRIBUTOS_NO_COPIABLES = new Set([
   "MPN",
   "FOOT_WIDTH",
 ]);
+
+export type TipoCalzado = "bota" | "sandalia" | "tenis" | "pantufla" | "tacon" | "zapato";
+
+const TIPOS: [TipoCalzado, RegExp][] = [
+  ["pantufla", /pantufla/],
+  ["sandalia", /sandalia|chancla|huarache|flip ?flop/],
+  ["bota", /\bbota|\bbotin/],
+  ["tenis", /\btenis\b|sneaker/],
+  ["tacon", /tacon|zapatilla|stiletto/],
+];
+
+/**
+ * Qué boceto le toca: primero por la categoría de MELI («Botas y Botines»)
+ * y, si no lo dice, por el título. Lo que no se reconoce es «zapato».
+ */
+export function tipoDeCalzado(categoria: string, titulo = ""): TipoCalzado {
+  for (const texto of [categoria, titulo]) {
+    const t = String(texto ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    for (const [tipo, re] of TIPOS) if (re.test(t)) return tipo;
+  }
+  return "zapato";
+}
 
 const limpio = (s: unknown) => String(s ?? "").replace(/\s+/g, " ").trim();
 
@@ -231,7 +259,13 @@ export function fichaDeItem(
   item: ItemMeli,
   atributosCategoria: AtributoMeli[],
   guia: GuiaMeli | null,
-  extra: { categoriaNombre: string; descripcion: string; maxTitulo: number },
+  extra: {
+    categoriaNombre: string;
+    descripcion: string;
+    maxTitulo: number;
+    /** Tienda oficial de la CUENTA: manda sobre la de la publicación copiada (una vieja puede no traerla). */
+    tienda?: { id: number; nombre: string } | null;
+  },
 ): FichaPlantilla {
   const porId = new Map(atributosCategoria.filter((a) => a.id).map((a) => [a.id as string, a]));
   const noVa = (id: string) => {
@@ -279,7 +313,8 @@ export function fichaDeItem(
     titulo: limpio(item.family_name) || limpio(item.title),
     precio: typeof item.price === "number" ? item.price : null,
     listingTypeId: item.listing_type_id || "gold_special",
-    officialStoreId: item.official_store_id ?? null,
+    officialStoreId: extra.tienda?.id ?? item.official_store_id ?? null,
+    tiendaNombre: extra.tienda?.nombre ?? "",
     gridId: grid ? valorDe(grid).nombre || null : null,
     guiaNombre: limpio(guia?.names?.MLM) || "",
     filas: filasDeGuia(guia),
@@ -289,9 +324,8 @@ export function fichaDeItem(
       .filter((s) => s.id && s.value_name),
     descripcion: extra.descripcion,
     maxTitulo: extra.maxTitulo,
-    fotos: (item.pictures ?? [])
-      .filter((f) => f.id)
-      .map((f) => ({ id: f.id as string, url: f.secure_url ?? "" })),
+    fotos: [],
+    boceto: tipoDeCalzado(extra.categoriaNombre, limpio(item.family_name) || limpio(item.title)),
   };
 }
 
@@ -343,7 +377,7 @@ export function faltantesDePedido(p: PedidoPublicacion): string[] {
     codigos.add(codigo);
     if (codigo.includes("-")) f.push(`El color ${codigo} lleva guion: el SKU se parte por guiones, usa espacio.`);
     if (!limpio(c.nombre)) f.push(`Falta el nombre en español del color ${codigo}.`);
-    if (!c.fotos.length && !p.ficha.fotos.length) f.push(`El color ${codigo || "?"} no tiene fotos y la ficha copiada tampoco.`);
+    if (!c.fotos.length && !p.ficha.fotos.length) f.push(`El color ${codigo || "?"} no tiene fotos y no se pudo subir el boceto.`);
   }
   if (!p.ficha.gridId) f.push("La ficha no trae guía de tallas: copia de otro modelo de la misma categoría.");
   else {
@@ -391,7 +425,7 @@ export function cuerpoDeVariante(p: PedidoPublicacion, v: VariantePorPublicar): 
     buying_mode: "buy_it_now",
     condition: "new",
     listing_type_id: p.ficha.listingTypeId || "gold_special",
-    // Sin fotos propias del color, las de la ficha copiada (de mientras).
+    // Sin fotos propias del color, el boceto del tipo de calzado (de mientras).
     pictures: (color?.fotos.length ? color.fotos : p.ficha.fotos.map((f) => f.id)).map((id) => ({ id })),
     sale_terms: p.ficha.saleTerms,
     shipping: { mode: "me2", free_shipping: true, local_pick_up: false },
