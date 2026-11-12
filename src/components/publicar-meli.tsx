@@ -299,6 +299,17 @@ export function PublicarMeli({
             </span>
           </label>
         </div>
+        {ficha ? (
+          ficha.officialStoreId ? (
+            <p className="mt-3 text-sm">
+              Tienda oficial: <span className="font-semibold">{ficha.tiendaNombre || ficha.officialStoreId}</span>
+            </p>
+          ) : (
+            <Aviso tono="alerta" className="mt-3">
+              No se encontró la tienda oficial de la cuenta: las publicaciones saldrían sin ella.
+            </Aviso>
+          )
+        ) : null}
         {errorFicha ? (
           <Aviso tono="critico" className="mt-3">
             {errorFicha}

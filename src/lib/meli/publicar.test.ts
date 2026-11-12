@@ -152,6 +152,18 @@ describe("publicar en MELI", () => {
     expect(cuerpoDeVariante(p, variantesDePedido(p)[0]).pictures).toEqual([{ id: "607377-MLM117375051211_092026" }]);
   });
 
+  it("la tienda oficial de la cuenta manda sobre la de la publicación copiada", () => {
+    const sinTienda = fichaDeItem("GT100", { ...ITEM, official_store_id: null }, CATEGORIA, GUIA, {
+      categoriaNombre: "Botas",
+      descripcion: "",
+      maxTitulo: 60,
+      tienda: { id: 51289, nombre: "Getac" },
+    });
+    expect(sinTienda.officialStoreId).toBe(51289);
+    expect(sinTienda.tiendaNombre).toBe("Getac");
+    expect(ficha().officialStoreId).toBe(51289);
+  });
+
   it("dice lo que falta", () => {
     expect(faltantesDePedido(pedido())).toEqual([]);
     const sinFotos = pedido();

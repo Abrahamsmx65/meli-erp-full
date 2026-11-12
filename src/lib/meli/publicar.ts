@@ -39,6 +39,7 @@ export interface ItemMeli {
   price?: number;
   listing_type_id?: string;
   official_store_id?: number | null;
+  seller_id?: number | null;
   attributes?: AtributoMeli[];
   sale_terms?: AtributoMeli[];
   pictures?: { id?: string; secure_url?: string }[];
@@ -79,6 +80,8 @@ export interface FichaPlantilla {
   precio: number | null;
   listingTypeId: string;
   officialStoreId: number | null;
+  /** Nombre de la tienda oficial («Getac»); vacío si la cuenta no tiene. */
+  tiendaNombre: string;
   gridId: string | null;
   guiaNombre: string;
   filas: FilaGuia[];
@@ -231,7 +234,13 @@ export function fichaDeItem(
   item: ItemMeli,
   atributosCategoria: AtributoMeli[],
   guia: GuiaMeli | null,
-  extra: { categoriaNombre: string; descripcion: string; maxTitulo: number },
+  extra: {
+    categoriaNombre: string;
+    descripcion: string;
+    maxTitulo: number;
+    /** Tienda oficial de la CUENTA: manda sobre la de la publicación copiada (una vieja puede no traerla). */
+    tienda?: { id: number; nombre: string } | null;
+  },
 ): FichaPlantilla {
   const porId = new Map(atributosCategoria.filter((a) => a.id).map((a) => [a.id as string, a]));
   const noVa = (id: string) => {
@@ -279,7 +288,8 @@ export function fichaDeItem(
     titulo: limpio(item.family_name) || limpio(item.title),
     precio: typeof item.price === "number" ? item.price : null,
     listingTypeId: item.listing_type_id || "gold_special",
-    officialStoreId: item.official_store_id ?? null,
+    officialStoreId: extra.tienda?.id ?? item.official_store_id ?? null,
+    tiendaNombre: extra.tienda?.nombre ?? "",
     gridId: grid ? valorDe(grid).nombre || null : null,
     guiaNombre: limpio(guia?.names?.MLM) || "",
     filas: filasDeGuia(guia),

@@ -99,6 +99,26 @@ export async function opcionesDeFicha(admin: DB, accountId: string, cliente: Mel
   });
 }
 
+/**
+ * La tienda oficial de la cuenta (`/users/{id}/brands`). Toda publicación
+ * nueva va en ella aunque la copiada no la traiga (dueño, 12-nov-2026: «nos
+ * faltó la tienda oficial»). Sin tienda o si MELI no contesta, null.
+ */
+async function tiendaOficial(cliente: MeliClient, vendedor: number | null): Promise<{ id: number; nombre: string } | null> {
+  if (!vendedor) return null;
+  try {
+    const r = await cliente.get<{ brands?: { official_store_id?: number; fantasy_name?: string; name?: string }[] }>(
+      `/users/${vendedor}/brands`,
+      undefined,
+      { reintentos: 1 },
+    );
+    const b = (r?.brands ?? []).find((x) => x.official_store_id);
+    return b?.official_store_id ? { id: b.official_store_id, nombre: b.fantasy_name || b.name || String(b.official_store_id) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Lee EN VIVO una publicación del modelo y arma la ficha que se copia. */
 export async function leerFicha(admin: DB, accountId: string, cliente: MeliClient, modelo: string): Promise<FichaPlantilla> {
   const m = normalizarModelo(modelo);
@@ -118,7 +138,8 @@ export async function leerFicha(admin: DB, accountId: string, cliente: MeliClien
   const categoriaId = item.category_id ?? "";
   const gridId = (item.attributes ?? []).find((a) => a.id === "SIZE_GRID_ID")?.value_name ?? null;
 
-  const [atributos, categoria, guia, descripcion] = await Promise.all([
+  const [tienda, atributos, categoria, guia, descripcion] = await Promise.all([
+    tiendaOficial(cliente, item.seller_id ?? null),
     cliente.get<AtributoMeli[]>(`/categories/${categoriaId}/attributes`),
     cliente.get<{ name?: string; settings?: { max_title_length?: number } }>(`/categories/${categoriaId}`),
     gridId ? cliente.get<GuiaMeli>(`/catalog/charts/${gridId}`, undefined, { reintentos: 1 }).catch(() => null) : Promise.resolve(null),
@@ -132,6 +153,7 @@ export async function leerFicha(admin: DB, accountId: string, cliente: MeliClien
     categoriaNombre: categoria?.name ?? categoriaId,
     descripcion,
     maxTitulo: categoria?.settings?.max_title_length ?? 60,
+    tienda,
   });
 }
 
