@@ -947,7 +947,7 @@ async function procesarStock(
 }
 
 /** Una publicación cambió: precio, estado, o su SKU. */
-async function procesarItem(
+export async function procesarItem(
   db: DB,
   accountId: string,
   cliente: MeliClient,

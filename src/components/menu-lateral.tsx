@@ -127,6 +127,7 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
       { href: "/listados", texto: "Publicaciones", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
+      { href: "/listados/publicar", texto: "Publicar productos", icono: PackagePlus, ayuda: "Producto nuevo: título, colores, tallas y precio" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/ventas/ofertas", texto: "Ofertas MELI", icono: BadgePercent, ayuda: "Ofertas con aporte de MELI que cumplen el PV normal de Números" },
       { href: "/envios", texto: "Reabasto a Full", icono: Truck, ayuda: "Qué cajas mandar" },
