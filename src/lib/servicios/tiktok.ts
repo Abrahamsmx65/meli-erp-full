@@ -21,6 +21,7 @@ import { estanteDeSku, leerEstanteTikTok, sincronizarSaldoDesdeBodega, type Resu
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
 import { leerFuentesDeVenta, type ResultadoFuentes } from "./tiktok-fuentes";
+import { leerLives, type ResultadoLives } from "./tiktok-lives";
 import { leerEstadosDeCuenta } from "./tiktok-estados";
 import { agregarVentasDiarias, deDesglose } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
@@ -1668,6 +1669,8 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
 const MS_AFILIADOS = 130_000;
 /** Rato para la analítica de fuentes de venta: cuatro llamadas a lo más (reciente + 3 tramos). */
 const MS_FUENTES = 40_000;
+/** Rato para los LIVE propios: la lista por ventana y cuenta, los productos de cada live y sus pedidos. */
+const MS_LIVES = 45_000;
 
 export async function sincronizarPagosTikTok(
   admin: any,
@@ -1711,6 +1714,17 @@ export async function sincronizarPagosTikTok(
     });
     if (fuentes?.error) avisos.push(`Fuentes de venta: ${fuentes.error}`);
   }
+  // Mis LIVE: las sesiones propias con lo vendido en cada una y los pedidos
+  // de la tienda de su ventana; bitácora `lives` (dueño, 13-nov-2026).
+  let lives: ResultadoLives | null = null;
+  const clienteLives = await clienteDeCuenta(admin, accountId, Math.min(MS_LIVES, cliente.msRestantes() - 60_000));
+  if (clienteLives && clienteLives.msRestantes() > 20_000) {
+    lives = await leerLives(admin, accountId, clienteLives).catch((err) => {
+      avisos.push(`Mis LIVE: ${(err as Error).message}`);
+      return null;
+    });
+    if (lives?.error) avisos.push(`Mis LIVE: ${lives.error}`);
+  }
   // Los estados de cuenta: lo que TikTok cobra o abona FUERA de los pedidos
   // (ajustes); una lectura corta cada 3 h, antes de las liquidaciones que se
   // comen el tiempo que les den.
@@ -1735,6 +1749,7 @@ export async function sincronizarPagosTikTok(
       liquidados,
       afiliados: afiliados ? { guardados: afiliados.guardados, creadores: afiliados.creadores, fondo: afiliados.fondo, llegoAlPrimero: afiliados.llegoAlPrimero } : null,
       fuentes: fuentes ? { guardados: fuentes.guardados, version: fuentes.version, ventanas: fuentes.ventanas.length } : null,
+      lives: lives ? { guardados: lives.guardados, productos: lives.productosLeidos, pedidos: lives.pedidosArmados } : null,
       avisos,
     },
   });
