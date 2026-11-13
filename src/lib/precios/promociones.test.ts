@@ -78,16 +78,19 @@ it("lo que asigna el dueño manda sobre el nombre («Activa Tus Descuentos» es 
   expect(planDePromo("MLM1", { type: "LIGHTNING", status: "started", price: 1 }, obj, { "LIGHTNING|": "no_tocar" }).accion).toBe("no_se_toca");
 });
 
-it("pares del relámpago: lo del dueño, el mínimo de MELI o, sin mínimo, 5 y luego 1", () => {
+it("pares del relámpago: lo del dueño; si no, TODO el stock (el máximo de MELI o sin mandar pares)", () => {
   const r = planDePromo("MLM1", { id: "L1", type: "LIGHTNING", status: "candidate", stock: { min: 5, max: 40 } }, obj);
-  expect(stockParaRelampago(r, undefined)).toEqual({ intentos: [5] });
+  expect(stockParaRelampago(r, undefined)).toEqual({ intentos: [40, 5, 1] });
   expect(stockParaRelampago(r, 20)).toEqual({ intentos: [20] });
   expect(stockParaRelampago(r, 2)).toHaveProperty("error");
   expect(stockParaRelampago(r, 50)).toHaveProperty("error");
-  const sin = planDePromo("MLM1", { id: "L2", type: "LIGHTNING", status: "candidate" }, obj);
-  expect(stockParaRelampago(sin, undefined)).toEqual({ intentos: [5, 1] });
+  // La propuesta con fecha del asesor llega sin rango: se inscribe sin `stock`.
+  const sin = planDePromo("MLM1", { id: "L2", type: "LIGHTNING", status: "candidate", stock: {} }, obj);
+  expect(stockParaRelampago(sin, undefined)).toEqual({ intentos: [null, 5, 1] });
   const chico = planDePromo("MLM1", { id: "L3", type: "LIGHTNING", status: "candidate", stock: { max: 3 } }, obj);
   expect(stockParaRelampago(chico, undefined)).toEqual({ intentos: [3, 1] });
+  const soloMin = planDePromo("MLM1", { id: "L4", type: "LIGHTNING", status: "candidate", stock: { min: 5 } }, obj);
+  expect(stockParaRelampago(soloMin, undefined)).toEqual({ intentos: [5] });
 });
 
 describe("Amazon: precio y mínimo", () => {
