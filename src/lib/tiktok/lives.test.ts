@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpretarLives, interpretarProductosDeLive, pedidosDelLive, resumenLives } from "./lives";
+import { interpretarLives, interpretarProductosDeLive, isoDeTiempo, pedidosDelLive, resumenLives, ventaEnPesos } from "./lives";
 
 const m = (amount: number) => ({ amount: String(amount), currency: "MXN" });
 
@@ -49,10 +49,56 @@ describe("interpretarLives", () => {
     expect(l.ventas).toMatchObject({ gmv: 3500.7, gmvDirecto: 3000, gmvIndirecto: 500.7, pedidos: 12, piezas: 14, clientes: 11, productosVendidos: 4, productosAgregados: 9, tasaPago: 0.9, ticketPromedio: 291.72 });
     expect(l.trafico).toMatchObject({ espectadores: 820, vistas: 1300, pico: 45, promedioConcurrentes: 20, duracionPromedioVista: 95, clicsProducto: 210, ctr: 0.16, gpm: 2693, gmvPorHora: 1750 });
     expect(l.interaccion).toEqual({ likes: 500, comentarios: 60, compartidos: 7, seguidoresNuevos: 15 });
+    expect(l.ventas.moneda).toBe("MXN");
+  });
+  it("la hora como TEXTO es la de la tienda (México, UTC−6) y los montos guardan su moneda", () => {
+    // Así contestó TikTok MX en la primera lectura real (13-nov-2026): texto local y USD.
+    const crudo = {
+      data: {
+        live_stream_sessions: [
+          {
+            id: "7707443655468567314",
+            start_time: "2026-11-12 18:18:33",
+            end_time: "2026-11-12 20:57:58",
+            sales_performance: { live_attributed_gmv: { amount: "227.63", currency: "USD" }, live_gmv: { amount: "218.62", currency: "USD" }, live_attributed_orders: 7 },
+          },
+        ],
+      },
+    };
+    const l = interpretarLives(crudo, "OFFICIAL_ACCOUNTS").lives[0];
+    expect(l.inicio).toBe("2026-11-13T00:18:33.000Z");
+    expect(l.fin).toBe("2026-11-13T02:57:58.000Z");
+    expect(l.duracionMin).toBe(159);
+    expect(l.ventas).toMatchObject({ gmv: 227.63, gmvDirecto: 218.62, moneda: "USD", pedidos: 7 });
   });
   it("sin forma contesta vacío", () => {
     expect(interpretarLives(null, "OFFICIAL_ACCOUNTS").lives).toEqual([]);
     expect(interpretarLives({ data: {} }, "OFFICIAL_ACCOUNTS").siguiente).toBeUndefined();
+  });
+});
+
+describe("isoDeTiempo", () => {
+  it("segundos unix, ISO con zona y texto local de la tienda", () => {
+    expect(isoDeTiempo("1794481200")).toBe("2026-11-12T11:00:00.000Z");
+    expect(isoDeTiempo(1794481200000)).toBe("2026-11-12T11:00:00.000Z");
+    expect(isoDeTiempo("2026-11-12T11:00:00Z")).toBe("2026-11-12T11:00:00.000Z");
+    expect(isoDeTiempo("2026-11-12 18:18:33")).toBe("2026-11-13T00:18:33.000Z");
+    expect(isoDeTiempo("")).toBeNull();
+    expect(isoDeTiempo("ayer")).toBeNull();
+    expect(isoDeTiempo(0)).toBeNull();
+  });
+});
+
+describe("ventaEnPesos", () => {
+  const sesion = interpretarLives(crudoLives, "OFFICIAL_ACCOUNTS").lives[0];
+  const productos = interpretarProductosDeLive({ data: { products: [{ id: "P1", sales: { direct_gmv: m(2399.77) } }, { id: "P2", sales: { direct_gmv: m(1394.86) } }] } });
+  it("con la sesión en pesos, la venta es la de TikTok", () => {
+    expect(ventaEnPesos(sesion, productos)).toEqual({ monto: 3500.7, fuente: "tiktok" });
+  });
+  it("con la sesión en dólares, la venta en pesos es la suma de los productos; sin productos no se inventa", () => {
+    const enUsd = { ...sesion, ventas: { ...sesion.ventas, moneda: "USD" } };
+    expect(ventaEnPesos(enUsd, productos)).toEqual({ monto: 3794.63, fuente: "productos" });
+    expect(ventaEnPesos(enUsd, null)).toEqual({ monto: null, fuente: "ninguna" });
   });
 });
 
@@ -134,7 +180,9 @@ describe("resumenLives", () => {
     const r = resumenLives([
       { sesion, pedidos },
       { sesion: { ...sesion, liveId: "L2", duracionMin: 30, trafico: { ...sesion.trafico, pico: 99, espectadores: 10 } }, pedidos: null },
+      { sesion: { ...sesion, liveId: "L3", ventas: { ...sesion.ventas, moneda: "USD" } }, productos: [{ productId: "P", nombre: null, piezas: 1, gmv: 100, pedidosSku: 1, pedidos: 1, clientes: 1, precioPromedio: 100, impresiones: 0, clics: 0, ctr: null, alCarrito: 0 }], pedidos: null },
+      { sesion: { ...sesion, liveId: "L4", ventas: { ...sesion.ventas, moneda: "USD" } }, pedidos: null },
     ]);
-    expect(r).toMatchObject({ lives: 2, minutos: 150, gmv: 7001.4, pedidosTikTok: 24, piezas: 28, espectadores: 830, picoMaximo: 99, ganancia: 120, pagaTikTok: 240, pedidosTienda: 1, livesSinPedidos: 1 });
+    expect(r).toMatchObject({ lives: 4, minutos: 390, gmv: 7101.4, livesSinVentaEnPesos: 1, pedidosTikTok: 48, piezas: 56, espectadores: 2470, picoMaximo: 99, ganancia: 120, pagaTikTok: 240, pedidosTienda: 1, livesSinPedidos: 3 });
   });
 });
