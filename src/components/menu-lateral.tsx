@@ -63,6 +63,7 @@ import {
   Upload,
   Wallet,
   Warehouse,
+  RadioTower,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -150,6 +151,7 @@ const GRUPOS: Grupo[] = [
     titulo: "TikTok Shop",
     entradas: [
       { href: "/tiktok/ventas", texto: "Ventas", icono: ShoppingBag, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/lives", texto: "Mis LIVE", icono: RadioTower, ayuda: "Cada LIVE propio: qué se vendió, espectadores, pedidos y ganancia" },
       { href: "/tiktok/despacho", texto: "Despacho de pedidos", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
       { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
       { href: "/tiktok/devoluciones", texto: "Devoluciones", icono: Undo2, ayuda: "Recibir lo que regresa el cliente: reembolso y si vuelve al stock" },

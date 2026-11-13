@@ -1512,3 +1512,45 @@ export async function rendimientoDeTienda(
   }
   throw ultimo instanceof Error ? ultimo : new Error("TikTok no reconoció ninguna versión de la analítica de la tienda.");
 }
+
+// ---------------------------------------------------------------------------
+// Analítica: los LIVE de la tienda (sesiones y lo vendido en cada una)
+// ---------------------------------------------------------------------------
+
+/**
+ * Una página de las sesiones de LIVE entre `desde` (inclusive) y `hasta`
+ * (exclusivo), fechas YYYY-MM-DD en la zona de la tienda, de UN tipo de
+ * cuenta (`OFFICIAL_ACCOUNTS`, `MARKETING_ACCOUNTS` o `AFFILIATE_ACCOUNTS`;
+ * el parámetro es obligatorio). `GET /analytics/202609/shop_lives/performance`,
+ * del esquema OpenAPI generado de la documentación de TikTok (nov-2026).
+ * null si se acabó el tiempo de la función.
+ */
+export async function livesDeTienda(
+  c: Cliente,
+  opciones: { desde: string; hasta: string; cuentaTipo: string; pageToken?: string },
+): Promise<{ crudo: any; siguiente?: string } | null> {
+  const d = await c.llamar<any>("GET", "/analytics/202609/shop_lives/performance", {
+    params: {
+      start_date_ge: opciones.desde,
+      end_date_lt: opciones.hasta,
+      account_type: opciones.cuentaTipo,
+      page_size: 100,
+      page_token: opciones.pageToken,
+      sort_field: "live_attributed_gmv",
+      sort_order: "DESC",
+      currency: "LOCAL",
+    },
+  });
+  if (d == null) return null;
+  return { crudo: d, siguiente: d?.data?.next_page_token || d?.next_page_token || undefined };
+}
+
+/**
+ * Lo vendido producto por producto en UN live (`GET /analytics/202512/shop/
+ * {live_id}/products_performance`). null si se acabó el tiempo.
+ */
+export async function productosDeLive(c: Cliente, liveId: string): Promise<any | null> {
+  return c.llamar<any>("GET", `/analytics/202512/shop/${encodeURIComponent(liveId)}/products_performance`, {
+    params: { sort_field: "gmv", sort_order: "DESC", currency: "LOCAL" },
+  });
+}

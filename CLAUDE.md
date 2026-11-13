@@ -1861,6 +1861,33 @@ guárdala numerada.
   `CreadorTop` trae `porContenido` y `porcentajeLive`; la pestaña Creadores
   enseña LIVE / Video / Otro por creador. Un pedido de la tienda no lleva
   contenido: eso lo dice solo la analítica. `tiktok:ventas:v3`.
+  **MIS LIVE: los LIVE propios, uno por uno** (`tiktok/lives.ts` puro con
+  pruebas: `interpretarLives`, `interpretarProductosDeLive`, `pedidosDelLive`,
+  `resumenLives`; `servicios/tiktok-lives.ts` `leerLives` / `cargarMisLives`;
+  `livesDeTienda` y `productosDeLive` en `tiktok/api.ts` = `GET
+  /analytics/202609/shop_lives/performance` (por tipo de cuenta, obligatorio:
+  OFFICIAL_ACCOUNTS y MARKETING_ACCOUNTS son los nuestros, AFFILIATE no va)
+  y `GET /analytics/202512/shop/{live_id}/products_performance`; tabla
+  `tiktok_lives`, migración 0155; pantalla `/tiktok/lives` «Mis LIVE» en el
+  menú de TikTok, `components/lives-tiktok.tsx`; dueño, 13-nov-2026: «una
+  sección de análisis de los live en vivo para saber qué se vendió, los
+  pedidos que contienen, cuánto gané…; me refiero a mis live propios»): por
+  sesión, lo que TikTok dice (venta atribuida directa + indirecta, pedidos,
+  piezas, clientes, tasa de pago, espectadores, pico, tiempo viendo, clics,
+  likes, seguidores nuevos) y lo vendido producto por producto en ESE live.
+  **TikTok no dice qué PEDIDO salió de qué live**, así que los pedidos son
+  los de la TIENDA (sin creador, ya revisados contra afiliados, en pie, sin
+  muestras ni lo de David) que entraron entre el inicio y
+  `MINUTOS_DESPUES_DEL_LIVE` (30) después del fin, con lo que TikTok paga por
+  cada uno (`pagoEsperado`, nunca una estimación; «sin dato» si falta) y el
+  costo por modelo: la pantalla lo declara así y enseña al lado cuántos
+  pedidos le atribuye TikTok. Corre en el cron de PAGOS con su rato
+  (`MS_LIVES` 45 s): últimos 7 días en cada corrida y 2 tramos de 30 días
+  hacia atrás hasta `TIKTOK_DESDE`; los productos de un live se piden si no
+  los tiene o terminó hace menos de 48 h; los pedidos se rearman para los
+  lives de los últimos 15 días (el pago de TikTok cambia al liquidar).
+  Bitácora `tiktok_sync_log` tarea `lives` con la primera respuesta cruda
+  recortada a dos sesiones.
   **OFERTAS RELÁMPAGO desde el panel** (`tiktok/promociones.ts` puro con
   pruebas, `servicios/tiktok-promociones.ts`, `/tiktok/promociones`
   «Ofertas relámpago» en el menú, `POST /api/tiktok/promociones`, tabla
