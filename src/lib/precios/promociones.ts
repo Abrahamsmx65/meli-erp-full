@@ -214,27 +214,35 @@ export function claveRenglon(r: { itemId: string; promoId: string | null; tipo: 
   return `${r.itemId}|${r.promoId ?? r.tipo}`;
 }
 
-/** Pares que se reservan cuando MELI no dice el mínimo (con 1 de respaldo). */
+/** Pares que se reservan si MELI rechaza «todo el stock» y no dice mínimo (con 1 de respaldo). */
 export const PARES_RELAMPAGO_POR_OMISION = 5;
 
 /**
- * Pares a reservar al inscribir un relámpago, en el orden en que se prueban:
- * lo que puso el dueño, si no el mínimo que pide MELI, y si MELI no dice
- * nada, 5 y luego 1 (dueño, 14-oct-2026: «la cantidad no me importa nunca,
- * siempre confirma las relámpago si cumplen con el precio»; ese día 299
- * candidatas se quedaron fuera por no traer mínimo). Lo que el dueño
- * escribe fuera del rango de MELI sí es error: es su número, no uno nuestro.
+ * Pares a reservar al inscribir un relámpago, en el orden en que se prueban.
+ * `null` = SIN mandar `stock`. Dueño, 13-nov-2026: «que se inscriba sin
+ * límite de unidades sino todo el stock». Probado en vivo ese día:
+ *   · la propuesta CON FECHA del asesor llega con `stock: {}` y se inscribe
+ *     sin `stock`: entra con todo el inventario;
+ *   · la propuesta genérica (sin fecha, `stock: {min, max}`) exige pares:
+ *     se manda su MÁXIMO (lo que MELI deja = el stock), y si lo rechaza, el
+ *     mínimo;
+ *   · mandar `stock` a una publicación que tiene las dos hace que MELI
+ *     inscriba la genérica (5 pares, la fecha que MELI quiera) y deje fuera
+ *     las del asesor: 60 publicaciones estaban así ese día.
+ * Lo que el dueño escribe fuera del rango de MELI sí es error: es su número.
  */
-export function stockParaRelampago(r: RenglonPromo, pedido: number | undefined): { intentos: number[] } | { error: string } {
+export function stockParaRelampago(r: RenglonPromo, pedido: number | undefined): { intentos: (number | null)[] } | { error: string } {
   if (pedido != null) {
     if (!Number.isInteger(pedido) || pedido <= 0) return { error: "los pares a reservar deben ser un número entero" };
     if (r.stockMin != null && pedido < r.stockMin) return { error: `MELI pide reservar al menos ${r.stockMin} pares` };
     if (r.stockMax != null && r.stockMax > 0 && pedido > r.stockMax) return { error: `MELI deja reservar a lo más ${r.stockMax} pares` };
     return { intentos: [pedido] };
   }
-  if (r.stockMin != null && r.stockMin > 0) return { intentos: [r.stockMin] };
-  const tope = r.stockMax != null && r.stockMax > 0 ? r.stockMax : Infinity;
-  return { intentos: [...new Set([Math.min(PARES_RELAMPAGO_POR_OMISION, tope), 1])] };
+  const max = r.stockMax != null && r.stockMax > 0 ? r.stockMax : null;
+  const min = r.stockMin != null && r.stockMin > 0 ? r.stockMin : null;
+  if (max != null) return { intentos: [...new Set([max, min ?? Math.min(PARES_RELAMPAGO_POR_OMISION, max), 1])] };
+  if (min != null) return { intentos: [min] };
+  return { intentos: [null, PARES_RELAMPAGO_POR_OMISION, 1] };
 }
 
 export function leerStocks(x: unknown): Record<string, number> {

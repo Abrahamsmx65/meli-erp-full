@@ -349,35 +349,27 @@ export async function aplicarPrecios(
 async function inscribirRelampago(
   cliente: MeliClient,
   r: RenglonPromo,
-  intentos: number[],
+  intentos: (number | null)[],
 ): Promise<{ ok: boolean; detalle: string }> {
   let ultimo = "";
   for (const stock of intentos) {
+    // `null` = sin `stock`: la propuesta con fecha del asesor entra con todo
+    // el inventario; con `stock` MELI inscribe la genérica (ver `stockParaRelampago`).
+    const cuerpo: Record<string, unknown> = { promotion_id: r.promoId, promotion_type: r.tipo, deal_price: r.nuevo };
+    if (stock != null) cuerpo.stock = stock;
+    const con = stock == null ? "con todo el stock" : `con ${stock} pares`;
     try {
-      // Todas las relámpago de una publicación comparten `promotion_id`
-      // (LGH-MLM1000): sin el folio de la propuesta MELI inscribe UNA fecha y
-      // contesta «sí» a las demás (GT183, 17 al 19-oct-2026: dos «inscritas»
-      // por día y la del 20-oct siguió como propuesta).
-      await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
-        promotion_id: r.promoId,
-        promotion_type: r.tipo,
-        deal_price: r.nuevo,
-        stock,
-        ...(r.offerId ? { offer_id: r.offerId } : {}),
-      });
-      return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares` };
+      // El folio de la propuesta se manda por si MELI lo llega a obedecer; hoy
+      // lo ignora y elige ella la fecha (13-nov-2026, 13 formas probadas).
+      await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, { ...cuerpo, ...(r.offerId ? { offer_id: r.offerId } : {}) });
+      return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} ${con}` };
     } catch (err) {
       ultimo = mensajeMeli(err);
       // Si MELI no acepta el folio, se intenta como antes (sin él).
       if (r.offerId && /offer/i.test(ultimo)) {
         try {
-          await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
-            promotion_id: r.promoId,
-            promotion_type: r.tipo,
-            deal_price: r.nuevo,
-            stock,
-          });
-          return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares (MELI no aceptó el folio: ${ultimo})` };
+          await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, cuerpo);
+          return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} ${con} (MELI no aceptó el folio: ${ultimo})` };
         } catch (err2) {
           ultimo = mensajeMeli(err2);
         }
@@ -512,7 +504,7 @@ export async function confirmarRelampagosPendientes(
     if (conProgramada.has(r.itemId) || intentadas.has(r.itemId)) {
       if (!yaAvisadas.has(r.itemId)) {
         yaAvisadas.add(r.itemId);
-        omitidas.push(`${donde}: ya tiene una relámpago programada; MELI solo deja una por el API y la siguiente entra cuando pase esa`);
+        omitidas.push(`${donde}: ya tiene una relámpago programada; MELI solo deja una por el API (y ella elige la fecha) y la siguiente entra cuando pase esa`);
       }
       continue;
     }
