@@ -1,5 +1,5 @@
 import type { LiveGuardado } from "@/lib/servicios/tiktok-lives";
-import { NOMBRE_CUENTA } from "@/lib/tiktok/lives";
+import { NOMBRE_CUENTA, ventaEnPesos } from "@/lib/tiktok/lives";
 import { Seccion } from "@/components/ui/pagina";
 
 function n(x: number): string {
@@ -40,6 +40,11 @@ function segundos(s: number): string {
   return `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
 }
 
+/** Un monto en la moneda en que TikTok lo dio: en pesos sin marca, en otra moneda con su código. */
+function dinero(x: number, moneda: string): string {
+  return moneda === "MXN" ? pesos(x) : `${moneda} ${x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 const COLOR_GANANCIA = (g: number | null) => (g == null ? "var(--ink-2)" : g < 0 ? "var(--estado-critico)" : "var(--estado-bien)");
 
 /**
@@ -73,6 +78,8 @@ export function LivesTikTok({ lives }: { lives: LiveGuardado[] }) {
               const s = l.sesion;
               const p = l.pedidos;
               const t = p?.totales;
+              const venta = ventaEnPesos(s, l.productos);
+              const mon = s.ventas.moneda;
               return (
                 <tr key={s.liveId} className="align-top">
                   <td>
@@ -93,8 +100,18 @@ export function LivesTikTok({ lives }: { lives: LiveGuardado[] }) {
                   <td className="num cifra">{duracion(s.duracionMin)}</td>
                   <td className="num cifra" title={`${n(s.trafico.vistas)} vistas`}>{n(s.trafico.espectadores)}</td>
                   <td className="num cifra" title={`${n(s.trafico.promedioConcurrentes)} en promedio al mismo tiempo`}>{n(s.trafico.pico)}</td>
-                  <td className="num cifra font-medium" title={`${pesos(s.ventas.gmvDirecto)} durante el live + ${pesos(s.ventas.gmvIndirecto)} después (indirecta)`}>
-                    {pesos(s.ventas.gmv)}
+                  <td
+                    className="num cifra font-medium"
+                    title={
+                      venta.fuente === "tiktok"
+                        ? `${pesos(s.ventas.gmvDirecto)} durante el live + ${pesos(s.ventas.gmvIndirecto)} después (indirecta)`
+                        : venta.fuente === "productos"
+                          ? `Suma de lo vendido por producto en pesos (venta directa). TikTok dio la sesión en ${mon}: ${dinero(s.ventas.gmv, mon)} atribuidos, ${dinero(s.ventas.gmvIndirecto, mon)} indirectos`
+                          : `TikTok dio la sesión en ${mon} y aún no se leen sus productos`
+                    }
+                  >
+                    {venta.monto != null ? pesos(venta.monto) : dinero(s.ventas.gmv, mon)}
+                    {venta.fuente === "productos" ? <div className="text-xs texto-2">directa · {dinero(s.ventas.gmv, mon)}</div> : null}
                   </td>
                   <td className="num cifra" title={`${n(s.ventas.clientes)} clientes · ${n(s.ventas.productosVendidos)} productos distintos`}>{n(s.ventas.pedidos)}</td>
                   <td className="num cifra">{n(s.ventas.piezas)}</td>
@@ -129,17 +146,18 @@ function DetalleLive({ live }: { live: LiveGuardado }) {
   const s = live.sesion;
   const p = live.pedidos;
   const t = p?.totales;
+  const mon = s.ventas.moneda;
   return (
     <div className="mt-3 grid gap-4 text-xs lg:grid-cols-2">
       <div>
-        <div className="mb-1 font-medium">Según TikTok</div>
+        <div className="mb-1 font-medium">Según TikTok{mon !== "MXN" ? <span className="texto-2 font-normal"> · montos en {mon}, como los entrega TikTok</span> : null}</div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
           <dt className="texto-2">Venta durante el live</dt>
-          <dd className="num">{pesos(s.ventas.gmvDirecto)}</dd>
+          <dd className="num">{dinero(s.ventas.gmvDirecto, mon)}</dd>
           <dt className="texto-2">Venta después (indirecta)</dt>
-          <dd className="num">{pesos(s.ventas.gmvIndirecto)}</dd>
+          <dd className="num">{dinero(s.ventas.gmvIndirecto, mon)}</dd>
           <dt className="texto-2">Ticket promedio</dt>
-          <dd className="num">{s.ventas.ticketPromedio ? pesos(s.ventas.ticketPromedio) : "—"}</dd>
+          <dd className="num">{s.ventas.ticketPromedio ? dinero(s.ventas.ticketPromedio, mon) : "—"}</dd>
           <dt className="texto-2">Pedidos pagados</dt>
           <dd className="num">{pct(s.ventas.tasaPago)}</dd>
           <dt className="texto-2">Productos agregados / vendidos</dt>
@@ -153,7 +171,7 @@ function DetalleLive({ live }: { live: LiveGuardado }) {
           <dt className="texto-2">Clics a producto</dt>
           <dd className="num">{n(s.trafico.clicsProducto)} · {pct(s.trafico.ctr)} de las vistas</dd>
           <dt className="texto-2">Venta por hora / por mil vistas</dt>
-          <dd className="num">{pesos(s.trafico.gmvPorHora)} / {pesos(s.trafico.gpm)}</dd>
+          <dd className="num">{dinero(s.trafico.gmvPorHora, mon)} / {dinero(s.trafico.gpm, mon)}</dd>
           <dt className="texto-2">Likes · comentarios · compartidos</dt>
           <dd className="num">{n(s.interaccion.likes)} · {n(s.interaccion.comentarios)} · {n(s.interaccion.compartidos)}</dd>
           <dt className="texto-2">Seguidores nuevos</dt>

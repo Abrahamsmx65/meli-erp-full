@@ -31,6 +31,15 @@ export const NOMBRE_CUENTA: Record<string, string> = {
 /** Minutos después de que termina el live en que un pedido de la tienda todavía se le cuenta. */
 export const MINUTOS_DESPUES_DEL_LIVE = 30;
 
+/**
+ * Zona de la tienda: TikTok MX escribe la hora de inicio y fin de cada live
+ * como texto «2026-11-12 18:18:33» en la zona registrada de la tienda (el
+ * esquema decía segundos unix; la primera lectura real del 13-nov-2026 trajo
+ * el texto y el pico de pedidos de la tienda confirmó que es hora de México).
+ * UTC−6 fijo, igual que `diaMx` en el resto del ERP.
+ */
+export const DESFASE_TIENDA = "-06:00";
+
 export interface VentasDeLive {
   /** GMV atribuido al live (directo + indirecto) */
   gmv: number;
@@ -47,6 +56,13 @@ export interface VentasDeLive {
   /** pedidos pagados ÷ pedidos creados (0–1) */
   tasaPago: number | null;
   ticketPromedio: number;
+  /**
+   * Moneda en que TikTok entregó los montos de la sesión. Se le pide LOCAL,
+   * pero la lista de lives contesta en USD (13-nov-2026) aunque los productos
+   * del mismo live vengan en MXN: por eso la venta en pesos sale de los
+   * productos (`ventaEnPesos`) cuando la sesión no viene en MXN.
+   */
+  moneda: string;
 }
 
 export interface TraficoDeLive {
@@ -104,11 +120,26 @@ function tasa(x: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function isoDeUnix(x: unknown): string | null {
-  const n = Number(x);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  // Segundos o milisegundos: TikTok los manda en segundos.
-  return new Date(n > 1e12 ? n : n * 1000).toISOString();
+function monedaDe(x: unknown): string | null {
+  const c = x && typeof x === "object" ? (x as { currency?: unknown }).currency : null;
+  return c ? String(c).toUpperCase() : null;
+}
+
+/**
+ * La hora de TikTok → ISO UTC. Acepta segundos (o milisegundos) unix, un ISO
+ * con zona, o el texto «YYYY-MM-DD HH:MM:SS» en la zona de la tienda.
+ */
+export function isoDeTiempo(x: unknown): string | null {
+  if (x == null || x === "") return null;
+  const texto = String(x).trim();
+  if (/^\d+(\.\d+)?$/.test(texto)) {
+    const n = Number(texto);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return new Date(n > 1e12 ? n : n * 1000).toISOString();
+  }
+  const local = texto.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+  const ms = Date.parse(local ? `${local[1]}T${local[2]}${DESFASE_TIENDA}` : texto);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
 /** La respuesta cruda de la lista de LIVE → sesiones; `siguiente` es el token de la página que sigue. */
@@ -122,8 +153,8 @@ export function interpretarLives(crudo: unknown, cuentaTipo: string): { lives: L
     const v = s?.sales_performance ?? {};
     const t = s?.traffic ?? {};
     const i = s?.interaction_performance ?? {};
-    const inicio = isoDeUnix(s?.start_time);
-    const fin = isoDeUnix(s?.end_time);
+    const inicio = isoDeTiempo(s?.start_time);
+    const fin = isoDeTiempo(s?.end_time);
     const duracionMin = inicio && fin ? Math.max(0, Math.round((Date.parse(fin) - Date.parse(inicio)) / 60_000)) : null;
     const gmvDirecto = monto(v.live_gmv);
     const gmvIndirecto = monto(v.live_indirect_gmv);
@@ -148,6 +179,7 @@ export function interpretarLives(crudo: unknown, cuentaTipo: string): { lives: L
         productosAgregados: entero(t.products_added),
         tasaPago: tasa(v.payment_rate),
         ticketPromedio: monto(v.aov),
+        moneda: monedaDe(v.live_attributed_gmv) ?? monedaDe(v.live_gmv) ?? monedaDe(v.aov) ?? "MXN",
       },
       trafico: {
         espectadores: entero(t.viewers),
@@ -351,10 +383,32 @@ export function pedidosDelLive(
   return { ventana, pedidos, totales };
 }
 
+export interface VentaEnPesos {
+  /** la venta del live en pesos; null si no hay forma de saberla */
+  monto: number | null;
+  /** `tiktok` = la sesión vino en MXN; `productos` = suma de lo vendido por producto (directo, sin indirecta); `ninguna` = la sesión vino en otra moneda y sin productos */
+  fuente: "tiktok" | "productos" | "ninguna";
+}
+
+/**
+ * La venta del live EN PESOS: la de la sesión si TikTok la dio en MXN; si la
+ * dio en otra moneda, la suma de lo vendido producto por producto (que TikTok
+ * sí da en MXN; es solo la venta directa, sin la indirecta). Nunca se
+ * convierte con un tipo de cambio.
+ */
+export function ventaEnPesos(sesion: LiveSesion, productos: ProductoDeLive[] | null): VentaEnPesos {
+  if (sesion.ventas.moneda === "MXN") return { monto: sesion.ventas.gmv, fuente: "tiktok" };
+  if (productos && productos.length) return { monto: productos.reduce((a, p) => a + p.gmv, 0), fuente: "productos" };
+  return { monto: null, fuente: "ninguna" };
+}
+
 export interface ResumenLives {
   lives: number;
   minutos: number;
+  /** venta en pesos de los lives que la tienen (`ventaEnPesos`) */
   gmv: number;
+  /** lives cuya venta no se pudo poner en pesos */
+  livesSinVentaEnPesos: number;
   pedidosTikTok: number;
   piezas: number;
   espectadores: number;
@@ -369,14 +423,16 @@ export interface ResumenLives {
 }
 
 /** Suma las sesiones del rango; `pedidos` es lo guardado por live (null si aún no se calculó). */
-export function resumenLives(lives: { sesion: LiveSesion; pedidos: PedidosDeLive | null }[]): ResumenLives {
+export function resumenLives(lives: { sesion: LiveSesion; productos?: ProductoDeLive[] | null; pedidos: PedidosDeLive | null }[]): ResumenLives {
   const r: ResumenLives = {
-    lives: 0, minutos: 0, gmv: 0, pedidosTikTok: 0, piezas: 0, espectadores: 0, picoMaximo: 0, ganancia: 0, pagaTikTok: 0, pedidosTienda: 0, pedidosSinDato: 0, pedidosSinCosto: 0, livesSinPedidos: 0,
+    lives: 0, minutos: 0, gmv: 0, livesSinVentaEnPesos: 0, pedidosTikTok: 0, piezas: 0, espectadores: 0, picoMaximo: 0, ganancia: 0, pagaTikTok: 0, pedidosTienda: 0, pedidosSinDato: 0, pedidosSinCosto: 0, livesSinPedidos: 0,
   };
-  for (const { sesion, pedidos } of lives) {
+  for (const { sesion, productos, pedidos } of lives) {
     r.lives++;
     r.minutos += sesion.duracionMin ?? 0;
-    r.gmv += sesion.ventas.gmv;
+    const venta = ventaEnPesos(sesion, productos ?? null);
+    if (venta.monto == null) r.livesSinVentaEnPesos++;
+    else r.gmv += venta.monto;
     r.pedidosTikTok += sesion.ventas.pedidos;
     r.piezas += sesion.ventas.piezas;
     r.espectadores += sesion.trafico.espectadores;

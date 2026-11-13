@@ -1888,6 +1888,21 @@ guárdala numerada.
   lives de los últimos 15 días (el pago de TikTok cambia al liquidar).
   Bitácora `tiktok_sync_log` tarea `lives` con la primera respuesta cruda
   recortada a dos sesiones.
+  **Lo que TikTok MX contestó de verdad (primera lectura, 13-nov-2026,
+  live 7707443655468567314 del 12-nov)**: (1) `start_time`/`end_time` NO
+  son segundos unix como decía el esquema sino TEXTO «2026-11-12 18:18:33»
+  en la zona de la tienda (México): `isoDeTiempo` acepta las dos formas y
+  el texto se lee con `DESFASE_TIENDA` −06:00 (el pico de pedidos de la
+  tienda a las 01Z lo confirmó: 9 pedidos y $4,293 contra ~$800 por hora);
+  la primera versión dejaba `inicio`/`fin` null y el live no salía ni tenía
+  pedidos (se corrigió por SQL). (2) La SESIÓN viene en USD aunque se pida
+  `currency=LOCAL` ($227.63 atribuidos), pero los PRODUCTOS del mismo live
+  sí vienen en MXN ($2,399.77 + $1,394.86 + $276.35): `VentasDeLive.moneda`
+  guarda la moneda y `ventaEnPesos` toma la de TikTok si es MXN, si no la
+  SUMA de los productos (venta directa, sin la indirecta) y sin productos no
+  inventa nada (`livesSinVentaEnPesos` en el resumen); la pantalla enseña
+  los montos de la sesión con su moneda. Nunca se convierte con un tipo de
+  cambio.
   **OFERTAS RELÁMPAGO desde el panel** (`tiktok/promociones.ts` puro con
   pruebas, `servicios/tiktok-promociones.ts`, `/tiktok/promociones`
   «Ofertas relámpago» en el menú, `POST /api/tiktok/promociones`, tabla

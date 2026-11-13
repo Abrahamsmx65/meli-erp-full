@@ -53,8 +53,10 @@ export default async function MisLivesPage({ searchParams }: { searchParams: Pro
           <>
             <p>
               «Venta TikTok», pedidos, piezas, espectadores y pico son la analítica de TikTok de cada sesión de LIVE de
-              nuestras cuentas (oficial y de marketing); los LIVE de creadores no están aquí, van en Ventas → Creadores. La
-              venta atribuida incluye lo que se compró después de ver el live (indirecta).
+              nuestras cuentas (oficial y de marketing); los LIVE de creadores no están aquí, van en Ventas → Creadores.
+              TikTok entrega la sesión en dólares aunque se le pida en pesos, así que la venta en pesos es la suma de lo
+              vendido producto por producto en ese live (venta directa; la indirecta, lo comprado después de ver el live,
+              se enseña en dólares al abrir el renglón). Nunca se convierte con un tipo de cambio.
             </p>
             <p>
               TikTok no dice qué pedido salió de qué live, así que «Pedidos tienda», «Me paga TikTok» y «Ganancia» son los
@@ -79,7 +81,12 @@ export default async function MisLivesPage({ searchParams }: { searchParams: Pro
 
       <Cifras columnas={6}>
         <Ficha titulo="LIVE" valor={n(r.lives)} nota={r.lives ? `${horas(r.minutos)} al aire en total` : "en estas fechas"} />
-        <Ficha titulo="Venta TikTok" valor={pesos(r.gmv)} nota="atribuida a los LIVE por TikTok, indirecta incluida" />
+        <Ficha
+          titulo="Venta TikTok"
+          valor={pesos(r.gmv)}
+          nota={r.livesSinVentaEnPesos ? `${r.livesSinVentaEnPesos} LIVE sin venta en pesos todavía (TikTok la dio en dólares y faltan sus productos)` : "según TikTok, en pesos; con la sesión en dólares, la suma de sus productos"}
+          tono={r.livesSinVentaEnPesos ? "alerta" : "neutro"}
+        />
         <Ficha titulo="Pedidos TikTok" valor={n(r.pedidosTikTok)} nota={`${n(r.piezas)} piezas · según TikTok`} />
         <Ficha titulo="Espectadores" valor={n(r.espectadores)} nota={r.picoMaximo ? `pico máximo: ${n(r.picoMaximo)} al mismo tiempo` : "sumados"} />
         <Ficha
