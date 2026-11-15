@@ -65,6 +65,7 @@ export function LivesTikTok({ lives }: { lives: LiveGuardado[] }) {
               <th className="num">Duración</th>
               <th className="num">Espectadores</th>
               <th className="num">Pico</th>
+              <th className="num">Seguidores</th>
               <th className="num">Venta TikTok</th>
               <th className="num">Pedidos TikTok</th>
               <th className="num">Piezas</th>
@@ -100,6 +101,9 @@ export function LivesTikTok({ lives }: { lives: LiveGuardado[] }) {
                   <td className="num cifra">{duracion(s.duracionMin)}</td>
                   <td className="num cifra" title={`${n(s.trafico.vistas)} vistas`}>{n(s.trafico.espectadores)}</td>
                   <td className="num cifra" title={`${n(s.trafico.promedioConcurrentes)} en promedio al mismo tiempo`}>{n(s.trafico.pico)}</td>
+                  <td className="num cifra" title={`seguidores nuevos durante el live · ${n(s.interaccion.likes)} likes · ${n(s.interaccion.comentarios)} comentarios · ${n(s.interaccion.compartidos)} compartidos`}>
+                    {s.interaccion.seguidoresNuevos ? `+${n(s.interaccion.seguidoresNuevos)}` : "—"}
+                  </td>
                   <td
                     className="num cifra font-medium"
                     title={
@@ -130,7 +134,7 @@ export function LivesTikTok({ lives }: { lives: LiveGuardado[] }) {
             })}
             {!lives.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={10}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={11}>
                   Sin LIVE propios en estas fechas.
                 </td>
               </tr>

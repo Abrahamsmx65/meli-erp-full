@@ -183,6 +183,6 @@ describe("resumenLives", () => {
       { sesion: { ...sesion, liveId: "L3", ventas: { ...sesion.ventas, moneda: "USD" } }, productos: [{ productId: "P", nombre: null, piezas: 1, gmv: 100, pedidosSku: 1, pedidos: 1, clientes: 1, precioPromedio: 100, impresiones: 0, clics: 0, ctr: null, alCarrito: 0 }], pedidos: null },
       { sesion: { ...sesion, liveId: "L4", ventas: { ...sesion.ventas, moneda: "USD" } }, pedidos: null },
     ]);
-    expect(r).toMatchObject({ lives: 4, minutos: 390, gmv: 7101.4, livesSinVentaEnPesos: 1, pedidosTikTok: 48, piezas: 56, espectadores: 2470, picoMaximo: 99, ganancia: 120, pagaTikTok: 240, pedidosTienda: 1, livesSinPedidos: 3 });
+    expect(r).toMatchObject({ lives: 4, minutos: 390, gmv: 7101.4, livesSinVentaEnPesos: 1, pedidosTikTok: 48, piezas: 56, espectadores: 2470, picoMaximo: 99, seguidoresNuevos: 60, likes: 2000, comentarios: 240, ganancia: 120, pagaTikTok: 240, pedidosTienda: 1, livesSinPedidos: 3 });
   });
 });

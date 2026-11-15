@@ -413,6 +413,10 @@ export interface ResumenLives {
   piezas: number;
   espectadores: number;
   picoMaximo: number;
+  /** seguidores que llegaron durante los LIVE, según TikTok */
+  seguidoresNuevos: number;
+  likes: number;
+  comentarios: number;
   /** de los pedidos de la tienda en la ventana de cada live, los que tienen dato y costo */
   ganancia: number;
   pagaTikTok: number;
@@ -425,7 +429,7 @@ export interface ResumenLives {
 /** Suma las sesiones del rango; `pedidos` es lo guardado por live (null si aún no se calculó). */
 export function resumenLives(lives: { sesion: LiveSesion; productos?: ProductoDeLive[] | null; pedidos: PedidosDeLive | null }[]): ResumenLives {
   const r: ResumenLives = {
-    lives: 0, minutos: 0, gmv: 0, livesSinVentaEnPesos: 0, pedidosTikTok: 0, piezas: 0, espectadores: 0, picoMaximo: 0, ganancia: 0, pagaTikTok: 0, pedidosTienda: 0, pedidosSinDato: 0, pedidosSinCosto: 0, livesSinPedidos: 0,
+    lives: 0, minutos: 0, gmv: 0, livesSinVentaEnPesos: 0, pedidosTikTok: 0, piezas: 0, espectadores: 0, picoMaximo: 0, seguidoresNuevos: 0, likes: 0, comentarios: 0, ganancia: 0, pagaTikTok: 0, pedidosTienda: 0, pedidosSinDato: 0, pedidosSinCosto: 0, livesSinPedidos: 0,
   };
   for (const { sesion, productos, pedidos } of lives) {
     r.lives++;
@@ -437,6 +441,9 @@ export function resumenLives(lives: { sesion: LiveSesion; productos?: ProductoDe
     r.piezas += sesion.ventas.piezas;
     r.espectadores += sesion.trafico.espectadores;
     r.picoMaximo = Math.max(r.picoMaximo, sesion.trafico.pico);
+    r.seguidoresNuevos += sesion.interaccion.seguidoresNuevos;
+    r.likes += sesion.interaccion.likes;
+    r.comentarios += sesion.interaccion.comentarios;
     if (!pedidos) {
       r.livesSinPedidos++;
       continue;

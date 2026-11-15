@@ -79,7 +79,7 @@ export default async function MisLivesPage({ searchParams }: { searchParams: Pro
         </Aviso>
       ) : null}
 
-      <Cifras columnas={6}>
+      <Cifras columnas={4}>
         <Ficha titulo="LIVE" valor={n(r.lives)} nota={r.lives ? `${horas(r.minutos)} al aire en total` : "en estas fechas"} />
         <Ficha
           titulo="Venta TikTok"
@@ -89,6 +89,14 @@ export default async function MisLivesPage({ searchParams }: { searchParams: Pro
         />
         <Ficha titulo="Pedidos TikTok" valor={n(r.pedidosTikTok)} nota={`${n(r.piezas)} piezas · según TikTok`} />
         <Ficha titulo="Espectadores" valor={n(r.espectadores)} nota={r.picoMaximo ? `pico máximo: ${n(r.picoMaximo)} al mismo tiempo` : "sumados"} />
+      </Cifras>
+      <Cifras columnas={3}>
+        <Ficha
+          titulo="Seguidores nuevos"
+          valor={r.seguidoresNuevos ? `+${n(r.seguidoresNuevos)}` : "0"}
+          nota={r.lives ? `durante los LIVE, según TikTok · ${n(r.likes)} likes · ${n(r.comentarios)} comentarios` : "según TikTok"}
+          tono={r.seguidoresNuevos ? "bien" : "neutro"}
+        />
         <Ficha
           titulo="Me paga TikTok"
           valor={r.pagaTikTok ? pesos(r.pagaTikTok) : "—"}

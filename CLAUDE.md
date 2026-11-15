@@ -1903,6 +1903,12 @@ guárdala numerada.
   inventa nada (`livesSinVentaEnPesos` en el resumen); la pantalla enseña
   los montos de la sesión con su moneda. Nunca se convierte con un tipo de
   cambio.
+  **Seguidores nuevos por LIVE** (dueño, 15-nov-2026: «¿cuántos seguidores
+  nuevos tenemos por el live?»): `new_followers` de `interaction_performance`
+  (17 en el del 12-nov) ya se guardaba en `interaccion.seguidoresNuevos`;
+  desde ese día va como columna «Seguidores» de la tabla (con likes,
+  comentarios y compartidos en el título) y como cifra del rango
+  (`ResumenLives.seguidoresNuevos`, `likes`, `comentarios`).
   **OFERTAS RELÁMPAGO desde el panel** (`tiktok/promociones.ts` puro con
   pruebas, `servicios/tiktok-promociones.ts`, `/tiktok/promociones`
   «Ofertas relámpago» en el menú, `POST /api/tiktok/promociones`, tabla
