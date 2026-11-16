@@ -381,3 +381,60 @@ export function minimoCreible(
   if (typeof min === "number" && Number.isFinite(min) && r < min) return Math.round(max * 100) / 100;
   return r;
 }
+
+/**
+ * GUARDIA DE OFERTAS (dueño, 16-nov-2026: «que revise el sistema a las 11 pm
+ * todos los días y si alguna oferta programada no cumple los precios la
+ * desactive automáticamente»). Ese día había ofertas del día a $195 (GT114,
+ * relámpago $206), $144 (GT134, $155.99) y $106.41 (GT142, $124.99) que nadie
+ * del ERP inscribió, y ofertas con aporte que la lista por campaña de MELI no
+ * devolvía (GT148 a $154.20): solo se ven publicación por publicación.
+ *
+ * Qué se quita (activa o programada, con folio `OFFER-…`):
+ *  · relámpago y oferta del día: precio más de 2 % abajo del relámpago de
+ *    Números (el 2 % es lo que MELI obliga a bajar por «precio no creíble»);
+ *  · con aporte de MELI (SMART, PRICE_MATCHING…): precio + aporte abajo del
+ *    PV normal (o del relámpago si el modelo no tiene PV normal).
+ * Buen Fin y la oferta de todos los días (DEAL) NO se tocan: el dueño acepta
+ * ahí el máximo que MELI deja. Sin precio en Números no se toca nada.
+ */
+export const TOLERANCIA_GUARDIA = 0.02;
+export const TIPOS_CON_APORTE = new Set([...TIPOS_PRECIO_DE_MELI, "MARKETPLACE_CAMPAIGN"]);
+const TIPOS_DE_RELAMPAGO = new Set(["LIGHTNING", "DOD"]);
+
+export interface Incumplimiento {
+  /** precio mínimo que debía cumplir */
+  piso: number;
+  /** lo que cuenta contra el piso (precio, o precio + aporte) */
+  vale: number;
+  motivo: string;
+}
+
+export function folioDeOferta(p: PromoMeli): string | null {
+  const f = p.offer_id ?? p.ref_id ?? null;
+  return f && f.startsWith("OFFER-") ? f : null;
+}
+
+export function incumplePrecio(p: PromoMeli, o: Pick<Objetivos, "relampago" | "normal">): Incumplimiento | null {
+  const estado = (p.status ?? "").toLowerCase();
+  if (estado !== "started" && estado !== "pending") return null;
+  if (!folioDeOferta(p) || !p.id) return null;
+  const precio = Number(p.price ?? 0);
+  if (!(precio > 0)) return null;
+  const tipo = (p.type ?? "").toUpperCase();
+  const pesos = (x: number) => `$${x.toFixed(2)}`;
+  if (TIPOS_DE_RELAMPAGO.has(tipo)) {
+    if (o.relampago == null || !(o.relampago > 0)) return null;
+    const piso = o.relampago * (1 - TOLERANCIA_GUARDIA);
+    if (precio >= piso - 0.005) return null;
+    return { piso: o.relampago, vale: precio, motivo: `${pesos(precio)} contra relámpago de ${pesos(o.relampago)}` };
+  }
+  if (TIPOS_CON_APORTE.has(tipo)) {
+    const piso = o.normal ?? o.relampago;
+    if (piso == null || !(piso > 0)) return null;
+    const vale = precio + aporteMeli(p);
+    if (vale >= piso - 0.005) return null;
+    return { piso, vale, motivo: `${pesos(precio)} + aporte ${pesos(aporteMeli(p))} contra ${pesos(piso)}` };
+  }
+  return null;
+}

@@ -95,7 +95,7 @@ export function normalizarModelos(x: unknown): string[] {
   return [...new Set(lista.map((m) => String(m).trim().toUpperCase()).filter((m) => /^[A-Z]{1,4}\d{2,5}[A-Z]?$/.test(m)))];
 }
 
-async function objetivosDe(db: DB, accountId: string, modelos: string[], vivos: Map<string, NumerosVivo> = new Map()): Promise<Objetivos[]> {
+export async function objetivosDe(db: DB, accountId: string, modelos: string[], vivos: Map<string, NumerosVivo> = new Map()): Promise<Objetivos[]> {
   const tarifas = await leerCacheAppGuardado<TarifasGuardadas>(db, accountId, CLAVE_TARIFAS).catch(() => null);
   const porModelo = tarifas && tarifas.estado === "encontrado" ? tarifas.valor.datos.porModelo : {};
   const { renglones } = await listarNumeros(db, accountId, porModelo);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago, precioPropuestoAceptable, esPrecioNoCreible, esErrorDePares } from "./promociones";
+import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago, precioPropuestoAceptable, esPrecioNoCreible, esErrorDePares, incumplePrecio } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -172,5 +172,27 @@ describe("minimoCreible", () => {
   it("si el nuestro no pasa del máximo, o no hay máximo, no dice nada", () => {
     expect(minimoCreible({ max_discounted_price: 300 }, 298.99)).toBeNull();
     expect(minimoCreible({ min_discounted_price: 200 }, 298.99)).toBeNull();
+  });
+});
+
+describe("guardia de ofertas", () => {
+  const o = { relampago: 206, normal: 219.99 };
+  const of = (x: object) => ({ id: "DOD-MLM1000", ref_id: "OFFER-MLM1-9", status: "started", ...x });
+  it("quita la oferta del día o relámpago más de 2 % abajo del relámpago", () => {
+    expect(incumplePrecio(of({ type: "DOD", price: 195 }), o)).toMatchObject({ piso: 206, vale: 195 });
+    expect(incumplePrecio(of({ type: "LIGHTNING", price: 195, status: "pending" }), o)).not.toBeNull();
+    expect(incumplePrecio(of({ type: "DOD", price: 206 }), o)).toBeNull();
+    // Dentro del 2 % (lo que MELI obliga por «no creíble») se queda.
+    expect(incumplePrecio(of({ type: "LIGHTNING", price: 203 }), o)).toBeNull();
+  });
+  it("con aporte: precio + aporte contra el PV normal", () => {
+    expect(incumplePrecio(of({ type: "SMART", price: 189, original_price: 499, meli_percentage: 0.5 }), o)).not.toBeNull();
+    expect(incumplePrecio(of({ type: "SMART", price: 215, original_price: 499, meli_percentage: 2 }), o)).toBeNull();
+  });
+  it("no toca Buen Fin, propuestas, ni modelos sin precio", () => {
+    expect(incumplePrecio(of({ type: "DEAL", price: 100 }), o)).toBeNull();
+    expect(incumplePrecio(of({ type: "DOD", price: 100, status: "candidate" }), o)).toBeNull();
+    expect(incumplePrecio(of({ type: "DOD", price: 100, ref_id: "CANDIDATE-MLM1-1" }), o)).toBeNull();
+    expect(incumplePrecio(of({ type: "DOD", price: 100 }), { relampago: null, normal: null })).toBeNull();
   });
 });
