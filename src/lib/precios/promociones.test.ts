@@ -20,6 +20,10 @@ describe("clasificarPromo", () => {
     expect(clasificarPromo({ type: "DEAL", name: "BUEN FIN 2026" })).toBe("buen_fin");
     expect(clasificarPromo({ type: "SELLER_CAMPAIGN", name: "Oferta de todos los días" })).toBe("todos_los_dias");
     expect(clasificarPromo({ type: "DEAL", name: "Hot Sale" })).toBeNull();
+    // El precio lo fija MELI: no es Buen Fin de Números aunque se llame así.
+    expect(clasificarPromo({ type: "SMART", name: "Descuento Buen Fin" })).toBeNull();
+    expect(clasificarPromo({ type: "SMART", name: "Descuentos de moda BF" })).toBeNull();
+    expect(clasificarPromo({ type: "PRICE_MATCHING", name: "Buen Fin" })).toBeNull();
   });
 });
 
