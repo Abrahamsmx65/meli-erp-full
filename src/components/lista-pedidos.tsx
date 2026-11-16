@@ -36,6 +36,9 @@ interface Pedido {
    * todavía no aparece. Se revisa solo a las 8:00 y cada 10 min en pantalla.
    */
   confirmacionChina?: { estado: "confirmado" | "falta" | "fuera"; fecha: string | null };
+  /** el pedido nació en Nuevo pedido: con su borrador se reenvía el correo a la fábrica */
+  borradorId?: string | null;
+  correo?: { enviado: boolean; para: string[]; en: string; motivo?: string; etiquetas?: string } | null;
 }
 
 interface AmarreLinea {
@@ -70,8 +73,75 @@ function fecha(s: string | null): string {
  * contenedor" sino cuántas de sus cajas ya tienen barco y cuántas siguen
  * esperando. Ese resto es el dato que de verdad se persigue.
  */
-export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
+/**
+ * Vuelve a mandar el correo del pedido a la fábrica (Excel en su formato +
+ * ZIP de etiquetas, armados de nuevo en el momento). Dueño, 16-nov-2026:
+ * «quiero poder reenviar el correo de un pedido nuevo que hice con sus
+ * etiquetas de nuevo». Solo los pedidos que nacieron en Nuevo pedido tienen
+ * correo; la proforma subida a mano no.
+ */
+function ReenviarCorreo({ p, alCambiar }: { p: Pedido; alCambiar: (correo: NonNullable<Pedido["correo"]>) => void }) {
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!p.borradorId) return null;
+
+  async function reenviar() {
+    setEnviando(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/pedidos/borradores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "correo", id: p.borradorId }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { error?: string; borrador?: { correo: Pedido["correo"] } };
+      if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
+      if (j.borrador?.correo) alCambiar(j.borrador.correo);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  const c = p.correo;
+  return (
+    <div className="flex flex-col items-start gap-0.5 text-[11px]">
+      <button
+        onClick={reenviar}
+        disabled={enviando}
+        className="boton boton-borde boton-chico"
+        title="Vuelve a mandar a la fábrica el Excel del pedido y el ZIP de etiquetas, armados de nuevo"
+      >
+        {enviando ? "Enviando…" : "Reenviar correo"}
+      </button>
+      {c ? (
+        c.enviado ? (
+          <div className="texto-tenue" title={c.para.join(", ")}>
+            Correo enviado {fecha(c.en)}
+            {c.etiquetas ? " · sin etiquetas" : " · con etiquetas"}
+          </div>
+        ) : (
+          <div style={{ color: "var(--critico-texto)" }}>
+            Correo no salió: {c.motivo ?? "sin intento"}
+          </div>
+        )
+      ) : null}
+      {c?.etiquetas ? (
+        <div className="texto-tenue" title={c.etiquetas}>
+          Etiquetas: {c.etiquetas}
+        </div>
+      ) : null}
+      {error ? <div style={{ color: "var(--critico-texto)" }}>{error}</div> : null}
+    </div>
+  );
+}
+
+export function ListaPedidos({ pedidos: iniciales }: { pedidos: Pedido[] }) {
   const router = useRouter();
+  // Copia local: al reenviar un correo se actualiza su constancia sin recargar.
+  const [pedidos, setPedidos] = useState(iniciales);
+  useEffect(() => setPedidos(iniciales), [iniciales]);
   const [asignando, setAsignando] = useState<Pedido | null>(null);
   const [editando, setEditando] = useState<Pedido | null>(null);
   const [ligando, setLigando] = useState<Pedido | null>(null);
@@ -275,6 +345,12 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         >
                           Renglones
                         </button>
+                        <ReenviarCorreo
+                          p={p}
+                          alCambiar={(correo) =>
+                            setPedidos((xs) => xs.map((x) => (x.id === p.id ? { ...x, correo } : x)))
+                          }
+                        />
                         {/* Colores que MELI no tiene como los escribió la fábrica: se
                             ligan a mano con la variante publicada (en rojo mientras falte). */}
                         {p.sinSku?.length || p.ligados?.length ? (
