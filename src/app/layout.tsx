@@ -1,21 +1,15 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Fraunces } from "next/font/google";
+import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import { Armazon } from "@/components/armazon";
 import { clienteServidor } from "@/lib/supabase/server";
 import { rolDeSesion, type Rol } from "@/lib/acceso/roles";
 
 // Autohospedadas por next/font (sin @import remoto bloqueante, sin CLS).
-// Marca GETAC (9-oct-2026): DM Sans para el texto y los números (cálida,
-// con cifras tabulares) y Fraunces, una serif suave, solo en los títulos:
-// combina con el trazo de pincel del logo «since 1981».
+// DM Sans para todo: texto, números (cifras tabulares) y títulos. La serif
+// Fraunces de los títulos se quitó el 16-nov-2026 (rediseño «blanco limpio»:
+// una sola letra, una descarga menos en cada primera visita).
 const texto = DM_Sans({ subsets: ["latin"], display: "swap", variable: "--font-texto" });
-const titulo = Fraunces({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  display: "swap",
-  variable: "--font-titulo",
-});
 
 export const metadata: Metadata = {
   title: "GETAC",
@@ -24,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 // La barra del navegador del teléfono toma la crema del menú (`--sidebar`).
-export const viewport: Viewport = { themeColor: "#fbf8f3" };
+export const viewport: Viewport = { themeColor: "#ffffff" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // El rol sale del JWT de la cookie, sin viaje a Supabase: el menú de
@@ -38,7 +32,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     rol = "dueño";
   }
   return (
-    <html lang="es" className={`${texto.variable} ${titulo.variable}`}>
+    <html lang="es" className={texto.variable}>
       <body>
         <Armazon rol={rol}>{children}</Armazon>
       </body>

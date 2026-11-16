@@ -4,7 +4,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { registrarSync, cerrarSync, upsertEnTandas } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
 import { extraerSku, obtenerStockFull } from "@/lib/meli/sync";
-import { desglosarSku } from "@/lib/servicios/sync";
+import { desglosarSku } from "../../../../lib/importar/desglose-sku";
 import { invalidar } from "@/lib/servicios/cache";
 
 export const dynamic = "force-dynamic";

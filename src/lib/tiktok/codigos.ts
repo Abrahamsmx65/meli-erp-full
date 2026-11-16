@@ -13,7 +13,7 @@
  * ordenados y aplastado).
  */
 import { claveAplastada, claveComparacion } from "../importar/sku";
-import { claveOrdenada } from "../etiquetas/resolver";
+import { claveOrdenada } from "../etiquetas/clave-ordenada";
 
 export interface FilaCodigoMeli {
   sku: string;

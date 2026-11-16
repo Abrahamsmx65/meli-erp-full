@@ -11,7 +11,7 @@
  */
 import type { EstadoSku, Parametros, ResumenPlan } from "../engine/types";
 import { generarPlanCompleto, type PlanCompleto } from "./plan";
-import { desglosarSku } from "./sync";
+import { desglosarSku } from "../importar/desglose-sku";
 import type { DB } from "../datos/repos";
 import type { FilaSinCorrida, SkuSinAmarre } from "../importar/cajas";
 

@@ -1,5 +1,5 @@
 import { cuentaAmazon, type RenglonAmazon } from "./amazon";
-import { desglosarSku } from "./sync";
+import { desglosarSku } from "../importar/desglose-sku";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { numeroDePedido } from "./compras";

@@ -19,19 +19,19 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #faf7f2;
-  --plane: #f6f2ec;
+  --surface-2: #fafaf9;
+  --plane: #f7f7f6;
 
   /* tinta */
-  --ink-1: #2a2019;
-  --ink-2: #5e5146;
+  --ink-1: #1c1917;
+  --ink-2: #57534e;
   /* tenue: 5.1:1 sobre blanco y 4.6:1 sobre la crema de fondo (AA) */
-  --ink-muted: #7a6b5d;
+  --ink-muted: #6f6964;
 
   /* líneas */
-  --grid: #f2ece4;
-  --axis: #dacfc2;
-  --borde: #e9e1d6;
+  --grid: #f0efed;
+  --axis: #d6d3d1;
+  --borde: #e7e5e4;
 
   /* estados: los mismos tonos tierra de las gráficas (verde de utilidad,
      terracota de gastos). El rojo lleva texto blanco encima (insignia,
@@ -44,7 +44,7 @@
   /* acción */
   --acento: #8b6640;
   --acento-hover: #72522f;
-  --acento-suave: #f5ede3;
+  --acento-suave: #f6efe7;
   --exito-texto: #1f7346;
 
   /* gráficas del estado de resultados: a dónde se va cada peso de venta,
@@ -64,15 +64,15 @@
   /* resalte de renglones (antes ámbar): el café de acción */
   --ambar: #8b6640;
   /* menú lateral: el riel crema de la marca */
-  --sidebar: #fbf8f3;
+  --sidebar: #ffffff;
   --sidebar-acento: #a77d52;
-  --sidebar-borde: #ece4d9;
-  --sidebar-texto: #4d4035;
-  --sidebar-tenue: #776656; /* 5.2:1 sobre --sidebar */
-  --sidebar-activo: #f1e6d8;
-  --sidebar-hover: #f5eee5;
+  --sidebar-borde: #e7e5e4;
+  --sidebar-texto: #44403c;
+  --sidebar-tenue: #78716c; /* 4.8:1 sobre --sidebar */
+  --sidebar-activo: #f6efe7;
+  --sidebar-hover: #f5f5f4;
 
-  --sombra-panel: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --sombra-panel: 0 1px 2px rgba(28, 25, 23, 0.04);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
 
   /* curvas de movimiento: salida fuerte para todo lo que entra o responde
@@ -81,15 +81,15 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* renglón de tabla bajo el puntero */
-  --fila-hover: #f7f2ea;
+  --fila-hover: #fafaf9;
 
   --radio: 8px;
   --radio-grande: 10px;
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
      los armaba a mano con color-mix (25 copias del recuadro ámbar). */
-  --info-suave: #f4efe8;
-  --info-borde: #e2d8cb;
+  --info-suave: #f5f5f4;
+  --info-borde: #e7e5e4;
   --bien-suave: #eaf4ee;
   --bien-borde: #c3e0cf;
   --alerta-suave: #fdf6e3;
@@ -100,7 +100,7 @@
   --critico-texto: #a3402b;
 
   --fuente-sans: var(--font-texto), -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fuente-titulo: var(--font-titulo), Georgia, serif;
+  --fuente-titulo: var(--font-texto), -apple-system, "Segoe UI", Roboto, sans-serif;
   --fuente-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -273,10 +273,10 @@
   /* Título de página: una sola voz en todo el ERP. */
   .titulo-pagina {
     font-family: var(--fuente-titulo);
-    font-size: 1.75rem;
-    line-height: 1.15;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-weight: 650;
+    letter-spacing: -0.022em;
     color: var(--ink-1);
   }
 
@@ -305,11 +305,10 @@
   /* Encabezado de pantalla: sección en caja alta chica (la del menú), título,
      una línea, y a la derecha acciones y frescura. */
   .ceja {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--acento);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--ink-muted);
   }
 
   .encabezado-descripcion {
@@ -374,7 +373,7 @@
     justify-content: space-between;
     gap: 0.5rem 1rem;
     padding: 0.875rem 1rem;
-    border-bottom: 1px solid var(--grid);
+    border-bottom: 1px solid var(--borde);
   }
 
   /* Avisos: cuatro tonos y nada más. */
@@ -650,6 +649,9 @@
   .tabla-caja table.datos thead th:first-child:not([colspan]) {
     z-index: 3;
   }
+  .tabla-caja table.datos tfoot tr {
+    background: var(--surface-2);
+  }
   /* La sombra del borde derecho solo sale cuando ya se desplazó: la
      dibuja una animación atada al desplazamiento de la caja. Donde el
      navegador no la sabe, no hay sombra (y nada se rompe). */
@@ -708,6 +710,9 @@
   .boton-primario {
     background: var(--acento);
     color: #fff;
+    box-shadow:
+      0 1px 2px rgba(28, 25, 23, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
   .boton-secundario {
@@ -724,8 +729,9 @@
      re-inventaban con paddings y tokens distintos. */
   .boton-borde {
     background: var(--surface-1);
-    border: 1px solid var(--borde);
+    border: 1px solid var(--axis);
     color: var(--ink-1);
+    box-shadow: 0 1px 1px rgba(28, 25, 23, 0.04);
   }
 
   /* Familia de PELIGRO: las acciones destructivas se ven distintas SIEMPRE. */
@@ -804,26 +810,48 @@
     width: 100%;
   }
 
+  /* Rediseño del 16-nov-2026: el encabezado va en una franja gris muy clara
+     (se distingue de los renglones sin gritar), los números siempre con
+     dígitos tabulares, la primera columna en tinta firme (es el nombre del
+     renglón) y el pie de totales con su propia franja. */
   table.datos th {
     font-weight: 600;
     font-size: 0.75rem;
     letter-spacing: 0.01em;
     color: var(--ink-2);
     text-align: left;
-    padding: 0.625rem 0.75rem;
+    padding: 0.5625rem 0.875rem;
     border-bottom: 1px solid var(--borde);
     position: sticky;
     top: 0;
-    background: var(--surface-1);
+    background: var(--surface-2);
     z-index: 1;
     white-space: nowrap;
   }
 
   table.datos td {
-    padding: 0.625rem 0.75rem;
+    padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--grid);
-    font-size: 0.875rem;
+    font-size: 0.8438rem;
+    line-height: 1.35;
     vertical-align: middle;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  table.datos tbody td:first-child {
+    font-weight: 500;
+    color: var(--ink-1);
+  }
+
+  table.datos tfoot td,
+  table.datos tfoot th {
+    position: static;
+    background: var(--surface-2);
+    border-top: 1px solid var(--borde);
+    border-bottom: none;
+    font-size: 0.8438rem;
+    font-weight: 600;
+    color: var(--ink-1);
   }
 
   table.datos tbody tr:last-child td {
@@ -862,11 +890,46 @@
 
     .seccion-menu:hover {
       color: var(--ink-1);
+      background: var(--sidebar-hover);
     }
 
     .salir:hover {
       background: var(--surface-2);
       color: var(--ink-1);
+    }
+  }
+
+  /* Buscador del riel: campo gris claro con la lupa adentro. */
+  input.buscador-menu {
+    height: 2.125rem;
+    padding: 0 2.75rem 0 2rem;
+    font-size: 0.8125rem;
+    background: var(--surface-2);
+    border-color: var(--sidebar-borde);
+    border-radius: var(--radio);
+  }
+  input.buscador-menu::-webkit-search-cancel-button {
+    display: none;
+  }
+  input.buscador-menu:focus {
+    background: var(--surface-1);
+  }
+
+  /* Pantallas de una sección: colgadas de una línea guía bajo su ícono. */
+  .lista-menu {
+    margin-left: 1.0625rem;
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--sidebar-borde);
+  }
+
+  /* Estrella de favorito: discreta, aparece al señalar el renglón. */
+  .estrella-menu {
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .estrella-menu:hover {
+      color: var(--sidebar-acento) !important;
+      background: var(--surface-1);
     }
   }
 
@@ -876,7 +939,7 @@
     outline-color: var(--sidebar-acento);
   }
   nav[aria-label="Secciones"] {
-    scrollbar-color: #e0d5c7 transparent;
+    scrollbar-color: #dcdad7 transparent;
   }
 
   /* Insignia roja de conteo (pendientes). */

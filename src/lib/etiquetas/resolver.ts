@@ -7,7 +7,8 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli, normalizarTalla, numeroAlFrenteDelColor } from "../importar/sku";
-import { desglosarSku } from "../servicios/sync";
+import { desglosarSku } from "../importar/desglose-sku";
+import { claveOrdenada } from "./clave-ordenada";
 
 export interface EtiquetaResuelta {
   sku: string;
@@ -34,17 +35,10 @@ export interface DatoAmazon {
   asin?: string | null;
 }
 
-/**
- * Clave para amarrar el SKU de MELI con el de Amazon. No basta la clave
- * canónica: en Amazon algunos SKUs traen las mismas piezas en OTRO orden
- * ("GT125-25-BLK-MX" con la talla antes del color). Ordenar los pedazos
- * alfabéticamente hace que los dos órdenes caigan en la misma clave, y como
- * modelo, color y talla tienen que coincidir de todas formas, el riesgo de
- * un falso positivo es mínimo.
- */
-export function claveOrdenada(s: string): string {
-  return claveComparacion(s).split("-").sort().join("-");
-}
+// `claveOrdenada` vive en `clave-ordenada.ts` (módulo puro): este archivo
+// arrastra la sincronización y la librería de Excel, y la estación de
+// empaque de TikTok lo metía entero al navegador solo por esa función.
+export { claveOrdenada } from "./clave-ordenada";
 
 /** Lo que se sabe de un SKU de Amazon, venga de la tabla que venga. */
 export interface FilaAmazon {

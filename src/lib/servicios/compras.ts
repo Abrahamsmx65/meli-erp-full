@@ -34,7 +34,7 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
-import { desglosarSku } from "./sync";
+import { desglosarSku } from "../importar/desglose-sku";
 import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
 import { familiaDe, type MapaFamilias } from "../pedidos-china/familias";
 import { cargarFamilias } from "./familias-modelos";
