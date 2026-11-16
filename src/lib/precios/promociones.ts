@@ -163,8 +163,30 @@ export interface RenglonPromo {
   stockMax: number | null;
   /** folio de la propuesta: con él se inscribe ESA fecha y no otra */
   offerId: string | null;
+  /** precio que MELI propone en una candidata (el que sí acepta como creíble) */
+  propuesto: number | null;
   accion: AccionPromo;
 }
+
+/** Cuánto abajo del precio de Números se acepta el precio que propone MELI en una relámpago. */
+export const TOLERANCIA_PRECIO_PROPUESTO = 0.02;
+
+/**
+ * Precio al que se reintenta una relámpago que MELI rechazó por «precio no
+ * creíble»: el que MELI propone, solo si queda a lo más 2 % abajo del de
+ * Números. 16-nov-2026: en Buen Fin MELI rechazó $199.99 en 27 publicaciones
+ * (GT162, GT125, GT110…) y su propuesta era $197.87; la pantalla enseñaba
+ * «Stock must be between 5 and N», que era el error del último intento de
+ * pares, no el motivo. Más abajo que eso no se baja solo: se declara.
+ */
+export function precioPropuestoAceptable(r: Pick<RenglonPromo, "nuevo" | "propuesto">): number | null {
+  if (r.nuevo == null || r.propuesto == null || r.propuesto <= 0) return null;
+  if (r.propuesto >= r.nuevo) return null;
+  return r.propuesto >= r.nuevo * (1 - TOLERANCIA_PRECIO_PROPUESTO) ? r.propuesto : null;
+}
+
+export const esPrecioNoCreible = (mensaje: string) => /CREDIBILITY|not credible/i.test(mensaje);
+export const esErrorDePares = (mensaje: string) => /stock must be/i.test(mensaje);
 
 const igualPrecio = (a: number | null, b: number | null) =>
   a != null && b != null && Math.round(a * 100) === Math.round(b * 100);
@@ -220,6 +242,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     stockMin: p.stock?.min ?? null,
     stockMax: p.stock?.max ?? null,
     offerId: p.offer_id ?? p.ref_id ?? null,
+    propuesto: !inscrita && p.price != null && p.price > 0 ? p.price : null,
     accion,
   };
 }
