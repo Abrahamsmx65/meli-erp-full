@@ -8,8 +8,8 @@
  * no sea por SKU sino por familia con sus totales de stock, y que tenga ahí
  * las ventas que ha tenido el producto».
  */
-import { desglosarSku } from "./sync";
-import { modeloUnificado } from "./costos-unificados";
+import { desglosarSku } from "../importar/desglose-sku";
+import { modeloUnificado } from "./modelo-unificado";
 import { esModeloDeCalzado } from "../tiktok/publicar";
 
 /** Un SKU con lo que hay de él en cada lugar. Los pares pueden venir en fracción (barco repartido). */

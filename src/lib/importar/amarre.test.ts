@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { importarCorridas, importarExistencias } from "./excel";
 import { construirCajas } from "./cajas";
 import { amarrarSku, claveComparacion, construirIndice, construirSkuMeli } from "./sku";
-import { desglosarSku } from "../servicios/sync";
+import { desglosarSku } from "./desglose-sku";
 
 const dir = join(process.cwd(), "fixtures");
 const skusMeli = readFileSync(join(dir, "skus-full-meli.txt"), "utf8")

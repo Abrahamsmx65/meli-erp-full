@@ -32,7 +32,7 @@
 import { leerHoja } from "./leer-hoja";
 import { canonizar, normalizarTalla } from "./sku";
 import { colorDeProforma, tallaDeEncabezado } from "./proforma";
-import { desglosarSku } from "../servicios/sync";
+import { desglosarSku } from "./desglose-sku";
 
 export interface LineaPacking {
   /** como viene en el archivo: "IN10079-3" */

@@ -12,11 +12,12 @@
  *   3. el diseño de funda (499-IP15PM → 499; N-462-A06 → 462; 499N → 499)
  * y yz_costos sigue de respaldo por si algo no se copió todavía.
  */
+import { modeloUnificado } from "./modelo-unificado";
 import { type DB } from "../datos/repos";
 import { desglosar as desglosarFunda, claveCanonica, esCalzado } from "../yapanizcel/sku";
 import { todo } from "../yapanizcel/db";
 import { configPorProducto, type ConfigProducto } from "./productos";
-import { desglosarSku } from "./sync";
+import { desglosarSku } from "../importar/desglose-sku";
 
 export type MapaCostos = Map<string, ConfigProducto>;
 
@@ -33,23 +34,10 @@ export async function cuentaFundasId(db: DB): Promise<string | null> {
   return data?.id ?? null;
 }
 
-/**
- * Modelo unificado de un SKU: el modelo de calzado si lo es, y si no, el
- * diseño de la funda. "437-RmPad-2-navy" → 437; "GT114-NEGRO-25" → GT114;
- * "N-462-A06" → 462; "glass-A53" → GLASS.
- */
-export function modeloUnificado(sku: string): string {
-  const s = String(sku ?? "").trim();
-  if (!s) return "";
-  const calzado = (desglosarSku(s).modelo ?? s).toUpperCase();
-  // Un modelo que empieza con número, o que es un prefijo suelto de una o
-  // dos letras (N-462…), no es calzado: es un diseño de funda.
-  if (/^\d/.test(calzado) || /^[A-Z]{1,2}$/.test(calzado)) {
-    const d = desglosarFunda(s).diseno;
-    return (d || calzado).toUpperCase();
-  }
-  return calzado;
-}
+// `modeloUnificado` vive en `modelo-unificado.ts` (módulo puro): este archivo
+// llega a la base, y las pantallas que solo agrupan por modelo se lo llevaban
+// entero al navegador.
+export { modeloUnificado } from "./modelo-unificado";
 
 /** La configuración (costo y categoría) de un SKU, o null si no hay. */
 export function configDeSku(sku: string, mapa: MapaCostos): ConfigProducto | null {

@@ -1,5 +1,33 @@
 # Guía de diseño de pantallas (9-oct-2026)
 
+## Rediseño «blanco limpio» (16-nov-2026) — manda sobre lo de abajo
+
+Dueño: «un poco de colores y mucho de diseño para que sea más intuitivo, como
+una página profesional, sin cambiar cómo están ordenadas las pestañas en el
+menú»; eligió **blanco limpio + café** y mejorar **encontrar las pantallas**
+y **tablas y números**.
+
+- **Paleta**: fondo gris muy claro neutro (`--plane` #f7f7f6), tarjetas y
+  MENÚ blancos, tinta casi negra (`--ink-1` #1c1917), líneas grises
+  (`--borde` #e7e5e4). El café de GETAC (`--acento` #8b6640) queda SOLO como
+  acento: botón principal, lo activo, enlaces. Los estados (verde, mostaza,
+  terracota) no cambian. Los nombres de los tokens son los mismos.
+- **Letra**: DM Sans en todo; los títulos ya no van en serif (Fraunces se
+  quitó: una descarga menos). Título de pantalla 24 px / 650; la ceja es la
+  sección del menú en gris chico, sin mayúsculas.
+- **Menú** (`components/menu-lateral.tsx`; el ORDEN no cambia): arriba un
+  BUSCADOR que filtra las pantallas mientras se escribe (sin acentos; Enter
+  abre la primera, Esc limpia; ⌘K sigue abriendo la paleta); FAVORITOS con la
+  estrella de cada renglón (se recuerdan en el navegador, `menu-favoritos-v1`,
+  salen debajo de Inicio); cada SECCIÓN lleva su ícono y sus pantallas van solo
+  con el nombre, colgadas de una línea guía.
+- **Tablas** (`table.datos`): encabezado en franja gris clara, números
+  siempre tabulares, primera columna en tinta firme, y un `<tfoot>` sale como
+  franja de totales en negrita. Los totales de una tabla van en `<tfoot>`.
+- **Botones**: el principal café con sombra corta; el de borde con borde gris
+  más marcado.
+
+
 ## Armazón y marca (9-oct-2026)
 
 Marca GETAC: logo en `public/getac-logo.png` (sin fondo, `components/logo.tsx`)

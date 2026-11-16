@@ -13,7 +13,7 @@
  * misma decisión que ya tomó el monitor de Amazon.
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
-import { desglosarSku } from "./sync";
+import { desglosarSku } from "../importar/desglose-sku";
 import { servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
