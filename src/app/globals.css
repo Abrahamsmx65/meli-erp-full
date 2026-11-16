@@ -19,19 +19,19 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #fafaf9;
-  --plane: #f7f7f6;
+  --surface-2: #faf7f2;
+  --plane: #f6f2ec;
 
   /* tinta */
-  --ink-1: #1c1917;
-  --ink-2: #57534e;
+  --ink-1: #2a2019;
+  --ink-2: #5e5146;
   /* tenue: 5.1:1 sobre blanco y 4.6:1 sobre la crema de fondo (AA) */
-  --ink-muted: #6f6964;
+  --ink-muted: #7a6b5d;
 
   /* líneas */
-  --grid: #f0efed;
-  --axis: #d6d3d1;
-  --borde: #e7e5e4;
+  --grid: #f2ece4;
+  --axis: #dacfc2;
+  --borde: #e9e1d6;
 
   /* estados: los mismos tonos tierra de las gráficas (verde de utilidad,
      terracota de gastos). El rojo lleva texto blanco encima (insignia,
@@ -44,7 +44,7 @@
   /* acción */
   --acento: #8b6640;
   --acento-hover: #72522f;
-  --acento-suave: #f6efe7;
+  --acento-suave: #f5ede3;
   --exito-texto: #1f7346;
 
   /* gráficas del estado de resultados: a dónde se va cada peso de venta,
@@ -64,13 +64,13 @@
   /* resalte de renglones (antes ámbar): el café de acción */
   --ambar: #8b6640;
   /* menú lateral: el riel crema de la marca */
-  --sidebar: #ffffff;
+  --sidebar: #fbf8f3;
   --sidebar-acento: #a77d52;
-  --sidebar-borde: #e7e5e4;
-  --sidebar-texto: #44403c;
-  --sidebar-tenue: #78716c; /* 4.8:1 sobre --sidebar */
-  --sidebar-activo: #f6efe7;
-  --sidebar-hover: #f5f5f4;
+  --sidebar-borde: #ece4d9;
+  --sidebar-texto: #4d4035;
+  --sidebar-tenue: #776656; /* 5.2:1 sobre --sidebar */
+  --sidebar-activo: #f1e6d8;
+  --sidebar-hover: #f5eee5;
 
   --sombra-panel: 0 1px 2px rgba(28, 25, 23, 0.04);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
@@ -81,15 +81,15 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* renglón de tabla bajo el puntero */
-  --fila-hover: #fafaf9;
+  --fila-hover: #f7f2ea;
 
   --radio: 8px;
   --radio-grande: 10px;
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
      los armaba a mano con color-mix (25 copias del recuadro ámbar). */
-  --info-suave: #f5f5f4;
-  --info-borde: #e7e5e4;
+  --info-suave: #f4efe8;
+  --info-borde: #e2d8cb;
   --bien-suave: #eaf4ee;
   --bien-borde: #c3e0cf;
   --alerta-suave: #fdf6e3;
@@ -939,7 +939,7 @@
     outline-color: var(--sidebar-acento);
   }
   nav[aria-label="Secciones"] {
-    scrollbar-color: #dcdad7 transparent;
+    scrollbar-color: #e0d5c7 transparent;
   }
 
   /* Insignia roja de conteo (pendientes). */

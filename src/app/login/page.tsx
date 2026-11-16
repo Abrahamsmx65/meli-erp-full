@@ -63,7 +63,7 @@ function FormularioLogin() {
       {/* Lado de la marca: solo en pantallas anchas. */}
       <aside
         className="relative hidden flex-col justify-between overflow-hidden p-12 lg:flex"
-        style={{ background: "var(--surface-2)", color: "var(--ink-1)", borderRight: "1px solid var(--borde)" }}
+        style={{ background: "#f3ebdf", color: "var(--ink-1)" }}
       >
         <Logo alto={64} />
         <div className="relative max-w-md">

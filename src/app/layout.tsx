@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 // La barra del navegador del teléfono toma la crema del menú (`--sidebar`).
-export const viewport: Viewport = { themeColor: "#ffffff" };
+export const viewport: Viewport = { themeColor: "#fbf8f3" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // El rol sale del JWT de la cookie, sin viaje a Supabase: el menú de

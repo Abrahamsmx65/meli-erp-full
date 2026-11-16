@@ -2,6 +2,13 @@
 
 ## Rediseño «blanco limpio» (16-nov-2026) — manda sobre lo de abajo
 
+**La PALETA volvió a la crema el mismo 16-nov-2026** (dueño, al ver el blanco
+en producción: «no me gustó en blanco», y entre cinco opciones —crema, menú
+café oscuro, azul marino, verde bosque, grafito—: «me gusta el de antes,
+regrésalo»): fondo crema `--plane` #f6f2ec, menú crema `--sidebar` #fbf8f3,
+tinta café oscuro, líneas arena. Lo de «Paleta» de abajo ya NO vale; el menú
+nuevo, las tablas, los botones y la letra sin serif se quedan.
+
 Dueño: «un poco de colores y mucho de diseño para que sea más intuitivo, como
 una página profesional, sin cambiar cómo están ordenadas las pestañas en el
 menú»; eligió **blanco limpio + café** y mejorar **encontrar las pantallas**
