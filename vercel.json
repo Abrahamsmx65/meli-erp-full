@@ -78,7 +78,7 @@
     },
     {
       "path": "/api/cron/resumen-diario",
-      "schedule": "0 14 * * *"
+      "schedule": "10 14 * * *"
     },
     {
       "path": "/api/cron/confirmacion-pedidos",
