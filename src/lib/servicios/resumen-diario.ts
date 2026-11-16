@@ -347,27 +347,41 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
   const periodo = dia.slice(0, 7);
   const avisos: string[] = [];
   const semana = semanaQueCierra(dia);
-  const caidosSemana: string[] = [];
-  const cargarSemana = async (): Promise<Consolidado[] | null> => {
-    if (!semana) return null;
+  // La semana se reintenta IGUAL que el día (16-nov-2026: la lectura de la
+  // semana de fundas se pasó del statement_timeout a las 8:00 y, como no se
+  // reintentaba, el correo del lunes salió con fundas «sin dato»). Cada
+  // intento lleva sus propios avisos: solo se declaran los del último.
+  type LecturaSemana = { c: Consolidado[] | null; caidos: string[]; avisos: string[] };
+  const cargarSemana = async (sem: { desde: string; hasta: string }): Promise<LecturaSemana> => {
+    const caidos: string[] = [];
+    const avisosSemana: string[] = [];
     try {
-      return await Promise.all(
-        tramosPorMes(semana.desde, semana.hasta).map((t) =>
+      const c = await Promise.all(
+        tramosPorMes(sem.desde, sem.hasta).map((t) =>
           cargarConsolidado(db, cuenta, t.periodo, {
             desde: t.desde,
             hasta: t.hasta,
             alFallarCanal: (canal, motivo) => {
-              avisos.push(`Semana · ${canal}: no se pudo leer (${motivo}).`);
+              avisosSemana.push(`Semana · ${canal}: no se pudo leer (${motivo}).`);
               const k = canalDeNombre(canal);
-              if (k) caidosSemana.push(k);
+              if (k) caidos.push(k);
             },
           }),
         ),
       );
+      return { c, caidos, avisos: avisosSemana };
     } catch (err) {
-      avisos.push(`No se pudo leer la semana: ${(err as Error).message}.`);
-      return null;
+      return { c: null, caidos, avisos: [`No se pudo leer la semana: ${(err as Error).message}.`] };
     }
+  };
+  const leerSemana = async (): Promise<LecturaSemana | null> => {
+    if (!semana) return null;
+    let s = await cargarSemana(semana);
+    for (let intento = 0; intento < INTENTOS_DIA - 1 && (s.c == null || s.caidos.length); intento++) {
+      await new Promise((ok) => setTimeout(ok, ESPERA_REINTENTO_MS));
+      s = await cargarSemana(semana);
+    }
+    return s;
   };
   // El día: si un canal se cae (a las 8:00 la base va cargada y una lectura
   // de 100 ms llegó a pasar de los 8 s del statement_timeout), se vuelve a
@@ -392,7 +406,10 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
     }
     return d;
   };
-  const [dia1, mesGuardado, semanaCargada] = await Promise.all([leerDia(), leerConsolidadoGuardado(db, cuenta, periodo), cargarSemana()]);
+  const [dia1, mesGuardado, semana1] = await Promise.all([leerDia(), leerConsolidadoGuardado(db, cuenta, periodo), leerSemana()]);
+  if (semana1) avisos.push(...semana1.avisos);
+  const semanaCargada = semana1?.c ?? null;
+  const caidosSemana = semana1?.caidos ?? [];
   for (const x of dia1.caidos) avisos.push(x.canal ? `${x.canal}: no se pudo leer (${x.motivo}).` : `No se pudieron leer las ventas: ${x.motivo}.`);
   const caidos = dia1.caidos.map((x) => canalDeNombre(x.canal)).filter((x): x is string => !!x);
   const r = armarResumen(dia, dia1.c, { periodo, consolidado: mesGuardado }, avisos, caidos);
