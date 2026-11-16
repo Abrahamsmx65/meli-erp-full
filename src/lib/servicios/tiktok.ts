@@ -150,7 +150,7 @@ export async function recalcularSaldos(
   accountId: string,
   soloEstosSkus?: string[],
 ): Promise<Map<string, number>> {
-  // Las sumas se hacen en la base (migración 0160): bajar el kardex y los
+  // Las sumas se hacen en la base (migración 0161): bajar el kardex y los
   // renglones de pedido completos en cada aviso fue el 15-nov-2026 la mayor
   // parte de los 570 GB de salida de Supabase.
   const p_skus = soloEstosSkus?.length ? soloEstosSkus : null;
