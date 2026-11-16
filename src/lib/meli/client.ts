@@ -229,6 +229,11 @@ export class MeliClient {
     return this.conCuerpo<T>("PUT", ruta, cuerpo, opts);
   }
 
+  /** DELETE sin cuerpo (quitar una publicación de una promoción). Mismos reintentos que el POST. */
+  async borrar<T = unknown>(ruta: string): Promise<T> {
+    return this.conCuerpo<T>("DELETE", ruta, undefined);
+  }
+
   /**
    * Sube una foto a MELI (`/pictures/items/upload`, multipart) y devuelve su
    * id, que luego viaja en `pictures: [{ id }]` al publicar. Sin reintentos
@@ -264,7 +269,7 @@ export class MeliClient {
   }
 
   private async conCuerpo<T = unknown>(
-    metodo: "POST" | "PUT",
+    metodo: "POST" | "PUT" | "DELETE",
     ruta: string,
     cuerpo: unknown,
     opts?: { headers?: Record<string, string>; reintentos?: number },
@@ -284,7 +289,7 @@ export class MeliClient {
             "Content-Type": "application/json",
             ...(opts?.headers ?? {}),
           },
-          body: JSON.stringify(cuerpo ?? {}),
+          ...(metodo === "DELETE" ? {} : { body: JSON.stringify(cuerpo ?? {}) }),
           cache: "no-store",
         });
 
