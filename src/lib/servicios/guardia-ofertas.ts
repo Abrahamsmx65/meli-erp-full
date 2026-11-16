@@ -11,6 +11,21 @@ import { folioDeOferta, incumplePrecio, type Objetivos, type PromoMeli } from ".
 import { bitacoraCalzado } from "./bitacora-ofertas";
 import { mensajeMeli } from "./listados";
 import { normalizarModelos, objetivosDe, promosDe } from "./precios-modelos";
+import { leerCacheAppGuardado } from "./cache-app";
+
+/**
+ * Modelos que la guardia NO toca (`app_cache` clave `guardia-ofertas:config`,
+ * `{ modelosLibres: ["GT134", …] }`): el dueño los quiere en relámpago abajo
+ * del precio de Números a propósito (16-nov-2026: GT134, GT161, MY2307,
+ * GT130, GT215 y GT154, «al precio bajo que tenían»).
+ */
+export const CLAVE_GUARDIA = "guardia-ofertas:config";
+
+async function modelosLibres(admin: DB, accountId: string): Promise<Set<string>> {
+  const r = await leerCacheAppGuardado<{ modelosLibres?: unknown }>(admin, accountId, CLAVE_GUARDIA).catch(() => null);
+  const lista = r && r.estado === "encontrado" ? r.valor.datos.modelosLibres : null;
+  return new Set(Array.isArray(lista) ? lista.map((m) => String(m).trim().toUpperCase()).filter(Boolean) : []);
+}
 
 export const TAREA_GUARDIA = "guardia-ofertas";
 
@@ -48,10 +63,11 @@ export async function guardiaDeOfertas(
   const skus = await traerTodo<{ item_id: string | null; modelo: string | null }>(admin, "skus", "item_id, modelo, sku", (q) =>
     q.eq("account_id", accountId).not("item_id", "is", null),
   );
+  const libres = await modelosLibres(admin, accountId);
   const items = new Map<string, string>();
   for (const f of skus) {
     const modelo = (f.modelo ?? "").toUpperCase();
-    if (f.item_id && objetivos.has(modelo)) items.set(f.item_id, modelo);
+    if (f.item_id && objetivos.has(modelo) && !libres.has(modelo)) items.set(f.item_id, modelo);
   }
   const quitadas: OfertaQuitada[] = [];
   const fallidas: OfertaQuitada[] = [];
@@ -100,6 +116,7 @@ export async function guardiaDeOfertas(
   });
   await bitacoraCalzado(admin, accountId).anotar(TAREA_GUARDIA, fallidas.length ? "error" : "ok", {
     origen,
+    modelosLibres: [...libres],
     publicaciones: revisadas,
     sinLeer,
     quitadas,
