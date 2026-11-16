@@ -22,6 +22,9 @@ import {
   ofertaAmazon,
   precioMinimoAmazon,
   stockParaRelampago,
+  precioPropuestoAceptable,
+  esPrecioNoCreible,
+  esErrorDePares,
   estaInscrita,
   minimoCreible,
   type Asignaciones,
@@ -351,32 +354,62 @@ async function inscribirRelampago(
   r: RenglonPromo,
   intentos: (number | null)[],
 ): Promise<{ ok: boolean; detalle: string }> {
+  const primero = await inscribirRelampagoA(cliente, r, intentos, r.nuevo as number);
+  if (primero.ok || !esPrecioNoCreible(primero.detalle)) return primero;
+  // MELI no cree el precio de Números: se prueba el que ella propone si queda
+  // a 2 % o menos (`precioPropuestoAceptable`); más abajo se declara.
+  const propuesto = precioPropuestoAceptable(r);
+  const nuestro = `$${(r.nuevo as number).toFixed(2)}`;
+  if (propuesto == null) {
+    const pide = r.propuesto != null ? `; MELI propone $${r.propuesto.toFixed(2)}` : "";
+    return { ok: false, detalle: `MELI no acepta ${nuestro} (precio no creíble)${pide}` };
+  }
+  const segundo = await inscribirRelampagoA(cliente, r, intentos, propuesto);
+  if (segundo.ok) return { ok: true, detalle: `${segundo.detalle} (MELI no aceptó ${nuestro}; es el precio que propone)` };
+  return { ok: false, detalle: `MELI no acepta ${nuestro} (precio no creíble) ni su propuesta de $${propuesto.toFixed(2)}: ${segundo.detalle}` };
+}
+
+async function inscribirRelampagoA(
+  cliente: MeliClient,
+  r: RenglonPromo,
+  intentos: (number | null)[],
+  precio: number,
+): Promise<{ ok: boolean; detalle: string }> {
   let ultimo = "";
+  // El motivo que se enseña es el primero que NO es de pares: el de pares del
+  // último intento tapaba el rechazo de verdad (16-nov-2026).
+  let motivo = "";
+  const anotar = (m: string) => {
+    ultimo = m;
+    if (!motivo && !esErrorDePares(m)) motivo = m;
+  };
   for (const stock of intentos) {
     // `null` = sin `stock`: la propuesta con fecha del asesor entra con todo
     // el inventario; con `stock` MELI inscribe la genérica (ver `stockParaRelampago`).
-    const cuerpo: Record<string, unknown> = { promotion_id: r.promoId, promotion_type: r.tipo, deal_price: r.nuevo };
+    const cuerpo: Record<string, unknown> = { promotion_id: r.promoId, promotion_type: r.tipo, deal_price: precio };
     if (stock != null) cuerpo.stock = stock;
     const con = stock == null ? "con todo el stock" : `con ${stock} pares`;
     try {
       // El folio de la propuesta se manda por si MELI lo llega a obedecer; hoy
       // lo ignora y elige ella la fecha (13-nov-2026, 13 formas probadas).
       await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, { ...cuerpo, ...(r.offerId ? { offer_id: r.offerId } : {}) });
-      return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} ${con}` };
+      return { ok: true, detalle: `inscrita a $${precio.toFixed(2)} ${con}` };
     } catch (err) {
-      ultimo = mensajeMeli(err);
+      anotar(mensajeMeli(err));
       // Si MELI no acepta el folio, se intenta como antes (sin él).
       if (r.offerId && /offer/i.test(ultimo)) {
         try {
           await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, cuerpo);
-          return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} ${con} (MELI no aceptó el folio: ${ultimo})` };
+          return { ok: true, detalle: `inscrita a $${precio.toFixed(2)} ${con} (MELI no aceptó el folio: ${ultimo})` };
         } catch (err2) {
-          ultimo = mensajeMeli(err2);
+          anotar(mensajeMeli(err2));
         }
       }
+      // Un rechazo por precio no cambia con otros pares: no se insiste.
+      if (esPrecioNoCreible(ultimo)) break;
     }
   }
-  return { ok: false, detalle: ultimo };
+  return { ok: false, detalle: motivo || ultimo };
 }
 
 export const TAREA_RELAMPAGOS = "relampagos-auto";

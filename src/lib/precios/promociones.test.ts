@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
+import { clasificarPromo, minimoCreible, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago, precioPropuestoAceptable, esPrecioNoCreible, esErrorDePares } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -95,6 +95,15 @@ it("pares del relámpago: lo del dueño; si no, TODO el stock (el máximo de MEL
   expect(stockParaRelampago(chico, undefined)).toEqual({ intentos: [3, 1] });
   const soloMin = planDePromo("MLM1", { id: "L4", type: "LIGHTNING", status: "candidate", stock: { min: 5 } }, obj);
   expect(stockParaRelampago(soloMin, undefined)).toEqual({ intentos: [5] });
+});
+
+it("relámpago no creíble: se acepta el precio que propone MELI solo si queda a 2 % o menos", () => {
+  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 197.87 })).toBe(197.87);
+  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 180 })).toBeNull();
+  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 210 })).toBeNull();
+  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: null })).toBeNull();
+  expect(esPrecioNoCreible("Errors: ERROR_CREDIBILITY_DISCOUNTED_PRICE - The discounted price is not credible.")).toBe(true);
+  expect(esErrorDePares("Stock must be between 5 and 111 (inclusive)")).toBe(true);
 });
 
 describe("Amazon: precio y mínimo", () => {
