@@ -29,6 +29,11 @@ export function MonitorHoy({ monitor }: { monitor: Monitor }) {
   const hora = horaMinuto(m.minuto);
   const fmt = (x: number) => (medida === "importe" ? pesos(x) : n(x));
   const v = (c: Cifra | null | undefined) => valorDe(c, medida);
+  // La otra medida, chica debajo de cada cifra: con Facturación se ven
+  // también las unidades y al revés (dueño, 16-nov-2026: «puedes aumentar
+  // unidades vendidas también»).
+  const otra = (c: Cifra | null | undefined) =>
+    !c ? null : medida === "importe" ? `${n(c.u)} ${c.u === 1 ? "unidad" : "unidades"}` : pesos(c.i);
 
   const hoyV = v(m.total.hoy);
   const comparaciones = [
@@ -94,6 +99,7 @@ export function MonitorHoy({ monitor }: { monitor: Monitor }) {
                 <span className="cifra text-2xl font-semibold">{c.base ? fmt(v(c.base)) : "—"}</span>
                 <Cambio valor={d} grande />
               </div>
+              {c.base ? <div className="texto-tenue mt-0.5 text-xs">{otra(c.base)}</div> : null}
               <div className="texto-tenue mt-0.5 text-xs">
                 {c.cerroTexto} {fmt(v(c.cerro))}
               </div>
@@ -131,16 +137,28 @@ export function MonitorHoy({ monitor }: { monitor: Monitor }) {
                     {k.nombre}
                   </span>
                 </td>
-                <td className="num cifra font-medium">{fmt(v(k.hoy.completo))}</td>
-                <td className="num cifra">{k.ayer.aEstaHora ? fmt(v(k.ayer.aEstaHora)) : "—"}</td>
+                <td className="num cifra font-medium">
+                  {fmt(v(k.hoy.completo))}
+                  <Otra texto={otra(k.hoy.completo)} />
+                </td>
+                <td className="num cifra">
+                  {k.ayer.aEstaHora ? fmt(v(k.ayer.aEstaHora)) : "—"}
+                  <Otra texto={otra(k.ayer.aEstaHora)} />
+                </td>
                 <td className="num">
                   <Cambio valor={k.ayer.aEstaHora ? cambio(v(k.hoy.completo), v(k.ayer.aEstaHora)) : null} />
                 </td>
-                <td className="num cifra">{k.semana.aEstaHora ? fmt(v(k.semana.aEstaHora)) : "—"}</td>
+                <td className="num cifra">
+                  {k.semana.aEstaHora ? fmt(v(k.semana.aEstaHora)) : "—"}
+                  <Otra texto={otra(k.semana.aEstaHora)} />
+                </td>
                 <td className="num">
                   <Cambio valor={k.semana.aEstaHora ? cambio(v(k.hoy.completo), v(k.semana.aEstaHora)) : null} />
                 </td>
-                <td className="num cifra texto-2">{fmt(v(k.ayer.completo))}</td>
+                <td className="num cifra texto-2">
+                  {fmt(v(k.ayer.completo))}
+                  <Otra texto={otra(k.ayer.completo)} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -153,6 +171,11 @@ export function MonitorHoy({ monitor }: { monitor: Monitor }) {
       ) : null}
     </div>
   );
+}
+
+function Otra({ texto }: { texto: string | null }) {
+  if (!texto) return null;
+  return <span className="texto-tenue block text-[11px] font-normal">{texto}</span>;
 }
 
 function Cambio({ valor, grande }: { valor: number | null; grande?: boolean }) {
