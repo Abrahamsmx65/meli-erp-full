@@ -348,7 +348,17 @@ guárdala numerada.
   nuevo aún no tiene código Full ni FNSKU: esas variantes van en
   FALTANTES.txt. Si el ZIP no se arma el correo sale con el Excel y el motivo
   queda en `correo.etiquetas` (se edita en la pantalla; un correo que no
-  sale no deshace el pedido, se reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  sale no deshace el pedido, se reenvía). **El correo se REENVÍA también
+  desde Órdenes de compra** (botón «Reenviar correo» en el renglón del
+  pedido, `ReenviarCorreo` en `lista-pedidos.tsx`; `PedidoResumen.borradorId`
+  / `correo` salen del borrador confirmado por `pedido_id`; dueño,
+  16-nov-2026: «quiero poder reenviar el correo de un pedido nuevo que hice
+  con sus etiquetas de nuevo»): misma acción `correo` de
+  `/api/pedidos/borradores`, Excel y ZIP de etiquetas armados DE NUEVO en
+  el momento (un color nuevo ya creado en MELI sale ya con sus etiquetas),
+  a los destinatarios de «Mandar a»; el renglón dice cuándo salió el
+  último y si llevó etiquetas. Un pedido subido como proforma a mano no
+  tiene correo que reenviar. Formatos copiados de proformas reales: CHAOZHOU (USD, un
   renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
   la talla, precio por talla en fila de continuación), MINGTAI (RMB),
   JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y

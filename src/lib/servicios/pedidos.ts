@@ -40,6 +40,13 @@ export interface PedidoResumen {
   sinSku: { modelo: string; color: string; coloresMeli: string[] }[];
   /** colores del pedido que el dueño ya ligó a mano con MELI (o confirmó nuevos) */
   ligados: ColorLigado[];
+  /**
+   * El pedido nació en Nuevo pedido: el id de su borrador confirmado, con el
+   * que se vuelve a mandar el correo a la fábrica (Excel + ZIP de etiquetas)
+   * desde Órdenes de compra, y cómo le fue al último correo.
+   */
+  borradorId?: string | null;
+  correo?: { enviado: boolean; para: string[]; en: string; motivo?: string; etiquetas?: string } | null;
 }
 
 /**
@@ -322,10 +329,22 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     );
     return { contLineas, contenedores };
   })();
-  const [amarres, { contLineas, contenedores }] = await Promise.all([
+  // Los pedidos que nacieron en Nuevo pedido tienen un borrador confirmado:
+  // de ahí se reenvía el correo a la fábrica (dueño, 16-nov-2026).
+  const borradoresDePedidos = porTandas(ids, 200, (tanda) =>
+    traerTodo<{ id: string; pedido_id: string; correo: PedidoResumen["correo"] }>(
+      db,
+      "pedidos_borradores",
+      "id, pedido_id, correo",
+      (q) => q.eq("account_id", accountId).eq("estado", "confirmado").in("pedido_id", tanda),
+    ),
+  ).catch(() => [] as { id: string; pedido_id: string; correo: PedidoResumen["correo"] }[]);
+  const [amarres, { contLineas, contenedores }, borradores] = await Promise.all([
     amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]),
     contenedoresDeLineas,
+    borradoresDePedidos,
   ]);
+  const borradorPorPedido = new Map(borradores.map((b) => [b.pedido_id, b]));
   const fantasmaPorPedido = new Map<string, { modelo: string; color: string; coloresMeli: string[] }[]>();
   const ligadosPorPedido = new Map<string, ColorLigado[]>();
   for (const pid of vivosIds) {
@@ -392,6 +411,8 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
       creadoEn: p.creado_en,
       sinSku: fantasmaPorPedido.get(p.id) ?? [],
       ligados: ligadosPorPedido.get(p.id) ?? [],
+      borradorId: borradorPorPedido.get(p.id)?.id ?? null,
+      correo: borradorPorPedido.get(p.id)?.correo ?? null,
     };
   });
 }
