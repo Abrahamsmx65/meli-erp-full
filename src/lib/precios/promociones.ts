@@ -99,8 +99,21 @@ export function redondear99(x: number | null | undefined): number | null {
 
 const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+/**
+ * Promociones cuyo PRECIO LO FIJA MELI (con su aporte): el vendedor solo
+ * acepta o no. Nunca son «Buen Fin» ni «todos los días» de Números aunque se
+ * llamen así: mandarles `deal_price` no sirve, MELI las inscribe a SU precio.
+ * El 15-nov-2026 el cron de Buen Fin metió 450 publicaciones a la SMART
+ * «Descuento Buen Fin» (GT134 a $126 contra $138.99; GT114 a $189 contra
+ * $219.99) solo por el nombre. Estas se deciden en Ofertas MELI con la regla
+ * precio + aporte ≥ PV normal.
+ */
+export const TIPOS_PRECIO_DE_MELI = new Set(["SMART", "PRICE_MATCHING", "UNHEALTHY_STOCK", "PRE_NEGOTIATED", "SMART_LIGHTNING"]);
+
 export function clasificarPromo(p: PromoMeli): ClasePromo | null {
-  if ((p.type ?? "").toUpperCase() === "LIGHTNING") return "relampago";
+  const tipo = (p.type ?? "").toUpperCase();
+  if (tipo === "LIGHTNING") return "relampago";
+  if (TIPOS_PRECIO_DE_MELI.has(tipo)) return null;
   const nombre = sinAcentos(p.name ?? "");
   if (/buen\s*fin/.test(nombre)) return "buen_fin";
   // «Activa Tus Descuentos» es la oferta de todos los días del dueño
@@ -171,7 +184,10 @@ export type Asignaciones = Record<string, ClasePromo | "no_tocar">;
 
 export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignadas: Asignaciones = {}): RenglonPromo {
   const elegida = asignadas[clavePromo(p)];
-  const clase = elegida === "no_tocar" ? null : elegida ?? clasificarPromo(p);
+  // Una promoción cuyo precio lo fija MELI nunca se trata como Buen Fin ni
+  // todos los días, ni asignada a mano: se decide en Ofertas MELI.
+  const precioDeMeli = TIPOS_PRECIO_DE_MELI.has((p.type ?? "").toUpperCase());
+  const clase = elegida === "no_tocar" || precioDeMeli ? null : elegida ?? clasificarPromo(p);
   const nuevo = clase ? precioDeClase(clase, o) : null;
   const inscrita = estaInscrita(p);
   const actual = inscrita ? p.price ?? null : null;
