@@ -15,7 +15,7 @@
  * El paso 5 es el que hace que esto sirva: sin él el kardex sería un cuaderno
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
-import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, porTandas, traerRpcTodoOLanzar, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { estanteDeSku, leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
@@ -58,7 +58,6 @@ import {
 } from "../tiktok/client";
 import { disponibleConEstante } from "../tiktok/bodega";
 import {
-  apartadosPorSku,
   avisosDeRechazos,
   disponibleParaCompradores,
   escriturasContraTikTok,
@@ -68,8 +67,6 @@ import {
   sePuedeEscribir,
   type RechazoTikTok,
   movimientosPendientes,
-  saldosDesdeMovimientos,
-  type Movimiento,
   type RenglonPedido,
   type TipoMovimiento,
 } from "../tiktok/kardex";
@@ -153,35 +150,16 @@ export async function recalcularSaldos(
   accountId: string,
   soloEstosSkus?: string[],
 ): Promise<Map<string, number>> {
-  const filtro = (q: any) => {
-    const base = q.eq("account_id", accountId);
-    return soloEstosSkus?.length ? base.in("sku", soloEstosSkus) : base;
-  };
-
-  const [movs, items] = await Promise.all([
-    traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, cantidad, fecha, id", filtro),
-    traerTodo<any>(db, "tiktok_orden_items", "sku_interno, cantidad, estado", (q) =>
-      q.eq("account_id", accountId),
-    ),
+  // Las sumas se hacen en la base (migración 0160): bajar el kardex y los
+  // renglones de pedido completos en cada aviso fue el 15-nov-2026 la mayor
+  // parte de los 570 GB de salida de Supabase.
+  const p_skus = soloEstosSkus?.length ? soloEstosSkus : null;
+  const [filasSaldo, filasApartado] = await Promise.all([
+    traerRpcTodoOLanzar<{ sku: string; saldo: number }>(db, "tiktok_saldos_kardex", { p_account: accountId, p_skus }),
+    traerRpcTodoOLanzar<{ sku: string; apartado: number }>(db, "tiktok_apartados_por_sku", { p_account: accountId, p_skus }),
   ]);
-
-  const saldos = saldosDesdeMovimientos(
-    (movs ?? []).map((m): Movimiento => ({
-      sku: m.sku,
-      tipo: m.tipo,
-      cantidad: m.cantidad,
-      fecha: m.fecha,
-    })),
-  );
-
-  const apartados = apartadosPorSku(
-    (items ?? []).map((i): RenglonPedido => ({
-      orderId: "",
-      skuInterno: i.sku_interno ?? null,
-      cantidad: i.cantidad ?? 0,
-      estado: i.estado ?? null,
-    })),
-  );
+  const saldos = new Map<string, number>(filasSaldo.map((f) => [f.sku, Number(f.saldo) || 0]));
+  const apartados = new Map<string, number>(filasApartado.map((f) => [f.sku, Number(f.apartado) || 0]));
 
   // Un SKU con apartado pero sin movimientos también tiene que aparecer: es
   // justo el caso de "se vendió algo que no está capturado", y esconderlo
@@ -544,7 +522,7 @@ async function sincronizarPedidosPorIdSinCandado(
   const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
   await recalcularSaldos(admin, accountId);
   if (!ventana.error) await avanzarCursorDePedidos(admin, accountId, ventana.hastaMs, ventana.pedidos.length);
-  if (pedidos.length) await reconstruirVentasDiarias(admin, accountId).catch(() => undefined);
+  if (pedidos.length) await reconstruirVentasDiarias(admin, accountId, { desdeDia: diaMxAtras(DIAS_VENTAS_RECIENTES) }).catch(() => undefined);
   const pub = await publicarDisponibilidad(admin, accountId, cliente, {
     pedidosCompletos: !ventana.error,
     avisosEnProceso: opciones.avisosEnProceso,
@@ -721,7 +699,11 @@ async function sincronizarTikTokSinCandado(
   // solo se rehicieran con pedidos nuevos, una corrección (como la del día
   // en hora de México) esperaría hasta la siguiente venta para verse.
   try {
-    await reconstruirVentasDiarias(admin, accountId);
+    await reconstruirVentasDiarias(
+      admin,
+      accountId,
+      !opciones.soloPedidos && tocaVentasCompletas() ? {} : { desdeDia: diaMxAtras(DIAS_VENTAS_RECIENTES) },
+    );
   } catch (err) {
     avisos.push(`Ventas por día: ${(err as Error).message}`);
   }
@@ -1467,10 +1449,8 @@ export async function completarConexion(
 
 /** Los SKUs con al menos una entrada o un ajuste: los que alguien ya contó. */
 export async function skusContados(db: DB, accountId: string): Promise<Set<string>> {
-  const filas = await traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, id", (q) =>
-    q.eq("account_id", accountId).in("tipo", ["entrada", "ajuste"]),
-  );
-  return new Set((filas ?? []).map((f: any) => f.sku as string));
+  const filas = await traerRpcTodoOLanzar<{ sku: string }>(db, "tiktok_skus_contados", { p_account: accountId });
+  return new Set(filas.map((f) => f.sku));
 }
 
 /** Las referencias que el kardex YA tiene, como `tipo|referencia|sku`. */
@@ -1493,6 +1473,24 @@ async function referenciasRegistradas(
   return claves;
 }
 
+/** Días hacia atrás que se rehacen en cada aviso y en cada corrida del cron. */
+const DIAS_VENTAS_RECIENTES = 7;
+
+/** El día de México (UTC−6 fijo, como `diaMx`) de hace `dias` días. */
+function diaMxAtras(dias: number): string {
+  return new Date(Date.now() - 6 * 3_600_000 - dias * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * La historia COMPLETA de ventas por día se rehace solo en las corridas del
+ * cron de las 4 de la mañana de México (cada 15 min: cuatro al día); las
+ * demás rehacen los últimos días. Un pedido viejo que TikTok cambia tarde
+ * (una devolución) se corrige ahí.
+ */
+function tocaVentasCompletas(): boolean {
+  return new Date(Date.now() - 6 * 3_600_000).getUTCHours() === 4;
+}
+
 /**
  * Ventas por SKU y día, reconstruidas COMPLETAS desde los pedidos guardados.
  *
@@ -1502,20 +1500,36 @@ async function referenciasRegistradas(
  * (unos cientos de pedidos al mes) con el día de México, y lo que ya no
  * corresponde se borra.
  */
-export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
+export async function reconstruirVentasDiarias(
+  db: DB,
+  accountId: string,
+  opciones: { desdeDia?: string } = {},
+): Promise<number> {
+  // Con `desdeDia` solo se rehacen los días de México desde ese (los pedidos
+  // creados desde las 00:00 de ese día y sus renglones): rehacer TODA la
+  // historia en cada aviso bajaba ~48 mil pedidos y ~59 mil renglones cada
+  // vez y fue parte de los 570 GB de salida de Supabase (15-nov-2026). La
+  // historia completa se rehace una vez al día (`tocaVentasCompletas`).
+  const desde = opciones.desdeDia;
   const eq = (q: any) => q.eq("account_id", accountId);
-  const [ordenes, items, actuales] = await Promise.all([
-    traerTodo<any>(
-      db,
-      "tiktok_ordenes",
-      "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra, neto_recibido, pago_esperado, ingreso:pago_desglose->>ingreso",
-      eq,
-    ),
-    traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
-    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
+  const ordenes = await traerTodo<any>(
+    db,
+    "tiktok_ordenes",
+    "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra, neto_recibido, pago_esperado, ingreso:pago_desglose->>ingreso",
+    desde ? (q: any) => eq(q).gte("fecha_creacion", `${desde}T06:00:00Z`) : eq,
+  );
+  const [items, actuales] = await Promise.all([
+    desde
+      ? porTandas((ordenes ?? []).map((o: any) => o.order_id as string), 300, (tanda) =>
+          traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", (q: any) =>
+            eq(q).in("order_id", tanda),
+          ),
+        )
+      : traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
+    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", desde ? (q: any) => eq(q).gte("fecha", desde) : eq),
   ]);
 
-  const ventas = agregarVentasDiarias(
+  const todas = agregarVentasDiarias(
     (ordenes ?? []).map((o: any) => ({
       orderId: o.order_id,
       estado: o.estado,
@@ -1532,6 +1546,7 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
       estado: i.estado ?? null,
     })),
   );
+  const ventas = desde ? todas.filter((v) => v.fecha >= desde) : todas;
 
   if (ventas.length) {
     await guardarEnLotes(
