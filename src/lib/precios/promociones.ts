@@ -181,7 +181,9 @@ export const TOLERANCIA_PRECIO_PROPUESTO = 0.02;
  */
 export function precioPropuestoAceptable(r: Pick<RenglonPromo, "nuevo" | "propuesto">): number | null {
   if (r.nuevo == null || r.propuesto == null || r.propuesto <= 0) return null;
-  if (r.propuesto >= r.nuevo) return null;
+  // Más alto que el de Números siempre se acepta (dueño, 17-nov-2026: «si es
+  // más alto sí lo tiene que aceptar»: GT110 a $141 y MELI proponía $143.20).
+  if (r.propuesto >= r.nuevo) return r.propuesto;
   return r.propuesto >= r.nuevo * (1 - TOLERANCIA_PRECIO_PROPUESTO) ? r.propuesto : null;
 }
 

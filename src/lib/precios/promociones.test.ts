@@ -100,7 +100,8 @@ it("pares del relámpago: lo del dueño; si no, TODO el stock (el máximo de MEL
 it("relámpago no creíble: se acepta el precio que propone MELI solo si queda a 2 % o menos", () => {
   expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 197.87 })).toBe(197.87);
   expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 180 })).toBeNull();
-  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 210 })).toBeNull();
+  expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: 210 })).toBe(210);
+  expect(precioPropuestoAceptable({ nuevo: 141, propuesto: 143.2 })).toBe(143.2);
   expect(precioPropuestoAceptable({ nuevo: 199.99, propuesto: null })).toBeNull();
   expect(esPrecioNoCreible("Errors: ERROR_CREDIBILITY_DISCOUNTED_PRICE - The discounted price is not credible.")).toBe(true);
   expect(esErrorDePares("Stock must be between 5 and 111 (inclusive)")).toBe(true);

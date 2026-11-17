@@ -357,7 +357,7 @@ async function inscribirRelampago(
   const primero = await inscribirRelampagoA(cliente, r, intentos, r.nuevo as number);
   if (primero.ok || !esPrecioNoCreible(primero.detalle)) return primero;
   // MELI no cree el precio de Números: se prueba el que ella propone si queda
-  // a 2 % o menos (`precioPropuestoAceptable`); más abajo se declara.
+  // a 2 % o menos abajo, o si es más alto (`precioPropuestoAceptable`); más abajo se declara.
   const propuesto = precioPropuestoAceptable(r);
   const nuestro = `$${(r.nuevo as number).toFixed(2)}`;
   if (propuesto == null) {
