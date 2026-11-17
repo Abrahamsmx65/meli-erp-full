@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Vendedores externos de TikTok (David). Cuerpo:
- *   { accion: "ligar",    productId, vendedor? }   — la publicación es de David
+ * Vendedores externos de TikTok (David, saldos). Cuerpo:
+ *   { accion: "ligar",    productId, vendedor? }   — la publicación es de ese vendedor (sin `vendedor`, David)
  *   { accion: "desligar", productId }              — vuelve a ser del dueño
  *   { accion: "stock",    renglones: [{ sku, pares }], vendedor? }
  *                                                  — su conteo: ajusta el kardex y publica a TikTok

@@ -7,7 +7,7 @@ import { Link2, Link2Off, Printer, Save, Search } from "lucide-react";
 import { Ficha } from "./tiles";
 import { Pestanas } from "./ui/pestanas";
 import { Aviso, Seccion, Tabla } from "./ui/pagina";
-import { coincidePublicacion, type PublicacionParaLigar } from "@/lib/tiktok/externos";
+import { coincidePublicacion, nombreDeVendedor, type PublicacionParaLigar } from "@/lib/tiktok/externos";
 import type { RenglonStockExterno } from "@/lib/servicios/tiktok-externos";
 import { filtrarInventario, ordenarPorSku } from "@/lib/tiktok/inventario-vista";
 import { confirmar } from "@/components/ui/confirmar";
@@ -29,6 +29,7 @@ function cuando(iso: string): string {
 export function ExternosTikTok({
   vendedor,
   nombre,
+  persona = true,
   publicaciones,
   stock,
   pendientes,
@@ -36,6 +37,8 @@ export function ExternosTikTok({
 }: {
   vendedor: string;
   nombre: string;
+  /** true si el vendedor es una persona (David); false si es una bodega del negocio (saldos): cambia los textos */
+  persona?: boolean;
   publicaciones: PublicacionParaLigar[];
   stock: RenglonStockExterno[];
   pendientes: number;
@@ -120,7 +123,7 @@ export function ExternosTikTok({
       ) : null}
       <Seccion
         titulo="Stock por SKU"
-        descripcion="Teclea lo que hay en la bodega (físico, con lo apartado adentro). Lo que se deja vacío no se toca."
+        descripcion={`Teclea lo que hay en la bodega de ${nombre.toLowerCase() === "saldos" ? "saldos" : nombre} (físico, con lo apartado adentro). Lo que se deja vacío no se toca.`}
         acciones={
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
@@ -230,7 +233,7 @@ export function ExternosTikTok({
                 <td>
                   {p.vendedor ? (
                     <span className="chip" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
-                      {nombre}
+                      {nombreDeVendedor(p.vendedor)}
                     </span>
                   ) : (
                     <span className="texto-tenue text-xs">GETAC</span>
@@ -260,16 +263,16 @@ export function ExternosTikTok({
   const panelCortes = (
     <Seccion
       titulo={`Cortes de ${nombre}`}
-      descripcion="Sus pedidos (y los mixtos con algo de GETAC) se confirman y se imprimen en su propio despacho."
+      descripcion={`Los pedidos de ${nombre} (y los mixtos con algo de GETAC) se confirman y se imprimen en su propio despacho.`}
       acciones={
         <Link href={`/tiktok/despacho?vendedor=${vendedor}`} className="boton boton-primario boton-chico">
           <Printer size={14} />
-          Abrir su despacho{pendientes ? ` (${pendientes} pendientes)` : ""}
+          {persona ? "Abrir su despacho" : `Abrir el despacho de ${nombre.toLowerCase()}`}{pendientes ? ` (${pendientes} pendientes)` : ""}
         </Link>
       }
       sinRelleno
     >
-      <Tabla vacia={!cortes.length} textoVacio={`${nombre} todavía no tiene cortes.`}>
+      <Tabla vacia={!cortes.length} textoVacio={persona ? `${nombre} todavía no tiene cortes.` : `Todavía no hay cortes de ${nombre.toLowerCase()}.`}>
         <table className="datos">
           <thead>
             <tr>
