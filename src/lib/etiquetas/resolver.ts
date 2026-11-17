@@ -172,6 +172,34 @@ export interface IndiceCatalogo {
 }
 
 /** Indexa el catálogo de MELI con los cuatro amarres (y por modelo). */
+/**
+ * Quita del catálogo los nombres VIEJOS de una variante que se renombró en
+ * MELI (dueño, 17-nov-2026: GT331–GT337 pasaron de «BLK» / «CREAM WHITE» a
+ * «BLACK» / «CREAM-WHITE»). El renglón viejo se queda apagado (activo =
+ * false) y sin código Full, pero como el pedido escribe BLK, el índice lo
+ * encontraba primero y la etiqueta salía «sin código Full» aunque la misma
+ * publicación sí lo tenía con el nombre nuevo.
+ *
+ * Solo se quita un renglón apagado cuando su MISMA variante (item +
+ * variación) tiene otro renglón activo; un SKU apagado sin reemplazo se
+ * conserva tal cual. Las filas que no traen `activo` / `item_id` pasan igual.
+ */
+export function sinRenombrados<T extends { sku: string }>(catalogo: T[]): T[] {
+  const filas = catalogo as (T & { activo?: boolean | null; item_id?: string | null; variation_id?: string | number | null })[];
+  const clave = (f: { item_id?: string | null; variation_id?: string | number | null }) =>
+    f.item_id ? `${f.item_id}|${f.variation_id ?? ""}` : null;
+  const conActivo = new Set<string>();
+  for (const f of filas) {
+    const k = clave(f);
+    if (k && f.activo !== false) conActivo.add(k);
+  }
+  return filas.filter((f) => {
+    if (f.activo !== false) return true;
+    const k = clave(f);
+    return !(k && conActivo.has(k));
+  });
+}
+
 export function indexarCatalogo<T extends { sku: string }>(catalogo: T[]): IndiceCatalogo {
   const ix: IndiceCatalogo = {
     exacto: new Map(),
@@ -180,7 +208,7 @@ export function indexarCatalogo<T extends { sku: string }>(catalogo: T[]): Indic
     ordenado: new Map(),
     porModelo: new Map(),
   };
-  for (const s of catalogo ?? []) {
+  for (const s of sinRenombrados(catalogo ?? [])) {
     ix.exacto.set(s.sku.trim().toUpperCase(), s);
     const c = claveComparacion(s.sku);
     if (!ix.canonico.has(c)) ix.canonico.set(c, s);
@@ -289,7 +317,7 @@ export async function resolverEtiquetas(
     traerTodo<any>(
       db,
       "skus",
-      "sku, inventory_id, titulo, color, talla, logistica",
+      "sku, inventory_id, titulo, color, talla, logistica, activo, item_id, variation_id",
       (q) => q.eq("account_id", accountId),
     ),
     mapaAmazon(db),
@@ -297,7 +325,7 @@ export async function resolverEtiquetas(
 
   const exacto = new Map<string, any>();
   const flexible = new Map<string, any>();
-  for (const s of catalogo ?? []) {
+  for (const s of sinRenombrados(catalogo ?? [])) {
     exacto.set(s.sku.trim().toUpperCase(), s);
     const c = claveComparacion(s.sku);
     if (!flexible.has(c)) flexible.set(c, s);
