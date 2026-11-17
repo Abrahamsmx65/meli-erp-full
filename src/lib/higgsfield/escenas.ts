@@ -20,6 +20,8 @@ export type TipoCalzado =
   | "pantufla"
   | "tenis"
   | "tacon"
+  | "flat"
+  | "alpargata"
   | "mocasin"
   | "zapato";
 
@@ -38,6 +40,10 @@ const TIPOS: [TipoCalzado, RegExp][] = [
   ["bota", /\b(BOTA|BOTIN|BOTÍN|BOOT)/i],
   ["sandalia_agua", /\b(CHANCLA|FLIP|JELLY)|\b(SANDALIA|HUARACHE)\b.*\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|MAR|POOL)|\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|POOL)\b.*\b(SANDALIA|HUARACHE)/i],
   ["sandalia", /\b(SANDALIA|HUARACHE)/i],
+  // Flats/balerinas y alpargatas antes que el genérico (dueño, 17-nov-2026:
+  // «faltan categorías de productos como flats»).
+  ["flat", /\b(FLATS?|BALERINA|BAILARINA|BALLET)\b/i],
+  ["alpargata", /\b(ALPARGATA|ESPADRILLE)/i],
   ["tenis", /\b(TENIS|SNEAKER|DEPORTIV|RUNNER|CASUAL SPORT)/i],
   ["tacon", /\b(TACON|TACÓN|ZAPATILLA|STILETTO|PUMP)/i],
   ["mocasin", /\b(MOCASIN|MOCASÍN|LOAFER|NAUTICO|NÁUTICO)/i],
@@ -70,6 +76,8 @@ export const PALABRA_TIPO: Record<TipoCalzado, { palabra: string; femenino: bool
   pantufla: { palabra: "pantuflas", femenino: true },
   tenis: { palabra: "tenis", femenino: false },
   tacon: { palabra: "tacones", femenino: false },
+  flat: { palabra: "flats", femenino: true },
+  alpargata: { palabra: "alpargatas", femenino: true },
   mocasin: { palabra: "mocasines", femenino: false },
   zapato: { palabra: "zapatos", femenino: false },
 };
@@ -129,6 +137,8 @@ const LUCES: Record<TipoCalzado, string[]> = {
   pantufla: ["warm cozy indoor light", "soft morning window light", "gentle lamp glow"],
   tenis: ["punchy studio light", "cool urban light", "clean bright light"],
   tacon: ["glamorous warm spotlights", "elegant cool evening light", "soft cinematic glow"],
+  flat: ["soft feminine daylight", "bright boutique light", "clean airy morning light"],
+  alpargata: ["warm summer daylight", "golden terrace light", "fresh airy light"],
   mocasin: ["refined soft daylight", "warm boutique light", "clean morning light"],
   zapato: ["natural daylight", "warm golden light", "soft studio light"],
 };

@@ -123,3 +123,23 @@ describe("clip hablado", () => {
     ).toContain("female voice-over");
   });
 });
+
+describe("tipos nuevos: flats y alpargatas (dueño, 17-nov-2026)", () => {
+  it("detecta flats, balerinas y alpargatas", () => {
+    expect(detectarTipo("FLATS CASUALES GETAC PARA MUJER GT310")).toBe("flat");
+    expect(detectarTipo("BALERINA FLEXIBLE DAMA")).toBe("flat");
+    expect(detectarTipo("ALPARGATAS DE YUTE CON CUÑA")).toBe("alpargata");
+  });
+
+  it("no le quita nada a los tipos de antes", () => {
+    // "Zapatilla" sigue siendo tacón y una bota con "flat sole" sería bota
+    // (la palabra BOTA gana por orden).
+    expect(detectarTipo("ZAPATILLA STILETTO DAMA")).toBe("tacon");
+    expect(detectarTipo("BOTA CASUAL FLAT")).toBe("bota");
+  });
+
+  it("los dos tipos tienen palabra, guion y luz", () => {
+    expect(guionInicial("flat")).toContain("flats");
+    expect(guionInicial("alpargata")).toContain("alpargatas");
+  });
+});

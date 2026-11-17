@@ -433,6 +433,16 @@ export const MOTIVOS_ESTILO: Record<TipoCalzado, string[]> = {
     "Jeans, blazer y estos: la cena queda resuelta.",
     "La altura media es la que se está usando: sube el look sin castigar.",
   ],
+  flat: [
+    "Hacen ver pulido hasta el look más básico, sin esfuerzo.",
+    "En tono neutro estilizan y van con todo el clóset.",
+    "Se ven finas sin gritar marca: elegancia tranquila.",
+  ],
+  alpargata: [
+    "Dan el look de verano sin esfuerzo: el yute lo arregla todo.",
+    "Combinan igual con lino, mezclilla o vestido.",
+    "Con la cuña la pierna se ve más larga y el outfit más armado.",
+  ],
   mocasin: [
     "Con el pantalón doblado al tobillo se ven muy europeos.",
     "Jeans rectos, camisa blanca y mocasines: arreglado sin corbata.",
@@ -462,6 +472,12 @@ export const MOTIVOS_ESTILO_MUJER: Partial<Record<TipoCalzado, string[]>> = {
   ],
   tacon: [
     "Con vestido negro no hay forma de equivocarse.",
+  ],
+  flat: [
+    "Con falda midi o vestido se ven de revista, sin sacrificar comodidad.",
+  ],
+  alpargata: [
+    "Con vestido ligero son EL look de primavera-verano.",
   ],
 };
 
@@ -566,6 +582,20 @@ const MOTIVOS: Record<TipoCalzado, string[]> = {
     "El taconeo se siente firme y seguro, nada de andar tambaleándose.",
     "La altura es la perfecta: eleva sin volverse un castigo.",
     "La horma es amplia de enfrente; no aprietan los dedos.",
+  ],
+  flat: [
+    "Planas pero con soporte: no es suela de cartón, caminas todo el día y no lo resientes.",
+    "Se ven arregladas sin esfuerzo: con jeans, vestido o pantalón de vestir quedan.",
+    "No sacan ampollas en el talón, ni el primer día.",
+    "Ligeras como ir descalza, pero con el pie bien sujeto.",
+    "Caben en la bolsa: las llevas de repuesto y salvan la noche cuando el tacón cansa.",
+  ],
+  alpargata: [
+    "Frescas para el calor, y el tejido les da un toque que sí se nota.",
+    "La cuña eleva sin castigar: altura cómoda para todo el día.",
+    "Van con vestido, shorts o jeans: el look de verano se arma solo.",
+    "Ligeras y flexibles; no aprietan aunque camines horas.",
+    "El tejido respira: nada de pies sudados en pleno sol.",
   ],
   mocasin: [
     "Se ven presentables para la oficina, pero se sienten como pantufla.",

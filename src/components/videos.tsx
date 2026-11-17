@@ -45,6 +45,8 @@ const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   pantufla: "Pantuflas",
   tenis: "Tenis",
   tacon: "Tacones",
+  flat: "Flats",
+  alpargata: "Alpargatas",
   mocasin: "Mocasines",
   zapato: "Zapatos",
 };
