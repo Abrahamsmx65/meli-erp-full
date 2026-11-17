@@ -825,6 +825,17 @@ guárdala numerada.
   se puede. Sin esto, un aviso atorado o una corrida encimada le regalaba a
   TikTok pares ya vendidos (así se sobrevendió el MY2304 morado el 3 de
   septiembre);
+  **Un pedido CANCELADO es causa desde que el ERP SE ENTERÓ, no desde la
+  hora de TikTok** (migración 0162, `tiktok_cancelados_por_sku` con
+  `greatest(fecha_actualizacion, sincronizado_en)`; 17-nov-2026, dueño: «me
+  explicas esto, por qué no se publica»): GT135-BEIGE-25-MX se quedó «1 por
+  publicar» con «Publicar disponibilidad» contestando «nada por publicar».
+  TikTok canceló un pedido a las 23:31:20Z, la corrida de las 23:30 (ventana
+  cerrada en 23:31:19) escribió «4» a las 23:31:30 y el ERP se enteró de la
+  cancelación a las 23:41:46; el disponible subió a 5, pero la causa se
+  comparaba con la hora de TikTok (anterior a la escritura) y la subida se
+  frenaba en cada corrida mientras hubiera avisos pendientes (casi siempre:
+  llegan cada pocos segundos). Ahora cuenta cuándo lo registró el ERP.
   (3) los avisos de TikTok entran por `/api/tiktok/webhook` (firma HMAC sobre
   `app_key + cuerpo`, se guarda y se procesa con `after()`), y (4) el envío se
   confirma DESDE EL ERP (`confirmarEnvio`: TikTok envía por paquete) y
