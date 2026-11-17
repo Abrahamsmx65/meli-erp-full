@@ -72,7 +72,7 @@ export async function zipEtiquetasDePedido(
   // amarres de siempre: exacto → canónico → aplastado.
   const [catalogo, amazon, aliasColores] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    traerTodo<any>(db, "skus", "sku, inventory_id, titulo, color, talla", (q) => q.eq("account_id", accountId)),
+    traerTodo<any>(db, "skus", "sku, inventory_id, titulo, color, talla, activo, item_id, variation_id", (q) => q.eq("account_id", accountId)),
     mapaAmazon(db),
     // Colores ligados a mano con MELI: la etiqueta sale con el SKU real.
     cargarAliasColores(db, accountId),
