@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   amarreDeExterno,
   agruparPublicaciones,
+  clavesDeVendedores,
   coincidePublicacion,
+  fichaDeVendedor,
+  llevaPrefijoDeVendedor,
   mismoVendedor,
+  nombreDeVendedor,
   normalizarVendedor,
   partirPorVendedor,
   pedidosDeVendedor,
+  publicacionesSinPrefijo,
   sinSkusExternos,
   sinVentasExternas,
   vendedorDePedido,
@@ -117,5 +122,58 @@ describe("publicaciones para ligar", () => {
     expect(coincidePublicacion(lista[1], "gt148 botas")).toBe(true);
     expect(coincidePublicacion(lista[1], "shein")).toBe(false);
     expect(coincidePublicacion(lista[0], "sh-001")).toBe(true);
+  });
+});
+
+describe("saldos: segundo vendedor externo con prefijo «S-»", () => {
+  it("la clave saldos existe, se normaliza y tiene su nombre y su ruta", () => {
+    expect(normalizarVendedor("Saldos")).toBe("saldos");
+    expect(nombreDeVendedor("saldos")).toBe("Saldos");
+    expect(fichaDeVendedor("saldos")).toMatchObject({ ruta: "/tiktok/saldos", prefijo: "S-", persona: false });
+    expect(fichaDeVendedor("david")).toMatchObject({ ruta: "/tiktok/externos", prefijo: "D-", persona: true });
+    expect(fichaDeVendedor(null)).toBeNull();
+    expect(clavesDeVendedores()).toEqual(["david", "saldos"]);
+  });
+
+  it("un pedido con un par de saldos es de saldos, y uno con David y saldos es del primero que aparece", () => {
+    const externos = new Map([
+      ["S-GT114-BLK-24-MX", "saldos"],
+      ["D-GT074-BLK-24-MX", "david"],
+    ]);
+    expect(vendedorDePedido([{ sku: "GT148-BLK-24-MX" }, { sku: "S-GT114-BLK-24-MX" }], externos)).toBe("saldos");
+    expect(vendedorDePedido([{ sku: "GT148-BLK-24-MX" }], externos)).toBeNull();
+    const de = partirPorVendedor(new Map([["A", [{ sku: "S-GT114-BLK-24-MX" }]], ["B", [{ sku: "D-GT074-BLK-24-MX" }]], ["C", [{ sku: "GT1" }]]]), externos);
+    const pendientes = ["A", "B", "C"].map((orderId) => ({ orderId }));
+    expect(pedidosDeVendedor(pendientes, de, "saldos").map((p) => p.orderId)).toEqual(["A"]);
+    expect(pedidosDeVendedor(pendientes, de, "david").map((p) => p.orderId)).toEqual(["B"]);
+    expect(pedidosDeVendedor(pendientes, de, null).map((p) => p.orderId)).toEqual(["C"]);
+  });
+
+  it("reconoce el prefijo del vendedor sin importar mayúsculas", () => {
+    expect(llevaPrefijoDeVendedor("saldos", "S-GT114-BLK-24-MX")).toBe(true);
+    expect(llevaPrefijoDeVendedor("saldos", " s-gt114-blk-24-mx")).toBe(true);
+    expect(llevaPrefijoDeVendedor("saldos", "GT114-BLK-24-MX")).toBe(false);
+    expect(llevaPrefijoDeVendedor("saldos", "SH-001-M")).toBe(false);
+    expect(llevaPrefijoDeVendedor("david", "D-GT074-BLK-24-MX")).toBe(true);
+    expect(llevaPrefijoDeVendedor("david", "S-GT074-BLK-24-MX")).toBe(false);
+    expect(llevaPrefijoDeVendedor("saldos", null)).toBe(false);
+  });
+
+  it("señala las publicaciones ligadas cuyos SKU no llevan el prefijo", () => {
+    const lista = agruparPublicaciones(
+      [
+        { productId: "1", sellerSku: "S-GT114-BLK-24-MX", titulo: "Saldo GT114", estado: "ACTIVATE" },
+        { productId: "2", sellerSku: "GT125-BLK-24-MX", titulo: "GT125 sin prefijo", estado: "ACTIVATE" },
+        { productId: "3", sellerSku: "GT130-BLK-24-MX", titulo: "Del dueño", estado: "ACTIVATE" },
+        { productId: "4", sellerSku: "D-GT074-BLK-24-MX", titulo: "De David", estado: "ACTIVATE" },
+      ],
+      new Map([
+        ["1", "saldos"],
+        ["2", "saldos"],
+        ["4", "david"],
+      ]),
+    );
+    expect(publicacionesSinPrefijo(lista, "saldos").map((p) => p.productId)).toEqual(["2"]);
+    expect(publicacionesSinPrefijo(lista, "david")).toEqual([]);
   });
 });

@@ -59,7 +59,8 @@ export function rutaPermitida(rol: Rol, ruta: string): boolean {
  * Lo que el DUEÑO no quiere ver en su menú aunque pueda abrirlo: Productos
  * de David es la pantalla del vendedor externo (dueño, 15-oct-2026: «quita
  * los productos de David, no me interesa verlos»). La ruta sigue viva para
- * el rol de TikTok, que es quien la usa.
+ * el rol de TikTok, que es quien la usa. Saldos (`/tiktok/saldos`) SÍ va en
+ * el menú del dueño: es su propia mercancía (17-nov-2026).
  */
 const FUERA_DEL_MENU_DEL_DUENO = ["/tiktok/externos"];
 

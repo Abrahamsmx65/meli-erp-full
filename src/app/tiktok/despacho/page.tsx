@@ -7,15 +7,16 @@ import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import Link from "next/link";
-import { nombreDeVendedor, normalizarVendedor, VENDEDOR_DAVID } from "@/lib/tiktok/externos";
+import { clavesDeVendedores, fichaDeVendedor, nombreDeVendedor, normalizarVendedor } from "@/lib/tiktok/externos";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Despacho de TikTok por cortes: confirmar todo, etiquetas y lista de empaque.
- * `?vendedor=david` enseña los cortes y pendientes del vendedor externo
- * (David despacha desde su bodega): sus pedidos nunca entran al corte del
- * dueño ni al revés.
+ * `?vendedor=david` (o `saldos`) enseña los cortes y pendientes de ese
+ * vendedor externo (David despacha desde su bodega; los saldos salen de otra
+ * bodega): sus pedidos nunca entran al corte del dueño ni al revés, ni al de
+ * otro vendedor.
  */
 export default async function Despacho({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const supabase = await clienteServidor();
@@ -39,6 +40,8 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
       .limit(30),
   );
   const pendientesP = pendientesDeCorte(supabase, cuenta.id, vendedor);
+  // Los OTROS despachos (el dueño y cada vendedor externo que no sea este), para los enlaces de arriba.
+  const otros: (string | null)[] = [null, ...clavesDeVendedores()].filter((v) => v !== vendedor);
   const [pendientes, cortesResultado, token, porModelo, avance, tiempos, deLosOtros] = await Promise.all([
     pendientesP,
     cortesP,
@@ -62,10 +65,14 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
     cortesP
       .then((r) => tiemposDeCortes(supabase, cuenta.id, (r.data ?? []).map((c: any) => Number(c.id))))
       .catch(() => new Map<number, { primera: string; ultima: string }>()),
-    // Cuántos pendientes tiene el OTRO despacho (el dueño ↔ David), para el enlace de arriba.
-    pendientesDeCorte(supabase, cuenta.id, vendedor ? null : VENDEDOR_DAVID)
-      .then((p) => p.length)
-      .catch(() => 0),
+    // Cuántos pendientes tiene cada OTRO despacho (el dueño, David, saldos), para los enlaces de arriba.
+    Promise.all(
+      otros.map((v) =>
+        pendientesDeCorte(supabase, cuenta.id, v)
+          .then((p) => p.length)
+          .catch(() => 0),
+      ),
+    ),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -81,6 +88,7 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
     dominioVercel ? `https://${dominioVercel}` : (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app")
   ).replace(/\/+$/, "");
   const sinAvance = avance === null;
+  const ficha = fichaDeVendedor(vendedor);
 
   const cortes: CorteResumen[] = (cortesRaw ?? []).map((c: any) => ({
     id: c.id,
@@ -106,13 +114,19 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
         titulo={vendedor ? `Despacho de ${nombreDeVendedor(vendedor)}` : "Despacho de pedidos"}
         descripcion={
           vendedor
-            ? `Los pedidos con algún producto de ${nombreDeVendedor(vendedor)} (también los que traen algo de GETAC): los despacha él desde su bodega.`
+            ? ficha?.persona === false
+              ? `Los pedidos con algún producto de ${nombreDeVendedor(vendedor).toLowerCase()} (también los que traen algo de GETAC): se despachan desde su propia bodega.`
+              : `Los pedidos con algún producto de ${nombreDeVendedor(vendedor)} (también los que traen algo de GETAC): los despacha él desde su bodega.`
             : undefined
         }
         acciones={
-          <Link href={vendedor ? "/tiktok/despacho" : `/tiktok/despacho?vendedor=${VENDEDOR_DAVID}`} className="boton boton-borde boton-chico">
-            {vendedor ? `Cortes de GETAC (${deLosOtros} pendientes)` : `Cortes de ${nombreDeVendedor(VENDEDOR_DAVID)} (${deLosOtros} pendientes)`}
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {otros.map((v, i) => (
+              <Link key={v ?? "getac"} href={v ? `/tiktok/despacho?vendedor=${v}` : "/tiktok/despacho"} className="boton boton-borde boton-chico">
+                Cortes de {nombreDeVendedor(v)} ({deLosOtros[i]} pendientes)
+              </Link>
+            ))}
+          </div>
         }
       />
       {sinAvance ? (

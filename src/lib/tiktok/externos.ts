@@ -28,13 +28,66 @@
 import type { AmarreTikTok } from "./amarre";
 import type { OrdenParaVentas, RenglonParaVentas } from "./ventas";
 
-/** Los vendedores externos que la tienda conoce. La clave es la que se guarda en la base. */
-export const VENDEDORES_EXTERNOS: Record<string, { nombre: string }> = {
-  david: { nombre: "David" },
+/** Lo que el ERP sabe de cada vendedor externo. */
+export interface VendedorExterno {
+  /** cómo se le nombra en pantalla, en los cortes y en los avisos */
+  nombre: string;
+  /** título de su pantalla en el menú de TikTok */
+  titulo: string;
+  /** su pantalla (publicaciones, stock y cortes) */
+  ruta: string;
+  /** con qué EMPIEZAN sus SKU en TikTok, para distinguirlos de los del dueño («D-GT074-BLK-24-MX», «S-GT114-BLK-24-MX») */
+  prefijo: string;
+  /** true si es una persona (los textos dicen «él captura su stock»); false si es una bodega aparte del propio negocio */
+  persona: boolean;
+}
+
+/**
+ * Los vendedores externos que la tienda conoce. La clave es la que se guarda
+ * en la base (`tiktok_productos_externos.vendedor`, `tiktok_cortes.vendedor`).
+ *
+ *   · `david`  — David, que vende en Shein, con sus productos y su bodega
+ *     (11-oct-2026); sus SKU llevan «D-» (16-oct-2026).
+ *   · `saldos` — los SALDOS del negocio (dueño, 17-nov-2026: «lo mismo que la
+ *     sección de David para saldos: se van a manejar por separado desde otra
+ *     bodega y van a ser solo saldos; los SKUs van a empezar con S»): otra
+ *     bodega, su propio corte y su stock capturado a mano, igual que David.
+ *     Como David, su venta NO entra a las cifras del dueño (Ventas TikTok,
+ *     Estado de resultados, resumen diario, compras, reabasto): el dueño
+ *     pidió «lo mismo» y así se queda hasta que diga otra cosa.
+ */
+export const VENDEDORES_EXTERNOS: Record<string, VendedorExterno> = {
+  david: { nombre: "David", titulo: "Productos de David", ruta: "/tiktok/externos", prefijo: "D-", persona: true },
+  saldos: { nombre: "Saldos", titulo: "Saldos", ruta: "/tiktok/saldos", prefijo: "S-", persona: false },
 };
 
-/** El único vendedor externo de hoy (la pantalla es de él). */
+/** El primer vendedor externo (su pantalla es `/tiktok/externos`). */
 export const VENDEDOR_DAVID = "david";
+/** Los saldos del negocio, despachados desde otra bodega. */
+export const VENDEDOR_SALDOS = "saldos";
+
+/** Las claves de todos los vendedores externos, en el orden en que se enseñan. */
+export function clavesDeVendedores(): string[] {
+  return Object.keys(VENDEDORES_EXTERNOS);
+}
+
+/** La ficha de un vendedor, o null si la clave no es de ninguno. */
+export function fichaDeVendedor(vendedor: string | null | undefined): VendedorExterno | null {
+  return vendedor ? (VENDEDORES_EXTERNOS[vendedor] ?? null) : null;
+}
+
+/**
+ * Si un SKU de TikTok lleva el prefijo del vendedor («S-…» para saldos,
+ * «D-…» para David), sin importar mayúsculas ni espacios al frente. Es el
+ * acuerdo con el dueño para que un SKU de saldos nunca se confunda con el
+ * mismo zapato en su propio inventario; la pantalla AVISA cuando una
+ * publicación ligada trae SKU sin él, no lo impide.
+ */
+export function llevaPrefijoDeVendedor(vendedor: string, sku: string | null | undefined): boolean {
+  const ficha = fichaDeVendedor(vendedor);
+  if (!ficha?.prefijo) return true;
+  return String(sku ?? "").trim().toUpperCase().startsWith(ficha.prefijo.toUpperCase());
+}
 
 export function nombreDeVendedor(vendedor: string | null | undefined): string {
   if (!vendedor) return "GETAC";
@@ -226,4 +279,12 @@ export function coincidePublicacion(p: PublicacionParaLigar, busqueda: string): 
   if (!q) return true;
   const pajar = `${p.titulo} ${p.productId} ${p.sellerSkus.join(" ")}`.toLowerCase();
   return q.split(/\s+/).every((pedazo) => pajar.includes(pedazo));
+}
+
+/**
+ * Las publicaciones ligadas a un vendedor cuyos SKU NO llevan su prefijo
+ * (algún seller_sku visible sin «S-» / «D-»), para avisarlo en su pantalla.
+ */
+export function publicacionesSinPrefijo(publicaciones: PublicacionParaLigar[], vendedor: string): PublicacionParaLigar[] {
+  return publicaciones.filter((p) => p.vendedor === vendedor && p.sellerSkus.some((sku) => !llevaPrefijoDeVendedor(vendedor, sku)));
 }

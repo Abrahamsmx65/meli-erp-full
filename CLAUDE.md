@@ -1496,6 +1496,32 @@ guárdala numerada.
   25-oct-2026: «que en su inventario pueda buscar por sku y que esté ordenado
   alfabéticamente»): por pedazos sin guiones ni mayúsculas («gt074 blk 24»,
   el título también cuenta) y arriba «N de M SKU» mientras se busca.
+  **SALDOS: segundo vendedor externo, con la MISMA mecánica que David**
+  (clave `saldos` en `VENDEDORES_EXTERNOS`, `VENDEDOR_SALDOS`, ficha
+  `VendedorExterno { nombre, titulo, ruta, prefijo, persona }`,
+  `fichaDeVendedor`, `clavesDeVendedores`, `llevaPrefijoDeVendedor`,
+  `publicacionesSinPrefijo` en `tiktok/externos.ts`; pantalla `/tiktok/saldos`
+  «Saldos» en el menú de TikTok (SÍ la ve el dueño: es su mercancía) sobre
+  `PaginaVendedorExterno` (`app/tiktok/externos/pagina-vendedor.tsx`, la
+  misma de David); despacho `/tiktok/despacho?vendedor=saldos`, y los
+  enlaces de arriba del despacho van a TODOS los otros despachos (GETAC,
+  David, saldos); dueño, 17-nov-2026: «lo mismo que la sección de David para
+  saldos: se van a manejar por separado desde otra bodega y van a ser solo
+  saldos; los SKUs van a empezar con S»): sin migración, porque
+  `tiktok_productos_externos.vendedor` y `tiktok_cortes.vendedor` son texto.
+  Se liga cada publicación de saldos en su pestaña Publicaciones, su stock se
+  captura ahí (otra bodega: Industher no lo tiene, sin estante ni alarma ni
+  salidas al 3PL), un pedido con algún par de saldos va al corte de saldos
+  (el mixto con GETAC también; con David y saldos juntos, al primero que
+  aparezca en los renglones), y COMO DAVID su venta NO entra a las cifras del
+  dueño (Ventas TikTok, Estado de resultados, resumen diario, compras,
+  reabasto, Inicio): el dueño pidió «lo mismo»; si los saldos deben contar
+  como venta propia, se decide aparte. Los SKU llevan «S-» (David «D-»):
+  `amarreDeExterno` les da su `seller_sku` como nombre del kardex, y la
+  pantalla AVISA (no impide) cuando una publicación ligada trae SKU sin el
+  prefijo, porque un SKU igual al de GETAC compartiría el renglón del kardex.
+  La columna «De quién» enseña el vendedor real de cada publicación
+  (`nombreDeVendedor(p.vendedor)`), no el de la pantalla.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
@@ -3834,7 +3860,7 @@ login, la base y el deploy.
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
 | TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
-| TikTok: Productos de David (vendedor externo: ligar publicaciones, su stock a mano, sus cortes aparte, fuera de la ganancia del dueño) | `src/lib/tiktok/externos.ts` + `src/lib/servicios/tiktok-externos.ts` + `src/app/tiktok/externos` + `/api/tiktok/externos` + `/tiktok/despacho?vendedor=david` |
+| TikTok: Productos de David y Saldos (vendedores externos: ligar publicaciones, su stock a mano, sus cortes aparte, fuera de la ganancia del dueño; la misma pantalla por vendedor) | `src/lib/tiktok/externos.ts` + `src/lib/servicios/tiktok-externos.ts` + `src/app/tiktok/externos` (+ `pagina-vendedor.tsx`) + `src/app/tiktok/saldos` + `/api/tiktok/externos` + `/tiktok/despacho?vendedor=david|saldos` |
 | TikTok: Ofertas relámpago desde el panel (ver las de TikTok, crear la general de 3 días con los precios de la estrategia, repetir, desactivar) | `src/lib/tiktok/promociones.ts` + `src/lib/servicios/tiktok-promociones.ts` + `src/app/tiktok/promociones` + `/api/tiktok/promociones` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
