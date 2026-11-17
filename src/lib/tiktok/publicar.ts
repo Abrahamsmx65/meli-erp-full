@@ -907,6 +907,38 @@ export function armarSkusParaAgregar(
 }
 
 /**
+ * RENOMBRA los seller_sku de un producto que YA existe en TikTok poniéndoles
+ * un prefijo («E-»): devuelve la lista COMPLETA de variantes para la edición
+ * parcial (con su id, precio, atributos e inventario tal como TikTok los trae,
+ * `variantesDelProducto().skusActuales`) con el seller_sku nuevo, y qué cambió.
+ * Lo que ya lleva el prefijo no se toca.
+ *
+ * Para qué: FUSIONAR un listado en otro (dueño, 17-nov-2026, GT170 → GT135:
+ * «cambiar los SKUs, aumentar un E antes para que no sincronice ahí el
+ * inventario, y luego crear todos esos en el GT135»). Un seller_sku con «E-»
+ * adelante no amarra con nada del ERP (`pareceSkuDeCalzado` lo rechaza y la
+ * memoria del catálogo va por seller_sku), así que el kardex deja de
+ * escribirle inventario a ese listado; el SKU original queda libre para las
+ * variantes nuevas del listado destino.
+ */
+export function renombrarSkusConPrefijo(
+  skusActuales: Record<string, unknown>[],
+  prefijo: string,
+): { skus: Record<string, unknown>[]; renombrados: { skuId: string; de: string; a: string }[] } {
+  const pre = String(prefijo ?? "").trim();
+  if (!pre) throw new Error("Falta el prefijo con el que se renombran los SKU.");
+  const renombrados: { skuId: string; de: string; a: string }[] = [];
+  const skus = skusActuales.map((s) => {
+    const actual = String(s.seller_sku ?? "").trim();
+    if (!actual || actual.toUpperCase().startsWith(pre.toUpperCase())) return s;
+    const nuevo = `${pre}${actual}`;
+    renombrados.push({ skuId: String(s.id ?? ""), de: actual, a: nuevo });
+    return { ...s, seller_sku: nuevo };
+  });
+  return { skus, renombrados };
+}
+
+/**
  * Lo que un producto crudo de TikTok ya tiene: sus seller_sku y nombres de
  * color (para no duplicar al agregar), sus fotos principales y sus variantes
  * ACTUALES ya en la forma de la edición parcial (`skusActuales`: id,

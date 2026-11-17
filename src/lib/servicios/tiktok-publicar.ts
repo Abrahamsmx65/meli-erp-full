@@ -46,12 +46,15 @@ import {
 } from "../tiktok/api";
 import { ErrorTikTok, type Cliente as ClienteTikTok } from "../tiktok/client";
 import {
+  partirSkuAmazon,
+  claveColor,
   agruparProductosAmazon,
   agruparPublicacionesMeli,
   agruparVariantesMeli,
   armarCuerpoProducto,
   armarSkusParaAgregar,
   variantesDelProducto,
+  renombrarSkusConPrefijo,
   numeroDeTalla,
   unificarTallas,
   MAX_IMAGENES_PRINCIPALES,
@@ -584,6 +587,175 @@ export async function encolarPublicaciones(
     if (error) throw new Error(`tiktok_publicaciones: ${error.message}`);
   }
   return { encolados: filas.length, rechazados };
+}
+
+export interface PedidoDeFusion {
+  /** el modelo que se mueve (GT170) */
+  modelo: string;
+  /** su listado ACTUAL en TikTok (product_id), el que se renombra */
+  productoOrigen: string;
+  /** el listado al que se le agregan sus variantes (product_id del GT135) */
+  productoDestino: string;
+  /** con qué se renombran los SKU del listado de origen; «E-» por omisión */
+  prefijo?: string;
+  /** precio de las variantes nuevas; vacío = el del listado de origen */
+  precio?: number | null;
+}
+
+export interface ResultadoFusion {
+  modelo: string;
+  productoOrigen: string;
+  productoDestino: string;
+  prefijo: string;
+  /** variantes del listado de origen que se renombraron en TikTok */
+  renombrados: number;
+  /** colores que van a entrar al destino (los que el origen tenía y Amazon conoce) */
+  colores: string[];
+  precio: number;
+  avisos: string[];
+}
+
+export const PREFIJO_FUSION = "E-";
+const TAREA_FUSION = "fusionar-listado";
+
+/**
+ * FUSIONA un listado de TikTok en otro (dueño, 17-nov-2026: «quiero fusionar
+ * el GT170 en el listado de GT135 […] el que tenemos ahora cambiar los SKUs,
+ * aumentar un E antes para que no sincronice ahí el inventario en la que
+ * está de GT170, y luego crear todos esos en el GT135»), en dos pasos:
+ *
+ *   1. AHORA, en TikTok: a cada variante del listado de ORIGEN se le pone el
+ *      prefijo al seller_sku («E-GT170-BLK-23-MX») por edición parcial (la
+ *      lista completa, con id, precio, atributos e inventario, como siempre:
+ *      lo que no viaja se borra). Un SKU así no amarra con nada del ERP, así
+ *      que el kardex deja de publicarle inventario a ese listado; en
+ *      `tiktok_skus` sus renglones quedan con el nombre nuevo y sin
+ *      `sku_interno`. El listado de origen NO se apaga ni se pone en cero
+ *      aquí: eso lo decide el dueño en el Seller Center.
+ *   2. EN LA COLA: un renglón de `tiktok_publicaciones` con `producto_destino`
+ *      = el listado destino, los colores que el origen tenía (los que Amazon
+ *      conoce, de donde salen las fotos), `resultado.forzar` (esos colores
+ *      «ya estaban» en TikTok) y `resultado.fusion.nombreConModelo` para que
+ *      la variante se llame «GT170 Negro» y no choque con el «Negro» del
+ *      destino. `agregarColoresAProducto` hace el resto: fotos, variantes
+ *      nuevas con el seller_sku ORIGINAL (GT170-BLK-23-MX, que vuelve a
+ *      amarrar con el mismo renglón del kardex) y alta en `tiktok_skus`.
+ */
+export async function fusionarListado(
+  admin: any,
+  accountId: string,
+  pedido: PedidoDeFusion,
+  opciones: { creadoPor?: string | null } = {},
+): Promise<ResultadoFusion> {
+  const inicio = new Date().toISOString();
+  const modelo = String(pedido.modelo ?? "").trim().toUpperCase();
+  const origen = String(pedido.productoOrigen ?? "").trim();
+  const destino = String(pedido.productoDestino ?? "").trim();
+  const prefijo = String(pedido.prefijo ?? "").trim() || PREFIJO_FUSION;
+  const avisos: string[] = [];
+  if (!modelo) throw new Error("Falta el modelo.");
+  if (!origen || !destino) throw new Error("Faltan los dos listados de TikTok (origen y destino).");
+  if (origen === destino) throw new Error("El listado de origen y el destino son el mismo.");
+
+  const lista = await listarProductosNuevos(admin, accountId);
+  const producto = lista.productos.find((p) => p.modelo === modelo);
+  if (!producto) throw new Error(`${modelo} no está en el catálogo de Amazon: de ahí salen las fotos de las variantes nuevas.`);
+  if (lista.cola.some((c) => c.modelo === modelo && (c.estado === "pendiente" || c.estado === "publicando")))
+    throw new Error(`${modelo} ya está en la cola.`);
+
+  const [{ data: delOrigen }, { data: delDestino }] = await Promise.all([
+    admin.from("tiktok_skus").select("sku_id, seller_sku, sku_interno, estado").eq("account_id", accountId).eq("product_id", origen),
+    admin.from("tiktok_skus").select("sku_id, estado, precio").eq("account_id", accountId).eq("product_id", destino).eq("activo", true).limit(200),
+  ]);
+  if (!delOrigen?.length) throw new Error(`El listado ${origen} no está en el catálogo de TikTok del ERP.`);
+  if (!delDestino?.length || !delDestino.some((s: any) => String(s.estado ?? "") === "ACTIVATE"))
+    throw new Error(`El listado destino ${destino} no está activo en TikTok.`);
+
+  // Los colores que el origen vende hoy (por el seller_sku ORIGINAL), para
+  // agregar al destino exactamente esos y no todo lo que Amazon tenga.
+  const coloresOrigen = new Set<string>();
+  for (const s of delOrigen) {
+    const crudoSku = String(s.sku_interno ?? s.seller_sku ?? "").trim();
+    const nombre = crudoSku.toUpperCase().startsWith(prefijo.toUpperCase()) ? crudoSku.slice(prefijo.length) : crudoSku;
+    const p = partirSkuAmazon(nombre);
+    if (p && p.modelo.toUpperCase() === modelo) coloresOrigen.add(claveColor(p.modelo, p.color));
+  }
+  let colores = producto.colores.filter((c) => coloresOrigen.has(claveColor(modelo, c.color))).map((c) => c.color);
+  if (!colores.length) {
+    colores = producto.colores.map((c) => c.color);
+    avisos.push("No se reconocieron los colores del listado de origen por su SKU: se agregan todos los colores que Amazon tiene del modelo.");
+  }
+  const sinAmazon = [...coloresOrigen].filter((k) => !producto.colores.some((c) => claveColor(modelo, c.color) === k));
+  if (sinAmazon.length) avisos.push(`${sinAmazon.length} color(es) del listado de origen no están en Amazon y no se pueden agregar (sin fotos).`);
+
+  const tiktok = await clienteDeCuenta(admin, accountId, 120_000);
+  if (!tiktok?.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+
+  // 1. Renombrar en TikTok las variantes del listado de origen.
+  const crudo = await productoTikTok(tiktok, origen);
+  if (!crudo) throw new Error("TikTok no contestó el listado de origen; inténtalo otra vez.");
+  let renombrados = 0;
+  let precio = Number(pedido.precio) > 0 ? Number(pedido.precio) : 0;
+  if (/DELETED/i.test(String(crudo.status ?? ""))) {
+    avisos.push("El listado de origen ya está borrado en TikTok: no hay SKU que renombrar.");
+  } else {
+    const existentes = variantesDelProducto(crudo);
+    if (existentes.skusActuales.length !== existentes.sellerSkus.length)
+      throw new Error("No se pudieron leer completas las variantes del listado de origen: no se renombra nada para no borrarlas.");
+    if (!precio) {
+      const precios = new Map<number, number>();
+      for (const s of existentes.skusActuales) {
+        const monto = Number((s.price as any)?.amount);
+        if (monto > 0) precios.set(monto, (precios.get(monto) ?? 0) + 1);
+      }
+      precio = [...precios.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 0;
+    }
+    const cambio = renombrarSkusConPrefijo(existentes.skusActuales, prefijo);
+    if (cambio.renombrados.length) {
+      const respuesta = await editarProductoParcial(tiktok, origen, { skus: cambio.skus });
+      if (!respuesta) throw new Error("Se acabó el tiempo renombrando los SKU en TikTok; inténtalo otra vez.");
+      // Confirmación: lo que TikTok trae ahora.
+      const releido = await productoTikTok(tiktok, origen).catch(() => null);
+      const ahoraCon = new Set<string>((releido?.skus ?? []).map((s: any) => String(s?.id ?? "")));
+      const confirmados = releido ? cambio.renombrados.filter((r) => ahoraCon.has(r.skuId) && String((releido.skus ?? []).find((s: any) => String(s?.id) === r.skuId)?.seller_sku ?? "") === r.a) : cambio.renombrados;
+      if (releido && confirmados.length !== cambio.renombrados.length)
+        avisos.push(`TikTok contestó que sí pero al releer solo ${confirmados.length} de ${cambio.renombrados.length} variantes traen el prefijo.`);
+      renombrados = confirmados.length;
+      // El catálogo del ERP: nombre nuevo y SIN amarre (el kardex ya no le escribe).
+      const ahora = new Date().toISOString();
+      for (const r of confirmados) {
+        await admin
+          .from("tiktok_skus")
+          .update({ seller_sku: r.a, sku_interno: null, origen_amarre: null, actualizado_en: ahora })
+          .eq("account_id", accountId)
+          .eq("sku_id", r.skuId);
+      }
+    } else {
+      avisos.push("Las variantes del listado de origen ya llevaban el prefijo: no se renombró nada.");
+    }
+  }
+  if (!precio) precio = producto.precioAmazon ?? 0;
+  if (!(precio > 0)) throw new Error("Falta el precio de las variantes nuevas (el listado de origen no trae precio).");
+
+  // 2. A la cola: agregar esos colores al destino con el nombre «MODELO Color».
+  const { error } = await admin.from("tiktok_publicaciones").insert({
+    account_id: accountId,
+    modelo,
+    colores,
+    titulo: producto.titulo,
+    precio,
+    borrador: false,
+    estado: "pendiente",
+    creado_por: opciones.creadoPor ?? null,
+    producto_destino: destino,
+    resultado: { forzar: true, fusion: { desde: origen, prefijo, renombrados, nombreConModelo: true } },
+  });
+  if (error) throw new Error(`tiktok_publicaciones: ${error.message}`);
+  await invalidarApp(admin, accountId, "fusión de listados en TikTok", { claves: [CLAVE_CACHE_NUEVOS] }).catch(() => {});
+
+  const resultado: ResultadoFusion = { modelo, productoOrigen: origen, productoDestino: destino, prefijo, renombrados, colores, precio, avisos };
+  await bitacora(admin, accountId, TAREA_FUSION, inicio, avisos.length ? "con avisos" : "ok", resultado);
+  return resultado;
 }
 
 /** Un renglón en error vuelve a la cola; uno publicado o pendiente no se toca. */
@@ -1220,7 +1392,13 @@ async function agregarColoresAProducto(
   limite: number,
 ): Promise<ResultadoUno> {
   const destino = String(fila.producto_destino);
-  const { entradas } = await entradasDesdeAmazon(admin, accountId, amazon, ctx, fila, { forzar: false });
+  // Una FUSIÓN (`fusionarListado`) trae `resultado.forzar`: sus colores ya
+  // estaban en TikTok (en el listado de origen, renombrados con prefijo) y
+  // de todos modos se agregan; y la variante se nombra con el MODELO
+  // delante («GT170 Negro») para que no choque con el «Negro» del destino.
+  const fusion = (fila.resultado?.fusion ?? null) as { nombreConModelo?: boolean } | null;
+  const { entradas } = await entradasDesdeAmazon(admin, accountId, amazon, ctx, fila, { forzar: Boolean(fila.resultado?.forzar) });
+  const modeloFila = String(fila.modelo ?? "").toUpperCase();
 
   // 1. El producto tal como está hoy en TikTok: plantilla y lo que ya tiene.
   const crudo = await productoTikTok(tiktok, destino);
@@ -1245,7 +1423,7 @@ async function agregarColoresAProducto(
   // 3. Las variantes nuevas, con el inventario que el ERP ya le publica a ese SKU.
   const colores: ColorAPublicar[] = entradas.map((c, i) => ({
     color: c.color,
-    nombre: c.nombre,
+    nombre: fusion?.nombreConModelo ? `${modeloFila} ${c.nombre ?? nombreColorEspanol(c.color).nombre}` : c.nombre,
     imagenUri: urisPorColor[i][0] ?? null,
     tallas: c.tallas.map((t) => ({
       talla: t.talla,
