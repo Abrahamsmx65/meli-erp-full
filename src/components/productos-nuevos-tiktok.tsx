@@ -63,6 +63,11 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   // poder seleccionar cuáles colores puedo aumentar»).
   const [quitados, setQuitados] = useState<Record<string, string[]>>({});
   const [enviando, setEnviando] = useState(false);
+  // Fusionar un listado en otro (dueño, 17-nov-2026: «fusionar el GT170 en el
+  // listado de GT135»): el modelo de origen, el listado destino, el prefijo
+  // con que se renombran los SKU del origen y el precio de las variantes.
+  const [fusion, setFusion] = useState<{ origen: string; destino: string; prefijo: string; precio: string }>({ origen: "", destino: "", prefijo: "E-", precio: "" });
+  const [fusionando, setFusionando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -289,6 +294,63 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     }
   }
 
+  /** Los modelos que TikTok vende hoy en un listado activo (origen o destino de una fusión). */
+  const conListado = useMemo(() => datos.productos.filter((p) => p.productoTikTok), [datos.productos]);
+  const origenFusion = porModelo.get(fusion.origen) ?? null;
+  const destinoFusion = porModelo.get(fusion.destino) ?? null;
+  const puedeFusionar =
+    Boolean(origenFusion?.productoTikTok && destinoFusion?.productoTikTok) &&
+    origenFusion!.productoTikTok !== destinoFusion!.productoTikTok &&
+    fusion.prefijo.trim().length > 0;
+
+  async function fusionar() {
+    if (!puedeFusionar || !origenFusion || !destinoFusion) return;
+    const precio = Number(fusion.precio) > 0 ? Number(fusion.precio) : origenFusion.precioTikTok;
+    if (
+      !(await confirmar({
+        titulo: `¿Fusionar ${origenFusion.modelo} en el listado del ${destinoFusion.modelo}?`,
+        mensaje:
+          `1) En TikTok, a las variantes del listado actual del ${origenFusion.modelo} (${origenFusion.productoTikTok}) se les pone «${fusion.prefijo.trim()}» adelante del SKU: el ERP deja de escribirles inventario. ` +
+          `2) Sus colores entran a la cola como variantes nuevas del listado del ${destinoFusion.modelo} (${destinoFusion.productoTikTok}), con nombre «${origenFusion.modelo} Color»` +
+          (precio ? ` a ${dinero(precio, datos.moneda)}.` : ".") +
+          " El listado viejo NO se apaga ni se pone en cero: eso se hace en el Seller Center.",
+        confirmar: "Fusionar",
+        peligro: true,
+      }))
+    )
+      return;
+    setFusionando(true);
+    setError(null);
+    setAviso(null);
+    try {
+      const r = await fetch("/api/tiktok/publicar-productos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "fusionar",
+          modelo: origenFusion.modelo,
+          productoOrigen: origenFusion.productoTikTok,
+          productoDestino: destinoFusion.productoTikTok,
+          prefijo: fusion.prefijo.trim(),
+          precio: fusion.precio.trim() ? Number(fusion.precio) : null,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo fusionar.");
+      setAviso(
+        `${j.renombrados} variantes del ${j.modelo} renombradas en TikTok con «${j.prefijo}». ` +
+          `${j.colores.length} color${j.colores.length === 1 ? "" : "es"} (${j.colores.join(", ")}) en la cola para agregarse al listado ${j.productoDestino} a ${dinero(j.precio, datos.moneda)}; se agregan por atrás.` +
+          (j.avisos?.length ? ` ${j.avisos.join(" ")}` : ""),
+      );
+      setFusion({ origen: "", destino: "", prefijo: "E-", precio: "" });
+      await recargar(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setFusionando(false);
+    }
+  }
+
   async function refrescarLista() {
     setRefrescando(true);
     setError(null);
@@ -374,6 +436,67 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
               </span>
             ) : null}
           </div>
+        ) : null}
+        {esDueno ? (
+          <details className="mt-4 border-t pt-4" style={{ borderColor: "var(--grid)" }}>
+            <summary className="cursor-pointer text-sm texto-2">Fusionar un listado en otro</summary>
+            <p className="mt-2 text-xs texto-tenue">
+              A las variantes del listado de origen se les pone el prefijo en el SKU (el ERP deja de escribirles inventario) y sus colores se agregan como
+              variantes del listado destino con nombre «MODELO Color», con el SKU original. El listado viejo se apaga o se pone en cero en el Seller Center.
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="flex flex-col text-xs texto-2">
+                Modelo que se mueve
+                <select value={fusion.origen} onChange={(e) => setFusion((f) => ({ ...f, origen: e.target.value }))} className="w-44 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo}>
+                  <option value="">—</option>
+                  {conListado.map((p) => (
+                    <option key={p.modelo} value={p.modelo}>
+                      {p.modelo} · {p.coloresEnTikTok.length} colores
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col text-xs texto-2">
+                Al listado de
+                <select value={fusion.destino} onChange={(e) => setFusion((f) => ({ ...f, destino: e.target.value }))} className="w-44 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo}>
+                  <option value="">—</option>
+                  {conListado
+                    .filter((p) => p.modelo !== fusion.origen)
+                    .map((p) => (
+                      <option key={p.modelo} value={p.modelo}>
+                        {p.modelo} · {p.coloresEnTikTok.length} colores
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="flex flex-col text-xs texto-2">
+                Prefijo para los SKU viejos
+                <input value={fusion.prefijo} onChange={(e) => setFusion((f) => ({ ...f, prefijo: e.target.value }))} className="w-20 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
+              </label>
+              <label className="flex flex-col text-xs texto-2">
+                Precio ({datos.moneda})
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={fusion.precio}
+                  onChange={(e) => setFusion((f) => ({ ...f, precio: e.target.value }))}
+                  placeholder={origenFusion?.precioTikTok ? String(origenFusion.precioTikTok) : ""}
+                  title="Vacío = el precio que el listado de origen tiene hoy en TikTok"
+                  className="w-28 rounded-lg border px-2 py-1.5 text-sm"
+                  style={estiloCampo}
+                />
+              </label>
+              <button onClick={fusionar} disabled={fusionando || !puedeFusionar} className="boton boton-primario boton-chico">
+                {fusionando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Fusionar
+              </button>
+              {origenFusion && destinoFusion ? (
+                <span className="text-xs texto-tenue">
+                  {origenFusion.productoTikTok} → {destinoFusion.productoTikTok}
+                </span>
+              ) : null}
+            </div>
+          </details>
         ) : null}
         {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
         {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}

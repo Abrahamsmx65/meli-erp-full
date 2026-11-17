@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { pareceSkuDeCalzado } from "./amarre";
 import {
+  renombrarSkusConPrefijo,
   numeroDeTalla,
   unificarTallas,
   agruparProductosAmazon,
@@ -529,5 +531,29 @@ describe("armarSkusParaAgregar escribe la talla como las hermanas", () => {
     const tallas = r.nuevas.map((s: any) => s.sales_attributes.find((a: any) => a.id === T));
     expect(tallas[0]).toEqual({ id: T, name: "Talla", value_name: "24 MX", value_id: "v24" });
     expect(tallas[1]).toEqual({ id: T, name: "Talla", value_name: "27 MX" });
+  });
+});
+
+describe("renombrarSkusConPrefijo: fusionar un listado en otro", () => {
+  const actuales = [
+    { id: "S1", seller_sku: "GT170-BLK-23-MX", price: { amount: "357.99", currency: "MXN" }, inventory: [{ warehouse_id: "W1", quantity: 2 }] },
+    { id: "S2", seller_sku: "E-GT170-BLK-24-MX" },
+    { id: "S3" },
+  ];
+
+  it("pone el prefijo a cada seller_sku y conserva id, precio e inventario (la edición parcial manda la lista completa)", () => {
+    const r = renombrarSkusConPrefijo(actuales, "E-");
+    expect(r.renombrados).toEqual([{ skuId: "S1", de: "GT170-BLK-23-MX", a: "E-GT170-BLK-23-MX" }]);
+    expect(r.skus).toHaveLength(3);
+    expect(r.skus[0]).toMatchObject({ id: "S1", seller_sku: "E-GT170-BLK-23-MX", price: { amount: "357.99", currency: "MXN" }, inventory: [{ warehouse_id: "W1", quantity: 2 }] });
+    // Lo que ya llevaba el prefijo y lo que no tiene seller_sku salen igual.
+    expect(r.skus[1]).toBe(actuales[1]);
+    expect(r.skus[2]).toBe(actuales[2]);
+  });
+
+  it("sin prefijo lanza, y el renombrado ya no parece SKU de calzado", () => {
+    expect(() => renombrarSkusConPrefijo(actuales, "  ")).toThrow();
+    expect(pareceSkuDeCalzado("E-GT170-BLK-23-MX")).toBe(false);
+    expect(pareceSkuDeCalzado("GT170-BLK-23-MX")).toBe(true);
   });
 });

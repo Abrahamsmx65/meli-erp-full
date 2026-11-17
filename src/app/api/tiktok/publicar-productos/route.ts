@@ -6,6 +6,7 @@ import {
   colaDePublicacion,
   encolarPublicaciones,
   encolarPublicacionesMeli,
+  fusionarListado,
   hayPendientes,
   listarProductosNuevos,
   publicarPendientes,
@@ -95,6 +96,25 @@ export async function POST(req: NextRequest) {
     if (cuerpo.accion === "continuar") {
       programarFondo(admin, cuenta.id, origen);
       return NextResponse.json({ ok: true });
+    }
+    // Fusionar un listado en otro (17-nov-2026, GT170 → GT135): renombra en
+    // TikTok los SKU del listado de origen con el prefijo y encola sus
+    // colores como variantes del destino.
+    if (cuerpo.accion === "fusionar") {
+      const r = await fusionarListado(
+        admin,
+        cuenta.id,
+        {
+          modelo: String(cuerpo.modelo ?? ""),
+          productoOrigen: String(cuerpo.productoOrigen ?? ""),
+          productoDestino: String(cuerpo.productoDestino ?? ""),
+          prefijo: cuerpo.prefijo != null ? String(cuerpo.prefijo) : undefined,
+          precio: cuerpo.precio != null && cuerpo.precio !== "" ? Number(cuerpo.precio) : null,
+        },
+        { creadoPor: user.id },
+      );
+      programarFondo(admin, cuenta.id, origen);
+      return NextResponse.json(r);
     }
     // Una publicación de MELI con varios modelos, como UN producto (2-oct-2026).
     const deMeli = Array.isArray(cuerpo.publicacionesMeli) ? cuerpo.publicacionesMeli : [];

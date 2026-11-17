@@ -2361,6 +2361,31 @@ guárdala numerada.
   recibió GREY, NAVY y TOFFEE (15 variantes, ids de TikTok en
   `tiktok_publicaciones` 38) por edición parcial: TikTok aceptó y la
   siguiente lectura del catálogo lo confirma.
+  **FUSIONAR un listado en OTRO** (`fusionarListado` en
+  `servicios/tiktok-publicar.ts`, `renombrarSkusConPrefijo` puro con pruebas
+  en `tiktok/publicar.ts`, `PREFIJO_FUSION` «E-», acción `fusionar` de
+  `POST /api/tiktok/publicar-productos`, sección plegada «Fusionar un listado
+  en otro» en Productos nuevos, bitácora `tiktok_sync_log` tarea
+  `fusionar-listado`; dueño, 17-nov-2026: «quiero fusionar el GT170 en el
+  listado de GT135 […] el que tenemos ahora cambiar los SKUs, aumentar un E
+  antes para que no sincronice ahí el inventario en la que está de GT170, y
+  luego crear todos esos en el GT135»): (1) AHORA, por edición parcial con la
+  lista COMPLETA de variantes, a cada seller_sku del listado de ORIGEN se le
+  pone el prefijo («E-GT170-BLK-23-MX»); un SKU así no amarra con nada
+  (`pareceSkuDeCalzado` lo rechaza y la memoria del catálogo va por
+  seller_sku), así que el kardex deja de publicarle inventario, y en
+  `tiktok_skus` el renglón queda con el nombre nuevo y `sku_interno` null; se
+  relee el producto para confirmar; (2) a la COLA un renglón con
+  `producto_destino` = el listado destino, los colores que el origen vendía
+  (los que Amazon conoce: de ahí las fotos), `resultado.forzar` (esos colores
+  «ya estaban» en TikTok) y `resultado.fusion.nombreConModelo`, con lo que
+  `agregarColoresAProducto` nombra la variante «GT170 Negro» para no chocar
+  con el «Negro» del destino, con el seller_sku ORIGINAL (vuelve a amarrar
+  al mismo renglón del kardex) y el precio del listado de origen si no se
+  captura otro. El listado viejo NO se apaga ni se pone en cero desde el ERP:
+  eso lo hace el dueño en el Seller Center (los pedidos de un SKU «E-» ya no
+  amarran con el ERP). Los dos listados tienen que estar activos y el modelo
+  en Amazon.
   **Las variantes nuevas escriben la TALLA como sus hermanas**
   (`numeroDeTalla`, `unificarTallas` en `tiktok/publicar.ts` puros con
   pruebas, en `armarSkusParaAgregar` y en `corregirPublicado`; 27-oct-2026,
