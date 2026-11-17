@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarCorreoResumen, armarResumen, conSemana, destinatariosResumen, diaAnterior, fechaLarga, filasDeConsolidado, semanaQueCierra, tramosPorMes } from "./resumen-diario";
+import { armarCorreoResumen, armarResumen, conPedidosAmazon, conSemana, destinatariosResumen, diaAnterior, fechaLarga, filasDeConsolidado, semanaQueCierra, tramosPorMes } from "./resumen-diario";
 import { cargosDelRango, rangoRecortado } from "./corte-meli";
 import type { Consolidado } from "./consolidado";
 
@@ -100,5 +100,35 @@ describe("destinatarios", () => {
     expect(destinatariosResumen()).toEqual(["a@x.mx", "b@y.mx"]);
     if (antes == null) delete process.env.CORREO_RESUMEN_DIARIO;
     else process.env.CORREO_RESUMEN_DIARIO = antes;
+  });
+});
+
+describe("Amazon por sus pedidos", () => {
+  const amazon = {
+    canal: "amazon", nombre: "Amazon", unidades: 405, unidadesConCosto: 405, ventaBruta: 88_645.14, neto: 40_000,
+    coberturaNeto: 1, utilidadBruta: 30_000, publicidad: 6_199.48, utilidadNeta: 20_000,
+  };
+
+  it("unidades y facturación de los pedidos; la ganancia sigue siendo la de lo ya registrado", () => {
+    const r = armarResumen("2026-11-16", consolidado([calzado, amazon]), null, [], [], { unidades: 860, facturacion: 155_990.5 });
+    const a = r.filas.find((f) => f.canal === "amazon")!;
+    expect(a.unidades).toBe(860);
+    expect(a.facturacion).toBe(155_990.5);
+    expect(a.ganancia).toBe(23_800.52);
+    expect(a.notas.join(" ")).toContain("ganancia de lo que Amazon ya registró (405 piezas");
+    expect(r.total.unidades).toBe(1_000 + 860);
+  });
+
+  it("sin pedidos leídos se queda lo registrado y se dice", () => {
+    const filas = conPedidosAmazon(armarResumen("2026-11-16", consolidado([amazon]), null).filas, null);
+    const a = filas.find((f) => f.canal === "amazon")!;
+    expect(a.unidades).toBe(405);
+    expect(a.notas.join(" ")).toContain("no se pudieron leer los pedidos");
+  });
+
+  it("si cuadran, no agrega nota; otros canales no se tocan", () => {
+    const filas = conPedidosAmazon(armarResumen("2026-11-16", consolidado([calzado, amazon]), null).filas, { unidades: 405, facturacion: 88_645.14 });
+    expect(filas.find((f) => f.canal === "amazon")!.notas).toEqual([]);
+    expect(filas.find((f) => f.canal === "meli_calzado")!.unidades).toBe(1_000);
   });
 });

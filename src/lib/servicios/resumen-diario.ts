@@ -22,6 +22,10 @@ import { cargarConsolidado, leerConsolidadoGuardado } from "./consolidado-cargar
 import type { Consolidado } from "./consolidado";
 import { enviarCorreo, type ResultadoCorreo } from "./correo";
 import { LETRA_TITULO, TONO, URL_ERP, plantillaCorreo } from "./correo-marca";
+import { traerTodo } from "../datos/repos";
+import { cuentaAmazon } from "./amazon";
+import { MODELOS_OMITIDOS_AMAZON } from "./consolidado-amazon";
+import { modeloUnificado } from "./modelo-unificado";
 
 export const TAREA_RESUMEN_DIARIO = "correo-resumen-diario";
 
@@ -92,6 +96,38 @@ export function filasDeConsolidado(c: Consolidado, antesDeGastosDelMes: boolean)
       ganancia: k.ventaBruta > 0 || k.neto !== 0 || k.publicidad > 0 ? r2(ganancia) : null,
       notas,
     };
+  });
+}
+
+/** Lo vendido en Amazon en el rango según sus PEDIDOS (`amazon_ventas_diarias`). */
+export interface PedidosAmazon {
+  unidades: number;
+  facturacion: number;
+}
+
+/**
+ * Amazon cuenta sus PEDIDOS, como Inicio y Ventas Amazon (dueño, 17-nov-2026:
+ * el correo del 16-nov decía 405 piezas y $88,645 y la pantalla 860 y
+ * $155,424). El estado de resultados solo ve lo que Amazon ya REGISTRÓ como
+ * dinero, y Amazon no lo registra hasta enviar el pedido: a las 8:00 casi la
+ * mitad de lo de ayer seguía sin salir. Unidades y facturación pasan a ser
+ * las de los pedidos; la GANANCIA sigue siendo la del dinero ya registrado y
+ * la nota lo dice. Sin pedidos leídos, la fila se queda como estaba y se
+ * avisa. Pura.
+ */
+export function conPedidosAmazon(filas: FilaResumen[], pedidos: PedidosAmazon | null): FilaResumen[] {
+  return filas.map((f) => {
+    if (f.canal !== "amazon" || f.sinDato) return f;
+    if (!pedidos) {
+      return { ...f, notas: [...f.notas, "no se pudieron leer los pedidos: unidades y facturación de lo ya registrado por Amazon"] };
+    }
+    const notas = [...f.notas];
+    if (pedidos.unidades !== f.unidades || Math.abs(pedidos.facturacion - f.facturacion) >= 1) {
+      notas.push(
+        `ganancia de lo que Amazon ya registró (${n(f.unidades)} piezas, ${pesos(f.facturacion)}); el resto se registra cuando Amazon envía el pedido`,
+      );
+    }
+    return { ...f, unidades: pedidos.unidades, facturacion: r2(pedidos.facturacion), notas };
   });
 }
 
@@ -173,8 +209,10 @@ export function armarResumen(
   mes: { periodo: string; consolidado: Consolidado | null } | null,
   avisos: string[] = [],
   caidos: string[] = [],
+  pedidosAmazon?: PedidosAmazon | null,
 ): ResumenDiario {
-  const filas = ordenar(consolidadoDia ? filasDeConsolidado(consolidadoDia, true) : [], consolidadoDia ? caidos : ORDEN_CANALES);
+  const base = ordenar(consolidadoDia ? filasDeConsolidado(consolidadoDia, true) : [], consolidadoDia ? caidos : ORDEN_CANALES);
+  const filas = pedidosAmazon === undefined ? base : conPedidosAmazon(base, pedidosAmazon);
   const resumenMes: ResumenDiario["mes"] = mes?.consolidado
     ? (() => {
         const f = ordenar(filasDeConsolidado(mes.consolidado!, false));
@@ -185,10 +223,17 @@ export function armarResumen(
 }
 
 /** Le pone al resumen la semana ya sumada. */
-export function conSemana(r: ResumenDiario, semana: { desde: string; hasta: string }, consolidados: Consolidado[], caidos: string[] = []): ResumenDiario {
-  const filas = sumarFilas(consolidados.map((c) => filasDeConsolidado(c, true))).map((f) =>
+export function conSemana(
+  r: ResumenDiario,
+  semana: { desde: string; hasta: string },
+  consolidados: Consolidado[],
+  caidos: string[] = [],
+  pedidosAmazon?: PedidosAmazon | null,
+): ResumenDiario {
+  const sumadas = sumarFilas(consolidados.map((c) => filasDeConsolidado(c, true))).map((f) =>
     caidos.includes(f.canal) ? { ...f, sinDato: true, notas: [...f.notas, "no se pudo leer completa: no está en el total"] } : f,
   );
+  const filas = pedidosAmazon === undefined ? sumadas : conPedidosAmazon(sumadas, pedidosAmazon);
   return { ...r, semana: { ...semana, filas, total: totalDe(filas) } };
 }
 
@@ -343,6 +388,35 @@ export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: st
 const INTENTOS_DIA = 3;
 const ESPERA_REINTENTO_MS = 20_000;
 
+/**
+ * Pares y venta de los PEDIDOS de Amazon en el rango (el reporte de órdenes,
+ * lo mismo que suman Inicio y Ventas Amazon), sin los modelos que el estado
+ * de resultados deja fuera. null si no se pudo leer.
+ */
+async function leerPedidosAmazon(db: DB, desde: string, hasta: string): Promise<PedidosAmazon | null> {
+  try {
+    const amz = await cuentaAmazon(db);
+    if (!amz) return null;
+    const filas = await traerTodo<{ seller_sku: string; unidades: number | string; importe: number | string }>(
+      db,
+      "amazon_ventas_diarias",
+      "seller_sku, fecha, unidades, importe",
+      (q) => q.eq("account_id", amz.id).gte("fecha", desde).lte("fecha", hasta),
+    );
+    let unidades = 0;
+    let facturacion = 0;
+    for (const f of filas) {
+      if (MODELOS_OMITIDOS_AMAZON.has(modeloUnificado(f.seller_sku).toUpperCase())) continue;
+      unidades += Number(f.unidades) || 0;
+      facturacion += Number(f.importe) || 0;
+    }
+    return { unidades, facturacion: r2(facturacion) };
+  } catch (err) {
+    console.error(`resumen diario: pedidos de Amazon: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): Promise<ResumenDiario> {
   const periodo = dia.slice(0, 7);
   const avisos: string[] = [];
@@ -406,14 +480,20 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
     }
     return d;
   };
-  const [dia1, mesGuardado, semana1] = await Promise.all([leerDia(), leerConsolidadoGuardado(db, cuenta, periodo), leerSemana()]);
+  const [dia1, mesGuardado, semana1, amazonDia, amazonSemana] = await Promise.all([
+    leerDia(),
+    leerConsolidadoGuardado(db, cuenta, periodo),
+    leerSemana(),
+    leerPedidosAmazon(db, dia, dia),
+    semana ? leerPedidosAmazon(db, semana.desde, semana.hasta) : Promise.resolve(null),
+  ]);
   if (semana1) avisos.push(...semana1.avisos);
   const semanaCargada = semana1?.c ?? null;
   const caidosSemana = semana1?.caidos ?? [];
   for (const x of dia1.caidos) avisos.push(x.canal ? `${x.canal}: no se pudo leer (${x.motivo}).` : `No se pudieron leer las ventas: ${x.motivo}.`);
   const caidos = dia1.caidos.map((x) => canalDeNombre(x.canal)).filter((x): x is string => !!x);
-  const r = armarResumen(dia, dia1.c, { periodo, consolidado: mesGuardado }, avisos, caidos);
-  return semana && semanaCargada ? conSemana(r, semana, semanaCargada, caidosSemana) : r;
+  const r = armarResumen(dia, dia1.c, { periodo, consolidado: mesGuardado }, avisos, caidos, amazonDia);
+  return semana && semanaCargada ? conSemana(r, semana, semanaCargada, caidosSemana, amazonSemana) : r;
 }
 
 /** Ya se mandó el resumen de ese día (el cron puede dispararse dos veces). */
