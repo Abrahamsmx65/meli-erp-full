@@ -358,7 +358,14 @@ guárdala numerada.
   el momento (un color nuevo ya creado en MELI sale ya con sus etiquetas),
   a los destinatarios de «Mandar a»; el renglón dice cuándo salió el
   último y si llevó etiquetas. Un pedido subido como proforma a mano no
-  tiene correo que reenviar. Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  tiene correo que reenviar. **Y un pedido confirmado por error se ELIMINA
+  desde Confirmados** (`eliminarPedidoConfirmado`, acción `eliminar`, botón
+  rojo «Eliminar» con confirmación; dueño, 18-nov-2026: «quiero poder
+  eliminar un pedido de aquí», el IN10231 era el IN10232 duplicado): borra
+  el pedido de Órdenes de compra con sus renglones y las corridas que ESE
+  pedido dio de alta (origen `proforma`; las del sheet se quedan), deja el
+  borrador `descartado` e invalida inventario y plan; si ya tiene cajas en
+  un contenedor no se toca nada y lo dice. Formatos copiados de proformas reales: CHAOZHOU (USD, un
   renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
   la talla, precio por talla en fila de continuación), MINGTAI (RMB),
   JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y

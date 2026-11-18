@@ -157,7 +157,12 @@ export function NuevoPedido() {
               </thead>
               <tbody>
                 {confirmados.map((b) => (
-                  <FilaConfirmado key={b.id} b={b} alCambiar={reemplazar} />
+                  <FilaConfirmado
+                    key={b.id}
+                    b={b}
+                    alCambiar={reemplazar}
+                    alEliminar={() => setBorradores((xs) => xs.filter((x) => x.id !== b.id))}
+                  />
                 ))}
               </tbody>
             </table>
@@ -170,9 +175,38 @@ export function NuevoPedido() {
   );
 }
 
-function FilaConfirmado({ b, alCambiar }: { b: Borrador; alCambiar: (b: Borrador) => void }) {
+function FilaConfirmado({
+  b,
+  alCambiar,
+  alEliminar,
+}: {
+  b: Borrador;
+  alCambiar: (b: Borrador) => void;
+  alEliminar: () => void;
+}) {
   const [enviando, setEnviando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Un pedido confirmado por error (el IN10231 duplicado del IN10232) se
+  // elimina de aquí: se va de Órdenes de compra con sus corridas de proforma.
+  async function eliminar() {
+    const ok = await confirmar({
+      titulo: `¿Eliminar el pedido ${b.pedido}?`,
+      mensaje: `Se borra de Órdenes de compra con sus ${n(b.totales.cajas)} cajas (${n(b.totales.pares)} pares) y las corridas que dio de alta. Deja de contar como en camino. No se puede deshacer.`,
+      confirmar: "Eliminar",
+      peligro: true,
+    });
+    if (!ok) return;
+    setEliminando(true);
+    setError(null);
+    try {
+      await llamar({ accion: "eliminar", id: b.id });
+      alEliminar();
+    } catch (e) {
+      setError((e as Error).message);
+      setEliminando(false);
+    }
+  }
   async function reenviar() {
     setEnviando(true);
     setError(null);
@@ -210,6 +244,15 @@ function FilaConfirmado({ b, alCambiar }: { b: Borrador; alCambiar: (b: Borrador
         </a>{" "}
         <button className="boton boton-borde boton-chico" disabled={enviando} onClick={reenviar}>
           {enviando ? "Enviando…" : "Reenviar"}
+        </button>{" "}
+        <button
+          className="boton boton-borde boton-chico"
+          style={{ color: "var(--critico-texto)" }}
+          disabled={eliminando}
+          onClick={eliminar}
+          title="Borra el pedido de Órdenes de compra y sus corridas; no se puede si ya tiene cajas en un contenedor"
+        >
+          {eliminando ? "Eliminando…" : "Eliminar"}
         </button>
       </td>
     </tr>
