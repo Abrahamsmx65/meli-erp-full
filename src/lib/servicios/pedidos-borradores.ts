@@ -496,6 +496,65 @@ export async function descartarBorrador(db: DB, accountId: string, id: string): 
   if (error) throw new Error(`No se pudo descartar: ${error.message}`);
 }
 
+/**
+ * Elimina un pedido CONFIRMADO desde Nuevo pedido (dueño, 18-nov-2026:
+ * «quiero poder eliminar un pedido de aquí»; el IN10231 era el IN10232
+ * duplicado): borra el pedido de Órdenes de compra con sus renglones, borra
+ * las corridas que ESE pedido dio de alta al confirmarse (origen proforma;
+ * las del sheet o a mano se quedan) y deja el borrador como descartado para
+ * que salga de la lista. Si alguna caja del pedido ya está en un contenedor
+ * no se toca nada: primero se quita del contenedor.
+ */
+export async function eliminarPedidoConfirmado(db: DB, accountId: string, id: string): Promise<{ pedido: string }> {
+  const b = await leerBorrador(db, accountId, id);
+  if (b.estado !== "confirmado") throw new Error("Solo se elimina desde aquí un pedido confirmado.");
+
+  if (b.pedidoId) {
+    const { data: lineas } = await db.from("pedido_lineas").select("id").eq("pedido_id", b.pedidoId);
+    const ids = (lineas ?? []).map((l: { id: string }) => l.id);
+    if (ids.length) {
+      const { data: enContenedor } = await db
+        .from("contenedor_lineas")
+        .select("id")
+        .in("pedido_linea_id", ids)
+        .limit(1);
+      if (enContenedor?.length) {
+        throw new Error(`El pedido ${b.pedido} ya tiene cajas en un contenedor: quítalas del contenedor antes de eliminarlo.`);
+      }
+    }
+    const { error: ePedido } = await db.from("pedidos").delete().eq("id", b.pedidoId).eq("account_id", accountId);
+    if (ePedido) throw new Error(`No se pudo borrar el pedido: ${ePedido.message}`);
+  }
+
+  // Las corridas que el pedido dio de alta al confirmarse. También cuando el
+  // pedido ya se borró desde Órdenes de compra (el borrador queda con
+  // `pedido_id` null y sus corridas huérfanas), salvo que otro pedido vivo
+  // lleve el mismo número: entonces son suyas.
+  const { data: otro } = await db
+    .from("pedidos")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("pedido", b.pedido)
+    .limit(1);
+  if (!otro?.length) {
+    const { error: eCorridas } = await db
+      .from("corridas")
+      .delete()
+      .eq("account_id", accountId)
+      .eq("pedido", b.pedido)
+      .eq("origen", "proforma");
+    if (eCorridas) throw new Error(`No se pudieron borrar las corridas del pedido: ${eCorridas.message}`);
+  }
+
+  const { error } = await db
+    .from("pedidos_borradores")
+    .update({ estado: "descartado", actualizado_en: new Date().toISOString() })
+    .eq("account_id", accountId)
+    .eq("id", id);
+  if (error) throw new Error(`El pedido se borró pero el borrador no se marcó: ${error.message}`);
+  return { pedido: b.pedido };
+}
+
 function hoyMx(): string {
   return new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
 }

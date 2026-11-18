@@ -6,6 +6,7 @@ import {
   confirmarBorrador,
   crearBorradores,
   descartarBorrador,
+  eliminarPedidoConfirmado,
   guardarAjustes,
   leerAjustes,
   listarBorradores,
@@ -49,6 +50,7 @@ export async function GET() {
  *          descartar   { id }
  *          confirmar   { id }                         -> pedido + correo
  *          correo      { id }                         -> reenviar el correo
+ *          eliminar    { id }                         -> borra el pedido confirmado (y sus corridas de proforma)
  *          ajustes     { destinatarios?, ultimoIn? }
  */
 export async function POST(req: NextRequest) {
@@ -90,6 +92,13 @@ export async function POST(req: NextRequest) {
       }
       case "correo":
         return NextResponse.json({ ok: true, borrador: await mandarCorreo(supabase, cuenta.id, id) });
+      case "eliminar": {
+        const r = await eliminarPedidoConfirmado(supabase, cuenta.id, id);
+        // Ya no cuenta como en camino: inventario y plan se recalculan.
+        invalidarInventario(cuenta.id);
+        await invalidar(supabase, cuenta.id, `Se eliminó el pedido ${r.pedido} desde Nuevo pedido.`);
+        return NextResponse.json({ ok: true, ...r });
+      }
       case "ajustes":
         return NextResponse.json({
           ok: true,
