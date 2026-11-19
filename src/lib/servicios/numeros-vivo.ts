@@ -140,7 +140,7 @@ interface FeeDetalle {
 }
 
 /** Comisión de Amazon (lo que va en %) y lo fijo por par (FBA y cargos por artículo) a `precio`. */
-async function cargosAmazon(amz: Cliente, sku: string, precio: number): Promise<{ comision: number; fijo: number } | null> {
+export async function cargosAmazon(amz: Cliente, sku: string, precio: number): Promise<{ comision: number; fijo: number } | null> {
   const r = await amz.llamar<{
     payload?: {
       FeesEstimateResult?: {
