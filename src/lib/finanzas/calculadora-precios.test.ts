@@ -90,10 +90,10 @@ describe("factura del contenedor", () => {
     expect(f.sinCodigo).toEqual(["GT301"]);
   });
 
-  it("el precio sin IVA lleva 3 decimales y el importe cuadra con él", () => {
+  it("el precio sin IVA lleva 2 decimales (como Aspel y el Sheets) y el importe cuadra con él", () => {
     const f = facturaDeContenedor([{ modelo: "GT114", pares: 4800 }], () => 117.37, () => ({ descripcion: "", codigoSat: "53111800" }));
-    expect(f.filas[0]).toMatchObject({ precioSinIva: 101.181, importeSinIva: 485668.8, iva: 77707.01, total: 563375.81 });
-    expect(Math.round(101.181 * 4800 * 100) / 100).toBe(485668.8);
+    expect(f.filas[0]).toMatchObject({ precioSinIva: 101.18, importeSinIva: 485664, iva: 77706.24, total: 563370.24 });
+    expect(Math.round(101.18 * 4800 * 100) / 100).toBe(485664);
   });
 
   it("desgloseIva", () => {

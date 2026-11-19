@@ -196,17 +196,21 @@ export function calcularPrecios(entrada: {
 }
 
 /**
- * Precio unitario SIN IVA con 3 decimales: con dos, 101.18 × 4,800 pares no
- * daba lo mismo que 117.37 × 4,800 ÷ 1.16 (dueño, 23-oct-2026: «no me cuadra
- * el total, te faltan centavos»); con seis se veía de más («que sean solo 3
- * decimales como máximo y cuadras todo según eso»).
+ * Precio unitario SIN IVA con 2 decimales (dueño, 19-nov-2026: «que sea todo
+ * a dos decimales; lo importante es que siempre cuadre Aspel con el Sheets y
+ * con la calculadora fiscal»): Aspel y el Sheets de la orden de compra de
+ * Komerline llevan el precio a 2 decimales y la factura sale de ahí. El total
+ * se arma igual que antes: pares × este precio, IVA 16 % de ese importe. Del
+ * 23-oct al 19-nov-2026 fue a 3 decimales («no me cuadra el total, te faltan
+ * centavos»); con 2 el total con IVA puede quedar unos centavos lejos de
+ * precio con IVA × pares, y manda el sin IVA.
  */
 export function precioSinIva(conIva: number): number {
-  return Math.round((conIva / IVA) * 1e3) / 1e3;
+  return Math.round((conIva / IVA) * 100) / 100;
 }
 
 /**
- * Importe de un renglón como lo arma la factura: pares × precio sin IVA (3
+ * Importe de un renglón como lo arma la factura: pares × precio sin IVA (2
  * decimales), el IVA es el 16 % de ese importe y el total su suma. Así el
  * total con IVA sale del importe sin IVA y cuadra al centavo con lo que diga
  * el CFDI.

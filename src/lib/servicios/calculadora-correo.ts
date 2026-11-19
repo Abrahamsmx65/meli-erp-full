@@ -32,9 +32,9 @@ export async function leerDestinatariosFactura(db: DB, accountId: string): Promi
 
 const din = (x: number | null) =>
   x == null ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** El precio unitario sin IVA lleva 3 decimales: con dos no cuadra contra el importe. */
+/** El precio unitario sin IVA lleva 2 decimales, igual que Aspel y el Sheets de Komerline (dueño, 19-nov-2026). */
 const din3 = (x: number | null) =>
-  x == null ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  x == null ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Asunto, HTML con la marca y texto plano de la solicitud. */
 export function correoSolicitudFactura(x: Omit<ExcelFactura, "buffer">): { asunto: string; html: string; texto: string } {
