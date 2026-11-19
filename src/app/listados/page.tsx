@@ -2,6 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarAgrupadores } from "@/lib/servicios/listados";
 import { Listados } from "@/components/listados";
+import { AgruparFamilia } from "@/components/agrupar-familia";
 import { Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ export default async function PaginaListados() {
       />
 
       <Listados agrupadores={agrupadores} />
+
+      <AgruparFamilia />
     </Pagina>
   );
 }
