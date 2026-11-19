@@ -3386,8 +3386,12 @@ guárdala numerada.
   el Excel de la factura; dueño, 21-oct-2026). Cadena: proveedor → INDUSTHER
   (se queda la ganancia) → KOMERLINE (vende en MELI y NO debe quedarse con
   ganancia). Komerline compra a = depósito real de MELI por par − gastos de
-  Full por par del canal − publicidad por par (la del modelo + la sin amarre
-  del canal), promedio de los meses CERRADOS elegidos (3 por omisión) del
+  Full por par del canal − publicidad PROMEDIO por par del canal (toda la
+  publicidad, la de los modelos y la sin amarre, ÷ todos los pares; IGUAL
+  para todos los modelos; dueño, 19-nov-2026: «la publicidad no se hace por
+  modelo, divide el total entre todos los pares y eso lo descuentas de
+  todo» — con la del modelo, uno de pocas ventas salía a $14, GT187, y las
+  botas GT190/GT192 abajo del costo), promedio de los meses CERRADOS elegidos (3 por omisión) del
   estado de resultados guardado (canal calzado en MELI). Producto NUEVO (< 10
   pares en esos meses): depósito al precio relámpago de Números (real al
   relámpago o con las tasas de Números) − Full y publicidad promedio del

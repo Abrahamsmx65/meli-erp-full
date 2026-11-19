@@ -37,13 +37,13 @@ describe("calcularPrecios", () => {
     const r = res.renglones.find((x) => x.modelo === "GT148")!;
     expect(r.fuente).toBe("real");
     expect(r.recibidoPar).toBe(150);
-    // 12,000 / 600 + 2,000 / 1,000
-    expect(r.publicidadPar).toBe(22);
-    expect(r.precioKomerline).toBe(118);
-    // 118 − 4 − 3 % de 118
-    expect(r.gananciaIndustherPar).toBe(3.54);
-    expect(r.precioIndusther).toBe(110.46);
-    expect(r.margenProveedor).toBe(30.46);
+    // la publicidad es la PROMEDIO del canal para todos: (18,000 + 2,000) / 1,000
+    expect(r.publicidadPar).toBe(20);
+    expect(r.precioKomerline).toBe(120);
+    // 120 − 4 − 3 % de 120
+    expect(r.gananciaIndustherPar).toBe(3.6);
+    expect(r.precioIndusther).toBe(112.4);
+    expect(r.margenProveedor).toBe(32.4);
   });
 
   it("producto nuevo: se calcula con el relámpago de Números y el promedio del canal", () => {
@@ -69,7 +69,7 @@ describe("calcularPrecios", () => {
       mesesLeidos: 3,
     });
     expect(r.gastoOperativoPar).toBe(2);
-    expect(r.renglones[0].precioKomerline).toBe(116.82);
+    expect(r.renglones[0].precioKomerline).toBe(118.8); // (150 − 10 − 20) × 0.99
   });
 });
 
