@@ -94,6 +94,19 @@ export async function guardarHoras(admin: any, horas: any[]): Promise<void> {
   }
 }
 
+/**
+ * Los renglones por pedido (`amazon_pedidos_renglones`) son para cruzar con
+ * lo que Amazon asienta por pedido (correo diario): si fallan, el reporte
+ * del día NO se pierde por eso.
+ */
+export async function guardarRenglones(admin: any, renglones: any[]): Promise<void> {
+  try {
+    await guardarEnLotes(admin, "amazon_pedidos_renglones", renglones);
+  } catch (e) {
+    console.error("amazon_pedidos_renglones:", (e as Error).message);
+  }
+}
+
 /** Cuánto se le espera a un reporte antes de darlo por perdido y pedir otro. */
 const PACIENCIA_REPORTE_MS = 45 * 60_000;
 
@@ -205,7 +218,7 @@ export async function sincronizarVentas(
   await anotar({});
   if (filas.length === 0) return { estado: "vacio" };
 
-  const { ventas, skus, horas } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
+  const { ventas, skus, horas, renglones } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
 
   // Solo se escriben los días que el reporte cubre completos. El día extra
   // que se pidió de margen se descarta: viene incompleto por definición.
@@ -215,6 +228,7 @@ export async function sincronizarVentas(
   await guardarEnLotes(admin, "amazon_skus", skus);
   await guardarEnLotes(admin, "amazon_ventas_diarias", completos);
   await guardarHoras(admin, corte ? horas.filter((h) => h.fecha >= corte) : horas);
+  await guardarRenglones(admin, corte ? renglones.filter((r) => r.fecha >= corte) : renglones);
 
   await admin.from("amazon_sync_estado").upsert({
     account_id: accountId,
@@ -272,7 +286,12 @@ export function agregarDesdeReporte(
   filas: Record<string, string>[],
   accountId: string,
   huso = -6,
-): { ventas: any[]; skus: any[]; horas: any[] } {
+): { ventas: any[]; skus: any[]; horas: any[]; renglones: any[] } {
+  // Un renglón por pedido + SKU (`amazon_pedidos_renglones`, migración 0163):
+  // con el número de pedido se cruza lo vendido con lo que Amazon asienta
+  // por ese pedido. Los cancelados van marcados, no se saltan: un pedido que
+  // se cancela después tiene que dejar de contar al releer la ventana.
+  const porPedido = new Map<string, any>();
   const acumulado = new Map<string, any>();
   const pedidos = new Map<string, Set<string>>();
   // Lo mismo por HORA del día (sin SKU), para las gráficas por hora: el
@@ -296,10 +315,21 @@ export function agregarDesdeReporte(
     }
 
     const estado = (f["item-status"] || f["order-status"] || "").toLowerCase();
-    if (CANCELADAS.has(estado)) continue;
-
     const ms = Date.parse(compra);
     const fecha = Number.isFinite(ms) ? fechaLocal(ms, huso) : compra.slice(0, 10);
+    const pedido = (f["amazon-order-id"] ?? "").trim();
+    if (pedido) {
+      const k = `${pedido}|${sku}`;
+      const r = porPedido.get(k) ?? { account_id: accountId, amazon_order_id: pedido, seller_sku: sku, fecha, unidades: 0, importe: 0, cancelado: true };
+      if (!CANCELADAS.has(estado)) {
+        r.cancelado = false;
+        r.unidades += entero(f["quantity"] || f["quantity-purchased"]);
+        r.importe += decimal(f["item-price"]);
+      }
+      porPedido.set(k, r);
+    }
+    if (CANCELADAS.has(estado)) continue;
+
     const clave = `${sku}|${fecha}`;
     const reg = acumulado.get(clave) ?? {
       account_id: accountId,
@@ -349,7 +379,12 @@ export function agregarDesdeReporte(
     ordenes: p.size,
     importe: Math.round(h.importe * 100) / 100,
   }));
-  return { ventas, skus: [...catalogo.values()], horas };
+  const renglones = [...porPedido.values()].map((r) => ({
+    ...r,
+    importe: Math.round(r.importe * 100) / 100,
+    actualizado_en: new Date().toISOString(),
+  }));
+  return { ventas, skus: [...catalogo.values()], horas, renglones };
 }
 
 // ---------------------------------------------------------------------------

@@ -22,7 +22,8 @@ import { cargarConsolidado, leerConsolidadoGuardado } from "./consolidado-cargar
 import type { Consolidado } from "./consolidado";
 import { enviarCorreo, type ResultadoCorreo } from "./correo";
 import { LETRA_TITULO, TONO, URL_ERP, plantillaCorreo } from "./correo-marca";
-import { traerTodo } from "../datos/repos";
+import { traerRpcTodoOLanzar, traerTodo } from "../datos/repos";
+import { costoDeSkuUnificado, mapaCostosUnificado } from "./costos-unificados";
 import { cuentaAmazon } from "./amazon";
 import { MODELOS_OMITIDOS_AMAZON } from "./consolidado-amazon";
 import { modeloUnificado } from "./modelo-unificado";
@@ -49,6 +50,8 @@ export interface FilaResumen {
   notas: string[];
   /** el canal no se pudo leer: no es cero, es sin dato (16-oct-2026: fundas salió «0 · $0» por un statement timeout) */
   sinDato?: boolean;
+  /** la publicidad del rango (para rehacer la ganancia de Amazon con sus pedidos) */
+  publicidad?: number;
 }
 
 export interface ResumenDiario {
@@ -95,25 +98,42 @@ export function filasDeConsolidado(c: Consolidado, antesDeGastosDelMes: boolean)
       facturacion: k.ventaBruta,
       ganancia: k.ventaBruta > 0 || k.neto !== 0 || k.publicidad > 0 ? r2(ganancia) : null,
       notas,
+      publicidad: k.publicidad,
     };
   });
 }
 
-/** Lo vendido en Amazon en el rango según sus PEDIDOS (`amazon_ventas_diarias`). */
+/** Lo vendido en Amazon en el rango según sus PEDIDOS, y lo que Amazon dice que paga por ellos. */
 export interface PedidosAmazon {
   unidades: number;
   facturacion: number;
+  /**
+   * Lo que Amazon ya dice cuánto paga por ESOS pedidos (eventos de envío de
+   * la Finances API, por número de pedido). null = los pedidos de ese día
+   * aún no se guardan con su número: no se puede cruzar.
+   */
+  pago: {
+    unidades: number;
+    facturacion: number;
+    /** lo que Amazon dice que paga (ya sin comisión, FBA ni retenciones) */
+    neto: number;
+    /** costo de las piezas con número de Amazon */
+    costo: number;
+    sinCosto: number;
+  } | null;
 }
 
 /**
  * Amazon cuenta sus PEDIDOS, como Inicio y Ventas Amazon (dueño, 17-nov-2026:
- * el correo del 16-nov decía 405 piezas y $88,645 y la pantalla 860 y
- * $155,424). El estado de resultados solo ve lo que Amazon ya REGISTRÓ como
- * dinero, y Amazon no lo registra hasta enviar el pedido: a las 8:00 casi la
- * mitad de lo de ayer seguía sin salir. Unidades y facturación pasan a ser
- * las de los pedidos; la GANANCIA sigue siendo la del dinero ya registrado y
- * la nota lo dice. Sin pedidos leídos, la fila se queda como estaba y se
- * avisa. Pura.
+ * el correo decía 405 piezas y la pantalla 860), y la GANANCIA sale de lo
+ * que Amazon dice que va a pagar por ESOS pedidos, igual que MELI con su
+ * depósito (dueño, 19-nov-2026: «que mande lo que aún no se cobró y con el
+ * monto que Amazon dice que va a pagar, no estimado»): ganancia = lo que
+ * Amazon asentó por los pedidos del día − su costo − la publicidad del día.
+ * Amazon no pone número a un pedido hasta ENVIARLO; lo que aún no sale queda
+ * fuera de la ganancia y la nota dice cuánto es. Nada se estima. Sin el
+ * cruce por pedido (días de antes de guardar el número), la ganancia sigue
+ * siendo la de lo que Amazon registró en el día y se dice. Pura.
  */
 export function conPedidosAmazon(filas: FilaResumen[], pedidos: PedidosAmazon | null): FilaResumen[] {
   return filas.map((f) => {
@@ -121,13 +141,29 @@ export function conPedidosAmazon(filas: FilaResumen[], pedidos: PedidosAmazon | 
     if (!pedidos) {
       return { ...f, notas: [...f.notas, "no se pudieron leer los pedidos: unidades y facturación de lo ya registrado por Amazon"] };
     }
-    const notas = [...f.notas];
-    if (pedidos.unidades !== f.unidades || Math.abs(pedidos.facturacion - f.facturacion) >= 1) {
-      notas.push(
-        `ganancia de lo que Amazon ya registró (${n(f.unidades)} piezas, ${pesos(f.facturacion)}); el resto se registra cuando Amazon envía el pedido`,
-      );
+    const base = { ...f, unidades: pedidos.unidades, facturacion: r2(pedidos.facturacion) };
+    const pago = pedidos.pago;
+    if (!pago) {
+      const notas = [...f.notas];
+      if (pedidos.unidades !== f.unidades || Math.abs(pedidos.facturacion - f.facturacion) >= 1) {
+        notas.push(
+          `ganancia de lo que Amazon ya registró (${n(f.unidades)} piezas, ${pesos(f.facturacion)}); el resto se registra cuando Amazon envía el pedido`,
+        );
+      }
+      return { ...base, notas };
     }
-    return { ...f, unidades: pedidos.unidades, facturacion: r2(pedidos.facturacion), notas };
+    // Las notas del consolidado hablan de lo asentado en el día (otro
+    // conjunto de pedidos): se cambian por las de estos pedidos.
+    const notas: string[] = [];
+    const faltan = Math.max(0, pedidos.unidades - pago.unidades);
+    if (faltan > 0) {
+      const venta = Math.max(0, pedidos.facturacion - pago.facturacion);
+      notas.push(`${n(faltan)} piezas (${pesos(venta)}) que Amazon aún no envía: no dice cuánto paga hasta enviarlas, fuera de la ganancia`);
+    }
+    if (pago.sinCosto > 0) notas.push(`${n(pago.sinCosto)} piezas sin costo capturado`);
+    const publicidad = f.publicidad ?? 0;
+    const hayAlgo = pago.unidades > 0 || publicidad > 0;
+    return { ...base, ganancia: hayAlgo ? r2(pago.neto - pago.costo - publicidad) : null, notas };
   });
 }
 
@@ -391,26 +427,57 @@ const ESPERA_REINTENTO_MS = 20_000;
 /**
  * Pares y venta de los PEDIDOS de Amazon en el rango (el reporte de órdenes,
  * lo mismo que suman Inicio y Ventas Amazon), sin los modelos que el estado
- * de resultados deja fuera. null si no se pudo leer.
+ * de resultados deja fuera, y lo que Amazon dice que paga por esos mismos
+ * pedidos (`amazon_pedidos_pago`, migración 0163). null si no se pudo leer.
  */
-async function leerPedidosAmazon(db: DB, desde: string, hasta: string): Promise<PedidosAmazon | null> {
+async function leerPedidosAmazon(db: DB, cuenta: Cuenta, desde: string, hasta: string): Promise<PedidosAmazon | null> {
   try {
     const amz = await cuentaAmazon(db);
     if (!amz) return null;
-    const filas = await traerTodo<{ seller_sku: string; unidades: number | string; importe: number | string }>(
-      db,
-      "amazon_ventas_diarias",
-      "seller_sku, fecha, unidades, importe",
-      (q) => q.eq("account_id", amz.id).gte("fecha", desde).lte("fecha", hasta),
-    );
+    const omitido = (sku: string) => MODELOS_OMITIDOS_AMAZON.has(modeloUnificado(sku).toUpperCase());
+    const [filas, pagos, costos] = await Promise.all([
+      traerTodo<{ seller_sku: string; unidades: number | string; importe: number | string }>(
+        db,
+        "amazon_ventas_diarias",
+        "seller_sku, fecha, unidades, importe",
+        (q) => q.eq("account_id", amz.id).gte("fecha", desde).lte("fecha", hasta),
+      ),
+      traerRpcTodoOLanzar<{ seller_sku: string; unidades: number | string; importe_pagado: number | string; unidades_pagadas: number | string; neto: number | string }>(
+        db,
+        "amazon_pedidos_pago",
+        { p_account: amz.id, p_desde: desde, p_hasta: hasta },
+      ).catch((err) => {
+        console.error(`resumen diario: pago de los pedidos de Amazon: ${(err as Error).message}`);
+        return null;
+      }),
+      mapaCostosUnificado(db, { meliAccountId: cuenta.id }),
+    ]);
     let unidades = 0;
     let facturacion = 0;
     for (const f of filas) {
-      if (MODELOS_OMITIDOS_AMAZON.has(modeloUnificado(f.seller_sku).toUpperCase())) continue;
+      if (omitido(f.seller_sku)) continue;
       unidades += Number(f.unidades) || 0;
       facturacion += Number(f.importe) || 0;
     }
-    return { unidades, facturacion: r2(facturacion) };
+    let pago: PedidosAmazon["pago"] = null;
+    const conNumero = (pagos ?? []).filter((p) => !omitido(p.seller_sku));
+    // Sin renglones por pedido en el rango (días leídos antes de guardar el
+    // número) no hay cruce: se dice, no se supone que nada se envió.
+    if (conNumero.some((p) => (Number(p.unidades) || 0) > 0)) {
+      pago = { unidades: 0, facturacion: 0, neto: 0, costo: 0, sinCosto: 0 };
+      for (const p of conNumero) {
+        const u = Number(p.unidades_pagadas) || 0;
+        if (u <= 0) continue;
+        pago.unidades += u;
+        pago.facturacion += Number(p.importe_pagado) || 0;
+        pago.neto += Number(p.neto) || 0;
+        const costo = costoDeSkuUnificado(p.seller_sku, costos);
+        if (costo == null) pago.sinCosto += u;
+        else pago.costo += costo * u;
+      }
+      pago = { ...pago, facturacion: r2(pago.facturacion), neto: r2(pago.neto), costo: r2(pago.costo) };
+    }
+    return { unidades, facturacion: r2(facturacion), pago };
   } catch (err) {
     console.error(`resumen diario: pedidos de Amazon: ${(err as Error).message}`);
     return null;
@@ -484,8 +551,8 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
     leerDia(),
     leerConsolidadoGuardado(db, cuenta, periodo),
     leerSemana(),
-    leerPedidosAmazon(db, dia, dia),
-    semana ? leerPedidosAmazon(db, semana.desde, semana.hasta) : Promise.resolve(null),
+    leerPedidosAmazon(db, cuenta, dia, dia),
+    semana ? leerPedidosAmazon(db, cuenta, semana.desde, semana.hasta) : Promise.resolve(null),
   ]);
   if (semana1) avisos.push(...semana1.avisos);
   const semanaCargada = semana1?.c ?? null;

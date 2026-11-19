@@ -110,7 +110,7 @@ describe("Amazon por sus pedidos", () => {
   };
 
   it("unidades y facturación de los pedidos; la ganancia sigue siendo la de lo ya registrado", () => {
-    const r = armarResumen("2026-11-16", consolidado([calzado, amazon]), null, [], [], { unidades: 860, facturacion: 155_990.5 });
+    const r = armarResumen("2026-11-16", consolidado([calzado, amazon]), null, [], [], { unidades: 860, facturacion: 155_990.5, pago: null });
     const a = r.filas.find((f) => f.canal === "amazon")!;
     expect(a.unidades).toBe(860);
     expect(a.facturacion).toBe(155_990.5);
@@ -127,8 +127,37 @@ describe("Amazon por sus pedidos", () => {
   });
 
   it("si cuadran, no agrega nota; otros canales no se tocan", () => {
-    const filas = conPedidosAmazon(armarResumen("2026-11-16", consolidado([calzado, amazon]), null).filas, { unidades: 405, facturacion: 88_645.14 });
+    const filas = conPedidosAmazon(armarResumen("2026-11-16", consolidado([calzado, amazon]), null).filas, { unidades: 405, facturacion: 88_645.14, pago: null });
     expect(filas.find((f) => f.canal === "amazon")!.notas).toEqual([]);
     expect(filas.find((f) => f.canal === "meli_calzado")!.unidades).toBe(1_000);
   });
+
+  it("con el cruce por pedido, la ganancia es lo que Amazon dice que paga por ESOS pedidos", () => {
+    const r = armarResumen("2026-11-18", consolidado([calzado, amazon]), null, [], [], {
+      unidades: 291,
+      facturacion: 56_936.42,
+      pago: { unidades: 200, facturacion: 40_000, neto: 22_000, costo: 9_000, sinCosto: 3 },
+    });
+    const a = r.filas.find((f) => f.canal === "amazon")!;
+    expect(a.unidades).toBe(291);
+    expect(a.facturacion).toBe(56_936.42);
+    // 22,000 − 9,000 − 6,199.48 de publicidad
+    expect(a.ganancia).toBe(6_800.52);
+    expect(a.notas.join(" ")).toContain("91 piezas ($16,936) que Amazon aún no envía");
+    expect(a.notas.join(" ")).toContain("3 piezas sin costo capturado");
+    expect(a.notas.join(" ")).not.toContain("ya registró");
+  });
+
+  it("todo enviado: sin nota de pendientes", () => {
+    const filas = conPedidosAmazon(armarResumen("2026-11-18", consolidado([amazon]), null).filas, {
+      unidades: 100,
+      facturacion: 20_000,
+      pago: { unidades: 100, facturacion: 20_000, neto: 11_000, costo: 4_000, sinCosto: 0 },
+    });
+    const a = filas.find((f) => f.canal === "amazon")!;
+    expect(a.notas).toEqual([]);
+    expect(a.ganancia).toBe(r2(11_000 - 4_000 - 6_199.48));
+  });
 });
+
+const r2 = (x: number) => Math.round(x * 100) / 100;
