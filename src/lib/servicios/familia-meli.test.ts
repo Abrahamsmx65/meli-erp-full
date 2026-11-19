@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { MeliError } from "@/lib/meli/client";
 import {
+  crudoMeli,
   diferenciasContraFamilia,
   familiaDe,
   leerDestino,
@@ -82,5 +84,12 @@ describe("diferenciasContraFamilia", () => {
   it("un atributo que solo trae uno de los dos también es diferencia", () => {
     const difs = diferenciasContraFamilia(item([]), item([{ id: "MODEL", name: "Modelo", value_name: "GT135" }]));
     expect(difs).toEqual([{ atributoId: "MODEL", nombre: "Modelo", enPublicacion: null, enFamilia: "GT135" }]);
+  });
+});
+
+describe("crudoMeli", () => {
+  it("enseña el estado y el cuerpo tal cual", () => {
+    const err = new MeliError("MELI 400", 400, { message: "BODY_INVALID_FIELDS", cause: [] });
+    expect(crudoMeli(err)).toBe('HTTP 400 {"message":"BODY_INVALID_FIELDS","cause":[]}');
   });
 });

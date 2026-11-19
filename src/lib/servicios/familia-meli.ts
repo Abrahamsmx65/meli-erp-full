@@ -11,7 +11,7 @@
  *
  * La parte de arriba es pura (con pruebas); la de abajo habla con MELI.
  */
-import type { MeliClient } from "@/lib/meli/client";
+import { MeliError, type MeliClient } from "@/lib/meli/client";
 import {
   esDiferenciaEsperada,
   esMedidaDePaquete,
@@ -167,6 +167,15 @@ export async function resolverFamilia(
 }
 
 const ESPERA_MS = 2000;
+
+/** Lo que MELI contestó, sin resumir: estado HTTP y el cuerpo recortado. */
+export function crudoMeli(err: unknown): string {
+  if (err instanceof MeliError) {
+    const cuerpo = err.cuerpo == null ? "" : JSON.stringify(err.cuerpo);
+    return `HTTP ${err.status} ${cuerpo.slice(0, 500) || err.message.slice(0, 500)}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Escribe el nombre de la familia destino en cada publicación y CONFIRMA
@@ -218,17 +227,41 @@ export async function agruparEnFamilia(
     }
 
     if (item.family_name.trim() !== familia.familyName) {
-      try {
-        await cliente.put(`/items/${itemId}`, { family_name: familia.familyName }, { reintentos: 1 });
-      } catch (err) {
-        // MELI solo deja cambiar el nombre de familia mientras el producto no
-        // tenga ventas (GT251-BLK-25, 19-nov-2026: 1 venta, BODY_INVALID_FIELDS).
-        const vendidas = Number((item as { sold_quantity?: unknown }).sold_quantity ?? 0);
-        const porVentas =
-          vendidas > 0
-            ? ` Esta publicación ya tiene ${vendidas} venta${vendidas === 1 ? "" : "s"}: MELI solo deja cambiar el nombre de familia a un producto sin ventas.`
-            : "";
-        resultados.push({ ...base, detalle: `MELI rechazó el cambio: ${mensajeMeli(err)}.${porVentas}` });
+      // MELI no tiene UNA forma documentada de cambiar el nombre de familia:
+      // se prueban las tres que aparecen en su documentación, en orden, y se
+      // para en la primera que de verdad deja el nombre (se relee). Lo que
+      // contesta cada una se guarda CRUDO: «BODY_INVALID_FIELDS» a secas no
+      // dice qué campo rechazó (GT251-BLK-25, 19-nov-2026).
+      const cuerpo = { family_name: familia.familyName };
+      const up = item.user_product_id ?? null;
+      const intentos: { nombre: string; ruta: string }[] = [
+        { nombre: "nombre de familia de la publicación", ruta: `/items/${itemId}/family_name` },
+        { nombre: "publicación", ruta: `/items/${itemId}` },
+        ...(up ? [{ nombre: `user product ${up}`, ruta: `/user-products/${up}` }] : []),
+      ];
+      const fallos: string[] = [];
+      let quedo = false;
+      for (const intento of intentos) {
+        try {
+          await cliente.put(intento.ruta, cuerpo, { reintentos: 0 });
+        } catch (err) {
+          fallos.push(`${intento.nombre}: ${crudoMeli(err)}`);
+          continue;
+        }
+        await espera(ESPERA_MS);
+        try {
+          const releido = await cliente.get<ItemCrudo>(`/items/${itemId}`);
+          if ((releido.family_name ?? "").trim() === familia.familyName) {
+            quedo = true;
+            break;
+          }
+          fallos.push(`${intento.nombre}: MELI contestó OK pero el nombre sigue igual`);
+        } catch {
+          fallos.push(`${intento.nombre}: MELI contestó OK pero no se pudo releer`);
+        }
+      }
+      if (!quedo) {
+        resultados.push({ ...base, detalle: `MELI no dejó cambiar el nombre de familia. ${fallos.join(" · ")}` });
         continue;
       }
     }
