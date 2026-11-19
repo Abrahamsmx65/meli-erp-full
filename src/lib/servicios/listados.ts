@@ -591,9 +591,13 @@ export interface ResultadoUnificacion {
  *  saber si rechazó el valor, el atributo o la publicación entera. */
 export function mensajeMeli(err: unknown): string {
   if (err instanceof MeliError) {
-    const c = err.cuerpo as { message?: string; cause?: { code?: string; message?: string }[] } | undefined;
+    const c = err.cuerpo as
+      | { message?: string; cause?: ({ code?: string; message?: string } | string)[] }
+      | undefined;
+    // MELI manda las causas como objetos o como TEXTO suelto (BODY_INVALID_FIELDS
+    // trae «The fields [x] are invalid…» así): sin el texto solo se veía el código.
     const causas = Array.isArray(c?.cause)
-      ? c.cause.map((x) => x?.message ?? x?.code).filter(Boolean).join("; ")
+      ? c.cause.map((x) => (typeof x === "string" ? x : x?.message ?? x?.code)).filter(Boolean).join("; ")
       : "";
     return [c?.message ?? err.message, causas].filter(Boolean).join(" — ");
   }

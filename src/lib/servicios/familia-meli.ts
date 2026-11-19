@@ -221,7 +221,14 @@ export async function agruparEnFamilia(
       try {
         await cliente.put(`/items/${itemId}`, { family_name: familia.familyName }, { reintentos: 1 });
       } catch (err) {
-        resultados.push({ ...base, detalle: `MELI rechazó el cambio: ${mensajeMeli(err)}` });
+        // MELI solo deja cambiar el nombre de familia mientras el producto no
+        // tenga ventas (GT251-BLK-25, 19-nov-2026: 1 venta, BODY_INVALID_FIELDS).
+        const vendidas = Number((item as { sold_quantity?: unknown }).sold_quantity ?? 0);
+        const porVentas =
+          vendidas > 0
+            ? ` Esta publicación ya tiene ${vendidas} venta${vendidas === 1 ? "" : "s"}: MELI solo deja cambiar el nombre de familia a un producto sin ventas.`
+            : "";
+        resultados.push({ ...base, detalle: `MELI rechazó el cambio: ${mensajeMeli(err)}.${porVentas}` });
         continue;
       }
     }
