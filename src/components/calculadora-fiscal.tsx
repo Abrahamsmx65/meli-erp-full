@@ -8,7 +8,7 @@ import type { CalculadoraCargada, ContenedorFactura } from "@/lib/servicios/calc
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const din3 = (x: number) => "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const din3 = (x: number) => "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-2)" };
 
