@@ -116,7 +116,7 @@ async function familiaDelItem(cliente: MeliClient, item: ItemCrudo): Promise<str
   if (propia) return propia;
   if (!item.user_product_id) return null;
   try {
-    return familiaDe(await cliente.get(`/user-products/${item.user_product_id}`, undefined, { reintentos: 1 }));
+    return familiaDe(await cliente.get(`/user-products/${item.user_product_id}`));
   } catch {
     return null;
   }
@@ -138,7 +138,7 @@ export async function resolverFamilia(
   if (destino.tipo === "familia") {
     let resp: unknown;
     try {
-      resp = await cliente.get(`/sites/${sitio}/user-products-families/${destino.id}`, undefined, { reintentos: 1 });
+      resp = await cliente.get(`/sites/${sitio}/user-products-families/${destino.id}`);
     } catch (err) {
       throw new Error(`MELI no entregó la familia ${destino.id}: ${mensajeMeli(err)}`);
     }
@@ -243,7 +243,7 @@ export async function agruparEnFamilia(
       let quedo = false;
       for (const intento of intentos) {
         try {
-          await cliente.put(intento.ruta, cuerpo, { reintentos: 0 });
+          await cliente.put(intento.ruta, cuerpo, { reintentos: 3 });
         } catch (err) {
           fallos.push(`${intento.nombre}: ${crudoMeli(err)}`);
           continue;
