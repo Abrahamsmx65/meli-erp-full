@@ -8,7 +8,7 @@
  * de MELI menos sus gastos de Full y su publicidad.
  *   precio Komerline = depósito real de MELI por par
  *                      − gastos de Full por par (del canal)
- *                      − publicidad por par (la del modelo + la sin amarre del canal)
+ *                      − publicidad PROMEDIO por par del canal (toda la publicidad ÷ todos los pares)
  *                      − margen de Komerline (por omisión 0 %)
  * El depósito, la publicidad y los gastos de Full salen del ESTADO DE
  * RESULTADOS guardado (canal calzado en MELI) de los meses cerrados que se
@@ -125,7 +125,6 @@ export function calcularPrecios(entrada: {
   const P = entrada.parametros;
   const { canal } = entrada;
   const fullPar = div(canal.gastosFull, canal.unidades);
-  const adsGeneralPar = div(canal.adsGenerales, canal.unidades);
   const publicidadPromedioPar = div(canal.adsModelos + canal.adsGenerales, canal.unidades);
   const unidadesMesUsadas =
     P.unidadesMes != null && P.unidadesMes > 0
@@ -149,7 +148,10 @@ export function calcularPrecios(entrada: {
     if (v && unidades >= UNIDADES_MINIMAS) {
       fuente = "real";
       recibidoPar = v.neto / unidades;
-      publicidadPar = v.ads / unidades + adsGeneralPar;
+      // Dueño, 19-nov-2026: «la publicidad no se hace por modelo, divide el
+      // total de publicidad entre todos los pares y eso lo descuentas de
+      // todo». Con la del modelo, uno de pocas ventas salía a $14 (GT187).
+      publicidadPar = publicidadPromedioPar;
     } else if (m?.netoRelampago != null) {
       fuente = "relampago";
       recibidoPar = m.netoRelampago;

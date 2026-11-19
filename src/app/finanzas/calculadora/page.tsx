@@ -36,7 +36,7 @@ export default async function Calculadora() {
           <div className="flex flex-col gap-2 text-[13px]">
             <p>
               <b>Komerline</b> (vende en Mercado Libre) le compra a Industher a lo que recibe por par de MELI (depósito real de Mercado Pago) menos los
-              gastos de Full por par y la publicidad por par (la del modelo más la sin amarre del canal), promedio de los meses cerrados elegidos.
+              gastos de Full por par y la publicidad promedio por par (toda la publicidad del canal ÷ todos los pares, igual para todos los modelos), promedio de los meses cerrados elegidos.
               Así casi no le queda ganancia.
             </p>
             <p>
