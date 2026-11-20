@@ -26,7 +26,6 @@ import { traerRpcTodoOLanzar, traerTodo } from "../datos/repos";
 import { costoDeSkuUnificado, mapaCostosUnificado } from "./costos-unificados";
 import { cuentaAmazon } from "./amazon";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
-import { cargosAmazon } from "./numeros-vivo";
 import { MODELOS_OMITIDOS_AMAZON } from "./consolidado-amazon";
 import { modeloUnificado } from "./modelo-unificado";
 
@@ -134,9 +133,12 @@ export interface PedidosAmazon {
       neto: number;
       costo: number;
       sinCosto: number;
-      /** piezas sin envío que Amazon no estimó (sin respuesta, sin precio o sin tiempo) */
+      /** piezas sin envío que no se pudieron valuar (ni estimado de Amazon ni historia del modelo) */
       sinEstimado: number;
       ventaSinEstimado: number;
+      /** de esas, cuántas con el estimado de Amazon y cuántas con lo que Amazon pagó al modelo en 30 días */
+      deAmazon?: number;
+      deHistoria?: number;
     } | null;
   } | null;
 }
@@ -176,14 +178,16 @@ export function conPedidosAmazon(filas: FilaResumen[], pedidos: PedidosAmazon | 
     const est = pago.estimado ?? null;
     const faltan = Math.max(0, pedidos.unidades - pago.unidades);
     if (est && est.unidades > 0) {
+      const historia = est.deHistoria ?? 0;
       notas.push(
-        `${n(est.unidades)} piezas (${pesos(est.facturacion)}) aún sin enviar: con el estimado de Amazon pagaría ${pesos(est.neto)} (comisión y FBA de Amazon, retención de 30 días)`,
+        `${n(est.unidades)} piezas (${pesos(est.facturacion)}) aún sin enviar: Amazon pagaría ${pesos(est.neto)}` +
+          (historia > 0 ? ` (${n(historia)} con lo que Amazon pagó por ese modelo en 30 días)` : ""),
       );
     }
     const sinNada = est ? est.sinEstimado : faltan;
     if (sinNada > 0) {
       const venta = est ? est.ventaSinEstimado : Math.max(0, pedidos.facturacion - pago.facturacion);
-      notas.push(`${n(sinNada)} piezas (${pesos(venta)}) sin enviar que Amazon no estimó: fuera de la ganancia`);
+      notas.push(`${n(sinNada)} piezas (${pesos(venta)}) sin enviar que no se pudieron valuar: fuera de la ganancia`);
     }
     const sinCosto = pago.sinCosto + (est?.sinCosto ?? 0);
     if (sinCosto > 0) notas.push(`${n(sinCosto)} piezas sin costo capturado`);
@@ -454,14 +458,29 @@ const ESPERA_REINTENTO_MS = 20_000;
 
 /** Rato que se le da a Amazon para estimar lo que aún no envía (el cron vive 300 s). */
 const MS_ESTIMADO_AMAZON = 90_000;
+/** Lo que acepta en una llamada `getMyFeesEstimates`. */
+const ESTIMADOS_POR_LLAMADA = 20;
+
+/** Lo que Amazon le cobró a cada modelo en 30 días (`amazon_tarifas_por_modelo`). */
+interface TarifaModelo {
+  /** depositado ÷ precio: la parte del precio que Amazon pagó de verdad */
+  netoSobrePrecio: number | null;
+  retencionPct: number | null;
+  ventas: number;
+}
 
 /**
- * Lo que AMAZON estima que pagará por lo vendido que aún no envía (dueño,
- * 19-nov-2026: «ponme el estimado que Amazon te da»): por SKU, al precio
- * por pieza del pedido, `getMyFeesEstimateForSKU` da la comisión y la tarifa
- * FBA; el estimado no trae la retención de IVA e ISR, así que se resta la que
- * Amazon le aplicó a la cuenta en 30 días (`amazon_tarifas_por_modelo`). Lo
- * que Amazon no contesta, o no alcanza el tiempo, se cuenta aparte.
+ * Lo vendido en Amazon que aún no sale, con lo que Amazon dice que pagará
+ * (dueño, 19 y 20-nov-2026: «ponme el estimado que Amazon te da», «que salga
+ * toda la venta y la ganancia sin dejar nada afuera aunque Amazon no ha
+ * pagado»). Por MODELO y precio (las tallas de un modelo pagan lo mismo) se
+ * le pregunta a Amazon en tandas de 20 (`getMyFeesEstimates`: comisión y FBA)
+ * y se resta la retención de IVA e ISR que Amazon le aplicó a la cuenta en 30
+ * días (el estimado no la trae). Lo que Amazon no estime a tiempo sale con lo
+ * que Amazon le PAGÓ a ese modelo en 30 días (depositado ÷ precio), y un
+ * modelo sin ventas en Amazon con lo de toda la cuenta: no se deja nada fuera.
+ * Hasta el 20-nov se preguntaba SKU por SKU (1 por segundo) y de 306 piezas
+ * 178 se quedaban fuera por tiempo.
  */
 async function estimarConAmazon(
   db: DB,
@@ -469,37 +488,64 @@ async function estimarConAmazon(
   pendientes: { sku: string; unidades: number; venta: number }[],
   costos: Awaited<ReturnType<typeof mapaCostosUnificado>>,
 ): Promise<NonNullable<NonNullable<PedidosAmazon["pago"]>["estimado"]>> {
-  const r = { unidades: 0, facturacion: 0, neto: 0, costo: 0, sinCosto: 0, sinEstimado: 0, ventaSinEstimado: 0 };
-  const sinEstimar = (p: { unidades: number; venta: number }) => {
-    r.sinEstimado += p.unidades;
-    r.ventaSinEstimado += p.venta;
-  };
-  const credenciales = (await cuentasAmazon(db).catch(() => [])).find((c) => c.accountId === amazonId);
-  if (!credenciales) {
-    pendientes.forEach(sinEstimar);
-    return { ...r, ventaSinEstimado: r2(r.ventaSinEstimado) };
-  }
-  const retencion = await retencionAmazon(db, amazonId);
-  const amz = new Cliente(credenciales, Date.now() + MS_ESTIMADO_AMAZON);
-  // Lo que más vende primero: si se acaba el rato, lo que queda es lo menos.
-  for (const p of [...pendientes].sort((a, b) => b.venta - a.venta)) {
+  const r = { unidades: 0, facturacion: 0, neto: 0, costo: 0, sinCosto: 0, sinEstimado: 0, ventaSinEstimado: 0, deAmazon: 0, deHistoria: 0 };
+  const tarifas = await tarifasAmazon(db, amazonId);
+  const retencion = tarifas.cuenta.retencionPct ?? 0;
+
+  // Un grupo por modelo y precio al peso: una sola pregunta a Amazon.
+  type Grupo = { modelo: string; precio: number; sku: string; partes: { sku: string; unidades: number; venta: number }[] };
+  const grupos = new Map<string, Grupo>();
+  for (const p of pendientes) {
+    // Como `amazon_tarifas_por_modelo`: lo que va antes del primer guion.
+    const modelo = (p.sku.split("-")[0] ?? "").trim().toUpperCase();
     const precio = p.unidades > 0 ? p.venta / p.unidades : 0;
-    if (precio <= 0 || amz.msRestantes() < 5_000) {
-      sinEstimar(p);
-      continue;
+    const k = `${modelo}|${Math.round(precio)}`;
+    const g = grupos.get(k) ?? { modelo, precio, sku: p.sku, partes: [] };
+    g.partes.push(p);
+    grupos.set(k, g);
+  }
+
+  // Lo que Amazon estima, en tandas.
+  const estimado = new Map<string, number>(); // clave de grupo → lo que Amazon se queda por pieza (comisión + FBA)
+  const credenciales = (await cuentasAmazon(db).catch(() => [])).find((c) => c.accountId === amazonId);
+  if (credenciales) {
+    const amz = new Cliente(credenciales, Date.now() + MS_ESTIMADO_AMAZON);
+    const lista = [...grupos.entries()].filter(([, g]) => g.precio > 0);
+    for (let i = 0; i < lista.length && amz.msRestantes() > 5_000; i += ESTIMADOS_POR_LLAMADA) {
+      const tanda = lista.slice(i, i + ESTIMADOS_POR_LLAMADA);
+      try {
+        const cargos = await cargosAmazonEnTanda(amz, tanda.map(([k, g]) => ({ id: k, sku: g.sku, precio: g.precio })));
+        for (const [k, c] of cargos) estimado.set(k, c);
+      } catch (err) {
+        console.error(`resumen diario: estimado de Amazon en tanda: ${(err as Error).message}`);
+      }
     }
-    try {
-      const c = await cargosAmazon(amz, p.sku, precio);
-      if (!c) throw new Error("sin estimado");
+  }
+
+  for (const [k, g] of grupos) {
+    const cobrado = estimado.get(k);
+    const historia = tarifas.porModelo.get(g.modelo)?.netoSobrePrecio ?? tarifas.cuenta.netoSobrePrecio;
+    for (const p of g.partes) {
+      const precio = p.unidades > 0 ? p.venta / p.unidades : 0;
+      let netoPieza: number | null = null;
+      if (cobrado != null && precio > 0) {
+        netoPieza = precio - cobrado - precio * retencion;
+        r.deAmazon += p.unidades;
+      } else if (historia != null) {
+        netoPieza = precio * historia;
+        r.deHistoria += p.unidades;
+      }
+      if (netoPieza == null) {
+        r.sinEstimado += p.unidades;
+        r.ventaSinEstimado += p.venta;
+        continue;
+      }
       r.unidades += p.unidades;
       r.facturacion += p.venta;
-      r.neto += (precio - c.comision - c.fijo - precio * retencion) * p.unidades;
+      r.neto += netoPieza * p.unidades;
       const costo = costoDeSkuUnificado(p.sku, costos);
       if (costo == null) r.sinCosto += p.unidades;
       else r.costo += costo * p.unidades;
-    } catch (err) {
-      console.error(`resumen diario: estimado de Amazon de ${p.sku}: ${(err as Error).message}`);
-      sinEstimar(p);
     }
   }
   return {
@@ -511,28 +557,78 @@ async function estimarConAmazon(
   };
 }
 
-/** La retención (IVA + ISR) que Amazon le aplicó a la cuenta en 30 días, sobre el precio. */
-async function retencionAmazon(db: DB, amazonId: string): Promise<number> {
+/**
+ * `getMyFeesEstimates` (POST /products/fees/v0/feesEstimate): hasta 20
+ * estimados en una llamada. Devuelve, por id, lo que Amazon se queda por
+ * pieza (comisión + FBA y demás cargos por artículo).
+ */
+async function cargosAmazonEnTanda(amz: Cliente, pedidos: { id: string; sku: string; precio: number }[]): Promise<Map<string, number>> {
+  const r = await amz.llamar<any>("POST", "/products/fees/v0/feesEstimate", "getMyFeesEstimates", {
+    cuerpo: pedidos.map((p) => ({
+      IdType: "SKU",
+      IdValue: p.sku,
+      FeesEstimateRequest: {
+        MarketplaceId: amz.cuenta.marketplaceId,
+        IsAmazonFulfilled: true,
+        PriceToEstimateFees: { ListingPrice: { CurrencyCode: "MXN", Amount: r2(p.precio) } },
+        Identifier: p.id,
+      },
+    })),
+  });
+  const salida = new Map<string, number>();
+  const lista: any[] = Array.isArray(r) ? r : Array.isArray(r?.payload) ? r.payload : [];
+  for (const res of lista) {
+    if (res?.Status !== "Success") continue;
+    const id = res?.FeesEstimateIdentifier?.SellerInputIdentifier;
+    const detalle = res?.FeesEstimate?.FeeDetailList;
+    if (typeof id !== "string" || !Array.isArray(detalle)) continue;
+    let total = 0;
+    for (const f of detalle) {
+      const monto = Number(f?.FinalFee?.Amount ?? 0);
+      if (Number.isFinite(monto)) total += monto;
+    }
+    salida.set(id, total);
+  }
+  return salida;
+}
+
+/** Lo que Amazon pagó y retuvo por modelo y en toda la cuenta en 30 días. */
+async function tarifasAmazon(db: DB, amazonId: string): Promise<{ porModelo: Map<string, TarifaModelo>; cuenta: TarifaModelo }> {
+  const porModelo = new Map<string, TarifaModelo>();
+  let venta = 0;
+  let neto = 0;
+  let retenido = 0;
   try {
     const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-    const filas = await traerRpcTodoOLanzar<{ unidades: number | string; precio_par: number | string; retencion_pct: number | string }>(
+    const filas = await traerRpcTodoOLanzar<{ modelo: string; unidades: number | string; precio_par: number | string; retencion_pct: number | string; neto_par: number | string }>(
       db,
       "amazon_tarifas_por_modelo",
       { p_account: amazonId, p_desde: desde },
     );
-    let venta = 0;
-    let retenido = 0;
     for (const f of filas) {
-      const v = (Number(f.unidades) || 0) * (Number(f.precio_par) || 0);
+      const u = Number(f.unidades) || 0;
+      const precio = Number(f.precio_par);
+      const netoPar = Number(f.neto_par);
       const pct = Number(f.retencion_pct);
-      if (!(v > 0) || !Number.isFinite(pct)) continue;
+      if (!(u > 0) || !(precio > 0)) continue;
+      const v = u * precio;
+      const t: TarifaModelo = {
+        netoSobrePrecio: Number.isFinite(netoPar) ? netoPar / precio : null,
+        retencionPct: Number.isFinite(pct) ? pct : null,
+        ventas: u,
+      };
+      porModelo.set(String(f.modelo ?? "").toUpperCase(), t);
       venta += v;
-      retenido += v * pct;
+      if (t.netoSobrePrecio != null) neto += v * t.netoSobrePrecio;
+      if (t.retencionPct != null) retenido += v * t.retencionPct;
     }
-    return venta > 0 ? retenido / venta : 0;
-  } catch {
-    return 0;
+  } catch (err) {
+    console.error(`resumen diario: tarifas de Amazon: ${(err as Error).message}`);
   }
+  return {
+    porModelo,
+    cuenta: { netoSobrePrecio: venta > 0 ? neto / venta : null, retencionPct: venta > 0 ? retenido / venta : null, ventas: 0 },
+  };
 }
 
 /**
