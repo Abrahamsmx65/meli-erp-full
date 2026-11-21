@@ -156,46 +156,22 @@ export interface PedidosAmazon {
  * siendo la de lo que Amazon registró en el día y se dice. Pura.
  */
 export function conPedidosAmazon(filas: FilaResumen[], pedidos: PedidosAmazon | null): FilaResumen[] {
+  // Amazon sale igual que MELI y TikTok: lo vendido y la ganancia, sin notas
+  // (dueño, 21-nov-2026: «no quiero diferencias y preguntas, haz que salga
+  // igual que lo de MELI y lo de TikTok, todo lo que se vendió sin
+  // explicaciones»).
   return filas.map((f) => {
     if (f.canal !== "amazon" || f.sinDato) return f;
-    if (!pedidos) {
-      return { ...f, notas: [...f.notas, "no se pudieron leer los pedidos: unidades y facturación de lo ya registrado por Amazon"] };
-    }
-    const base = { ...f, unidades: pedidos.unidades, facturacion: r2(pedidos.facturacion) };
+    if (!pedidos) return { ...f, notas: [] };
+    const base = { ...f, unidades: pedidos.unidades, facturacion: r2(pedidos.facturacion), notas: [] as string[] };
     const pago = pedidos.pago;
-    if (!pago) {
-      const notas = [...f.notas];
-      if (pedidos.unidades !== f.unidades || Math.abs(pedidos.facturacion - f.facturacion) >= 1) {
-        notas.push(
-          `ganancia de lo que Amazon ya registró (${n(f.unidades)} piezas, ${pesos(f.facturacion)}); el resto se registra cuando Amazon envía el pedido`,
-        );
-      }
-      return { ...base, notas };
-    }
-    // Las notas del consolidado hablan de lo asentado en el día (otro
-    // conjunto de pedidos): se cambian por las de estos pedidos.
-    const notas: string[] = [];
+    if (!pago) return base;
     const est = pago.estimado ?? null;
-    const faltan = Math.max(0, pedidos.unidades - pago.unidades);
-    if (est && est.unidades > 0) {
-      const historia = est.deHistoria ?? 0;
-      notas.push(
-        `${n(est.unidades)} piezas (${pesos(est.facturacion)}) aún sin enviar: Amazon pagaría ${pesos(est.neto)}` +
-          (historia > 0 ? ` (${n(historia)} con lo que Amazon pagó por ese modelo en 30 días)` : ""),
-      );
-    }
-    const sinNada = est ? est.sinEstimado : faltan;
-    if (sinNada > 0) {
-      const venta = est ? est.ventaSinEstimado : Math.max(0, pedidos.facturacion - pago.facturacion);
-      notas.push(`${n(sinNada)} piezas (${pesos(venta)}) sin enviar que no se pudieron valuar: fuera de la ganancia`);
-    }
-    const sinCosto = pago.sinCosto + (est?.sinCosto ?? 0);
-    if (sinCosto > 0) notas.push(`${n(sinCosto)} piezas sin costo capturado`);
     const publicidad = f.publicidad ?? 0;
     const neto = pago.neto + (est?.neto ?? 0);
     const costo = pago.costo + (est?.costo ?? 0);
     const hayAlgo = pago.unidades > 0 || (est?.unidades ?? 0) > 0 || publicidad > 0;
-    return { ...base, ganancia: hayAlgo ? r2(neto - costo - publicidad) : null, notas };
+    return { ...base, ganancia: hayAlgo ? r2(neto - costo - publicidad) : null };
   });
 }
 

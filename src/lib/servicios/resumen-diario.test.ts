@@ -109,21 +109,20 @@ describe("Amazon por sus pedidos", () => {
     coberturaNeto: 1, utilidadBruta: 30_000, publicidad: 6_199.48, utilidadNeta: 20_000,
   };
 
-  it("unidades y facturación de los pedidos; la ganancia sigue siendo la de lo ya registrado", () => {
+  it("unidades y facturación de los pedidos, sin notas", () => {
     const r = armarResumen("2026-11-16", consolidado([calzado, amazon]), null, [], [], { unidades: 860, facturacion: 155_990.5, pago: null });
     const a = r.filas.find((f) => f.canal === "amazon")!;
+    expect(a.notas).toEqual([]);
     expect(a.unidades).toBe(860);
     expect(a.facturacion).toBe(155_990.5);
     expect(a.ganancia).toBe(23_800.52);
-    expect(a.notas.join(" ")).toContain("ganancia de lo que Amazon ya registró (405 piezas");
     expect(r.total.unidades).toBe(1_000 + 860);
   });
 
-  it("sin pedidos leídos se queda lo registrado y se dice", () => {
+  it("sin pedidos leídos se queda lo registrado, sin notas", () => {
     const filas = conPedidosAmazon(armarResumen("2026-11-16", consolidado([amazon]), null).filas, null);
     const a = filas.find((f) => f.canal === "amazon")!;
     expect(a.unidades).toBe(405);
-    expect(a.notas.join(" ")).toContain("no se pudieron leer los pedidos");
   });
 
   it("si cuadran, no agrega nota; otros canales no se tocan", () => {
@@ -143,9 +142,6 @@ describe("Amazon por sus pedidos", () => {
     expect(a.facturacion).toBe(56_936.42);
     // 22,000 − 9,000 − 6,199.48 de publicidad
     expect(a.ganancia).toBe(6_800.52);
-    expect(a.notas.join(" ")).toContain("91 piezas ($16,936) sin enviar que no se pudieron valuar");
-    expect(a.notas.join(" ")).toContain("3 piezas sin costo capturado");
-    expect(a.notas.join(" ")).not.toContain("ya registró");
   });
 
   it("todo enviado: sin nota de pendientes", () => {
@@ -170,9 +166,6 @@ describe("Amazon por sus pedidos", () => {
     });
     const a = filas.find((f) => f.canal === "amazon")!;
     expect(a.ganancia).toBe(r2(22_000 + 9_500 - 9_000 - 4_000 - 6_199.48));
-    expect(a.notas.join(" ")).toContain("90 piezas ($18,000) aún sin enviar: Amazon pagaría $9,500 (40 con lo que Amazon pagó por ese modelo en 30 días)");
-    expect(a.notas.join(" ")).toContain("10 piezas ($2,000) sin enviar que no se pudieron valuar");
-    expect(a.notas.join(" ")).toContain("2 piezas sin costo");
   });
 });
 
