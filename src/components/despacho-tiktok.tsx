@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { Eye, FileText, PackageX, PauseCircle, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
-import { etiquetaDeModelos, type PendientesPorModelo } from "@/lib/tiktok/corte-modelos";
+import { etiquetaDeModelos, normalizarModelos, type PendientesPorModelo, type ResumenRetenidos } from "@/lib/tiktok/corte-modelos";
 import { textoTiempoPreparacion } from "@/lib/tiktok/tiempo-preparacion";
 import { cierresDeRondas, revisarSimulacion, type CierreDeCorte, type ModoCorte } from "@/lib/tiktok/revision-corte";
 import { Aviso, Seccion } from "@/components/ui/pagina";
@@ -98,6 +98,8 @@ export function DespachoTikTok({
   cortes,
   porModelo,
   vendedor = null,
+  retenidos = null,
+  puedeRetener = false,
 }: {
   pendientes: number;
   /** cuántos pendientes son muestras gratis (el botón «Corte muestras» lo enseña) */
@@ -106,6 +108,10 @@ export function DespachoTikTok({
   porModelo: PendientesPorModelo;
   /** de quién es este despacho: null = el dueño; 'david' = el vendedor externo (viaja en cada corte y simulación) */
   vendedor?: string | null;
+  /** modelos RETENIDOS de los cortes (preventa) y cuántos pedidos se quedan fuera por eso */
+  retenidos?: ResumenRetenidos | null;
+  /** solo el dueño cambia la lista de retenidos */
+  puedeRetener?: boolean;
 }) {
   const router = useRouter();
   const [handover, setHandover] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
@@ -117,6 +123,12 @@ export function DespachoTikTok({
   // darles prioridad cuando hay muchos pedidos. Apagado, van revueltas con
   // todo, como siempre. Se apaga solo al terminar.
   const [soloMuestras, setSoloMuestras] = useState(false);
+  // Modelos RETENIDOS (preventa; dueño, 23-nov-2026: «estoy haciendo en TikTok
+  // una preventa del GT148 […] que no me lo metas a los cortes por ninguna
+  // manera»): la lista vive en el servidor; aquí solo se captura y se quita.
+  const [retenerTexto, setRetenerTexto] = useState("");
+  const [guardandoRetenidos, setGuardandoRetenidos] = useState(false);
+  const [errorRetenidos, setErrorRetenidos] = useState<string | null>(null);
   const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -376,6 +388,51 @@ export function DespachoTikTok({
   }
 
   /** Cambia el filtro de modelos: la simulación hecha con el filtro anterior ya no vale. */
+  /** Guarda la lista completa de modelos retenidos y recarga los pendientes. */
+  async function guardarRetenidos(modelos: string[]) {
+    setGuardandoRetenidos(true);
+    setErrorRetenidos(null);
+    try {
+      const r = await fetch("/api/tiktok/retenidos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelos }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+      setRetenerTexto("");
+      setSimulacion(null);
+      router.refresh();
+    } catch (err) {
+      setErrorRetenidos((err as Error).message);
+    } finally {
+      setGuardandoRetenidos(false);
+    }
+  }
+
+  async function retenerModelo() {
+    const nuevos = normalizarModelos(retenerTexto.split(/[\s,]+/));
+    if (!nuevos.length) {
+      setErrorRetenidos("Escribe el modelo, por ejemplo GT148.");
+      return;
+    }
+    await guardarRetenidos([...(retenidos?.modelos ?? []), ...nuevos]);
+  }
+
+  async function liberarModelo(modelo: string) {
+    const quedan = (retenidos?.modelos ?? []).filter((m) => m !== modelo);
+    const pedidos = retenidos?.porModelo.find((m) => m.modelo === modelo)?.pedidos ?? 0;
+    const ok = await confirmar({
+      titulo: `¿Liberar ${modelo} de la preventa?`,
+      mensaje: pedidos
+        ? `Los ${pedidos} pedidos retenidos con ${modelo} entran al siguiente corte que se haga.`
+        : `${modelo} vuelve a entrar a los cortes con normalidad.`,
+      confirmar: "Liberar",
+    });
+    if (!ok) return;
+    await guardarRetenidos(quedan);
+  }
+
   function cambiarModelos(cambio: (s: string[]) => string[]) {
     setSoloModelos(cambio);
     setSimulacion(null);
@@ -783,6 +840,69 @@ export function DespachoTikTok({
                     </div>
                   </>
                 )}
+            </div>
+          ) : null}
+          {puedeRetener || retenidos?.modelos.length ? (
+            <div className="hairline border-t p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <PauseCircle size={14} className="texto-2" />
+                <span className="text-xs font-semibold">Retenidos (preventa)</span>
+                {retenidos?.modelos.length ? (
+                  <span className="text-xs texto-2">
+                    {retenidos.pedidos} pedidos ({retenidos.pares} pares) fuera de todos los cortes
+                  </span>
+                ) : (
+                  <span className="text-xs texto-tenue">Ningún modelo retenido: todo entra a los cortes.</span>
+                )}
+              </div>
+              {retenidos?.modelos.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {retenidos.porModelo.map((m) => (
+                    <span
+                      key={m.modelo}
+                      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+                      style={{ borderColor: "var(--acento)", background: "var(--acento-suave)", color: "var(--acento)", fontWeight: 600 }}
+                      title={`${m.pedidos} pedidos traen ${m.modelo} (${m.pares} pares del modelo); no entran a ningún corte`}
+                    >
+                      {m.modelo} · {m.pedidos} pedidos
+                      {puedeRetener ? (
+                        <button
+                          type="button"
+                          onClick={() => liberarModelo(m.modelo)}
+                          disabled={guardandoRetenidos || ocupado || simulando}
+                          className="font-normal underline disabled:opacity-60"
+                          title={`Liberar ${m.modelo}: vuelve a entrar a los cortes`}
+                        >
+                          liberar
+                        </button>
+                      ) : null}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {puedeRetener ? (
+                <form
+                  className="mt-2 flex flex-wrap items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void retenerModelo();
+                  }}
+                >
+                  <input
+                    value={retenerTexto}
+                    onChange={(e) => setRetenerTexto(e.target.value)}
+                    placeholder="Modelo a retener (GT148)"
+                    className="w-48 rounded-lg border px-2 py-1 text-xs"
+                    style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}
+                    disabled={guardandoRetenidos}
+                  />
+                  <button type="submit" disabled={guardandoRetenidos || !retenerTexto.trim()} className="boton boton-fantasma boton-chico">
+                    Retener
+                  </button>
+                  <span className="text-xs texto-tenue">Un pedido con algún par del modelo retenido no entra a ningún corte hasta que lo liberes.</span>
+                </form>
+              ) : null}
+              {errorRetenidos ? <p className="mt-1 text-xs" style={{ color: "var(--peligro, #b91c1c)" }}>{errorRetenidos}</p> : null}
             </div>
           ) : null}
           {porModelo.modelos.length ? (

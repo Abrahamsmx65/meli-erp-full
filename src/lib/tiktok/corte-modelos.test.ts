@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contarMuestras, etiquetaDeModelos, mismoFiltro, modelosDelPedido, normalizarModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo } from "./corte-modelos";
+import { contarMuestras, etiquetaDeModelos, mismoFiltro, modelosDelPedido, normalizarModelos, pedidosConModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo, resumirRetenidos } from "./corte-modelos";
 
 const renglones = new Map([
   ["a", [{ sku: "GT148-CREAM-24-MX", cantidad: 1 }]],
@@ -62,5 +62,31 @@ describe("corte de MUESTRAS", () => {
   it("cuenta cuántas muestras hay pendientes", () => {
     expect(contarMuestras(pendientes)).toBe(2);
     expect(contarMuestras([])).toBe(0);
+  });
+});
+
+describe("modelos RETENIDOS (preventa, 23-nov-2026)", () => {
+  it("un pedido con ALGÚN par del modelo retenido se queda fuera, también el revuelto", () => {
+    expect([...pedidosConModelos(renglones, ["gt148"])]).toEqual(["a", "b", "c", "f"]);
+    expect([...pedidosConModelos(renglones, ["GT114"])]).toEqual(["c", "d"]);
+    // Sin lista no se retiene nada.
+    expect(pedidosConModelos(renglones, []).size).toBe(0);
+    expect(pedidosConModelos(renglones, ["mal valor!"]).size).toBe(0);
+  });
+
+  it("resume lo retenido para la pantalla: pedidos, pares del pedido completo y por modelo", () => {
+    const retenidos = pedidosConModelos(renglones, ["GT148"]);
+    const r = resumirRetenidos(renglones, ["GT148"], retenidos);
+    expect(r.modelos).toEqual(["GT148"]);
+    expect(r.pedidos).toBe(4);
+    // a: 1, b: 3, c: 2, f: 2 = 8 pares en los pedidos retenidos…
+    expect(r.pares).toBe(8);
+    // …de los cuales 6 son del GT148 (c y f llevan 1 par de otra cosa).
+    expect(r.porModelo).toEqual([{ modelo: "GT148", pedidos: 4, pares: 6 }]);
+  });
+
+  it("un modelo retenido sin pedidos sale en cero", () => {
+    const r = resumirRetenidos(renglones, ["GT999"], pedidosConModelos(renglones, ["GT999"]));
+    expect(r).toEqual({ modelos: ["GT999"], pedidos: 0, pares: 0, porModelo: [{ modelo: "GT999", pedidos: 0, pares: 0 }] });
   });
 });

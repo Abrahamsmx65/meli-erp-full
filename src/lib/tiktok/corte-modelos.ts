@@ -130,3 +130,55 @@ export function mismoFiltro(a: string[] | null | undefined, b: string[] | null |
   const y = normalizarModelos(b);
   return x.length === y.length && x.every((m, i) => m === y[i]);
 }
+
+/**
+ * Modelos RETENIDOS: una PREVENTA (dueño, 23-nov-2026: «estoy haciendo en
+ * TikTok una preventa del GT148; lo voy a empezar a despachar en 2 semanas;
+ * mientras, los pedidos se van a ir acumulando: que no me lo metas a los
+ * cortes de despacho por ninguna manera»). Un pedido con ALGÚN par de un
+ * modelo retenido se queda fuera de TODOS los cortes (general, por modelo,
+ * ayer, lunes, muestras) y de su defensa: no se puede mandar la caja sin ese
+ * par. Se libera quitando el modelo de la lista.
+ */
+export function pedidosConModelos(renglonesPorPedido: Map<string, RenglonDeModelo[]>, modelos: string[]): Set<string> {
+  const retenidos = new Set(normalizarModelos(modelos));
+  const salida = new Set<string>();
+  if (!retenidos.size) return salida;
+  for (const [orderId, renglones] of renglonesPorPedido) {
+    if (modelosDelPedido(renglones).some((m) => m && retenidos.has(m))) salida.add(orderId);
+  }
+  return salida;
+}
+
+export interface ResumenRetenidos {
+  modelos: string[];
+  pedidos: number;
+  pares: number;
+  /** por modelo retenido: cuántos pedidos lo traen y cuántos pares de ese modelo */
+  porModelo: ResumenModeloPendiente[];
+}
+
+/** Lo retenido, resumido para la pantalla: pedidos, pares y por modelo. */
+export function resumirRetenidos(renglonesPorPedido: Map<string, RenglonDeModelo[]>, modelos: string[], retenidos: Set<string>): ResumenRetenidos {
+  const lista = normalizarModelos(modelos);
+  const porModelo = new Map<string, ResumenModeloPendiente>(lista.map((m) => [m, { modelo: m, pedidos: 0, pares: 0 }]));
+  let pares = 0;
+  for (const orderId of retenidos) {
+    const renglones = renglonesPorPedido.get(orderId) ?? [];
+    const vistos = new Set<string>();
+    for (const r of renglones) {
+      const cantidad = Number(r.cantidad) || 0;
+      pares += cantidad;
+      const sku = String(r.sku ?? "");
+      const m = sku.startsWith("(") ? "" : modeloDelSku(sku);
+      const f = porModelo.get(m);
+      if (!f) continue;
+      f.pares += cantidad;
+      if (!vistos.has(m)) {
+        vistos.add(m);
+        f.pedidos += 1;
+      }
+    }
+  }
+  return { modelos: lista, pedidos: retenidos.size, pares, porModelo: [...porModelo.values()] };
+}

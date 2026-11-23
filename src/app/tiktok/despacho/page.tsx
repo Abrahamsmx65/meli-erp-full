@@ -1,7 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { contarMuestras } from "@/lib/tiktok/corte-modelos";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { avanceDeCortes, pendientesDeCorte, tiemposDeCortes, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
+import { avanceDeCortes, pendientesDeCorte, pendientesPartidos, tiemposDeCortes, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
+import { rolDeSesion } from "@/lib/acceso/roles";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
@@ -20,8 +21,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function Despacho({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
+  const [cuenta, sesion] = await Promise.all([cuentaActiva(supabase), supabase.auth.getUser()]);
   if (!cuenta) return <SinCuenta titulo="Despacho de pedidos" />;
+  const esDueno = rolDeSesion(sesion.data.user) === "dueño";
   const params = await searchParams;
   const vendedor = normalizarVendedor(params?.vendedor);
 
@@ -39,10 +41,12 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
       .order("numero", { ascending: false })
       .limit(30),
   );
-  const pendientesP = pendientesDeCorte(supabase, cuenta.id, vendedor);
+  // Lo RETENIDO (preventa) sale aparte: no entra a ningún corte.
+  const partidosP = pendientesPartidos(supabase, cuenta.id, vendedor);
+  const pendientesP = partidosP.then((r) => r.pendientes);
   // Los OTROS despachos (el dueño y cada vendedor externo que no sea este), para los enlaces de arriba.
   const otros: (string | null)[] = [null, ...clavesDeVendedores()].filter((v) => v !== vendedor);
-  const [pendientes, cortesResultado, token, porModelo, avance, tiempos, deLosOtros] = await Promise.all([
+  const [pendientes, cortesResultado, token, porModelo, avance, tiempos, deLosOtros, retenidos] = await Promise.all([
     pendientesP,
     cortesP,
     tokenPreparar(cuenta.id),
@@ -73,6 +77,7 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
           .catch(() => 0),
       ),
     ),
+    partidosP.then((r) => r.retenidos),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -134,7 +139,15 @@ export default async function Despacho({ searchParams }: { searchParams: Promise
           No se pudo leer el avance de preparación. Recarga la página para reintentar.
         </Aviso>
       ) : null}
-      <DespachoTikTok pendientes={pendientes.length} muestrasPendientes={contarMuestras(pendientes)} cortes={cortes} porModelo={porModelo} vendedor={vendedor} />
+      <DespachoTikTok
+        pendientes={pendientes.length}
+        muestrasPendientes={contarMuestras(pendientes)}
+        cortes={cortes}
+        porModelo={porModelo}
+        vendedor={vendedor}
+        retenidos={retenidos}
+        puedeRetener={esDueno}
+      />
       <EnlacePreparar tokenInicial={token} origen={origen} />
     </Pagina>
   );
