@@ -1069,6 +1069,24 @@ guárdala numerada.
   enseña («solo muestras») y solo se une al de hoy que también sea de
   muestras. Apagado (lo normal), las muestras salen revueltas con lo demás.
   Se apaga solo al terminar.
+  **MODELOS RETENIDOS: una PREVENTA no entra a ningún corte**
+  (`pedidosConModelos`, `resumirRetenidos` en `tiktok/corte-modelos.ts` puros
+  con pruebas; `modelosRetenidos` / `guardarModelosRetenidos` /
+  `pendientesPartidos` en `tiktok-despacho.ts`, `app_cache` clave
+  `tiktok:retenidos` = `{ modelos }`; `GET`/`POST /api/tiktok/retenidos`
+  (solo el dueño); bloque «Retenidos (preventa)» arriba del selector por
+  modelo en Despacho; dueño, 23-nov-2026: «estoy haciendo en TikTok una
+  preventa del GT148, lo voy a empezar a despachar en 2 semanas; mientras,
+  los pedidos se van a ir acumulando: que no me lo metas a los cortes por
+  ninguna manera»): `pendientesDeCorte` ahora sale de `pendientesPartidos`,
+  que quita de la raíz todo pedido con ALGÚN par de un modelo retenido (el
+  revuelto también: la caja no puede salir sin ese par), así que ni el
+  corte general, ni el de ayer, ni el de lunes, ni el por modelo, ni el de
+  muestras, ni la simulación ni la DEFENSA lo ven; el selector por modelo
+  tampoco lo lista. Los pedidos siguen apartando en el kardex. Despacho
+  enseña cuántos pedidos y pares están fuera por eso, y «liberar» (con
+  confirmación) los mete al siguiente corte. Ese día se retuvo GT148 por
+  SQL con 292 pedidos (347 pares) ya acumulados.
   **Un corte por modelo se UNE al de hoy del mismo modelo aunque no haya
   nada «por tiempo»** (`corteQueContinua({ sinExigirTiempo })`,
   `hacerCorte({ unirAlDeHoy })`; dueño, 5-oct-2026: el #51 «solo GT114» de

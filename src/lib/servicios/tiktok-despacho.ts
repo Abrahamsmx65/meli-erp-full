@@ -15,14 +15,24 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
-import { conCacheApp } from "./cache-app";
+import { conCacheApp, guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { alPuntoDeImpresora, codificar128, moduloParaTermica } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { diaMx } from "../tiktok/ventas";
-import { mismoFiltro, normalizarModelos, pedidosDeMuestras, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
+import {
+  mismoFiltro,
+  normalizarModelos,
+  pedidosConModelos,
+  pedidosDeMuestras,
+  pedidosDeSoloModelos,
+  pendientesPorModelo,
+  resumirRetenidos,
+  type PendientesPorModelo,
+  type ResumenRetenidos,
+} from "../tiktok/corte-modelos";
 import { mismoVendedor, nombreDeVendedor, partirPorVendedor, pedidosDeVendedor } from "../tiktok/externos";
 import { skusExternos } from "./tiktok-externos";
 import { pdfListaDeEmpaque } from "../tiktok/empaque-pdf";
@@ -311,6 +321,43 @@ export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccio
  * todo es del dueño y no se lee nada de más.
  */
 export async function pendientesDeCorte(db: DB, accountId: string, vendedor: string | null = null): Promise<PendienteConFecha[]> {
+  return (await pendientesPartidos(db, accountId, vendedor)).pendientes;
+}
+
+/** Clave en `app_cache` de los modelos retenidos (preventa). */
+export const CLAVE_RETENIDOS = "tiktok:retenidos";
+
+interface ConfigRetenidos {
+  modelos: string[];
+  actualizadoEn: string;
+}
+
+/** Los modelos RETENIDOS de los cortes (preventa), normalizados; vacío = nada retenido. */
+export async function modelosRetenidos(db: DB, accountId: string): Promise<string[]> {
+  const g = await leerCacheAppGuardado<ConfigRetenidos>(db, accountId, CLAVE_RETENIDOS).catch(() => null);
+  return g?.estado === "encontrado" ? normalizarModelos(g.valor.datos?.modelos) : [];
+}
+
+/** Guarda la lista de modelos retenidos (la reemplaza completa). */
+export async function guardarModelosRetenidos(db: DB, accountId: string, modelos: unknown): Promise<string[]> {
+  const lista = normalizarModelos(modelos);
+  await guardarCacheApp(db, accountId, CLAVE_RETENIDOS, { modelos: lista, actualizadoEn: new Date().toISOString() } satisfies ConfigRetenidos, 0);
+  return lista;
+}
+
+/**
+ * Los pendientes de un vendedor PARTIDOS en lo que entra al corte y lo
+ * RETENIDO (preventa, dueño, 23-nov-2026: «que no me lo metas a los cortes
+ * de despacho por ninguna manera»): un pedido con algún par de un modelo
+ * retenido se queda fuera de todo corte y de su defensa. Todo lo que arma
+ * un corte pasa por `pendientesDeCorte`, así que con quitarlo aquí no hay
+ * camino por el que entre; los pedidos siguen apartando en el kardex.
+ */
+export async function pendientesPartidos(
+  db: DB,
+  accountId: string,
+  vendedor: string | null = null,
+): Promise<{ pendientes: PendienteConFecha[]; retenidos: ResumenRetenidos }> {
   const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion, es_muestra", (q) =>
     q.eq("account_id", accountId).is("corte_id", null),
   );
@@ -321,10 +368,25 @@ export async function pendientesDeCorte(db: DB, accountId: string, vendedor: str
       .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
       .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null, esMuestra: o.es_muestra === true })),
   );
-  const externos = await skusExternos(db, accountId);
-  if (!externos.size) return vendedor ? [] : todos;
-  const vendedorDe = partirPorVendedor(await renglonesLigerosDe(db, accountId, todos), externos);
-  return pedidosDeVendedor(todos, vendedorDe, vendedor ?? null);
+  const [externos, retenidosLista] = await Promise.all([skusExternos(db, accountId), modelosRetenidos(db, accountId)]);
+  const sinRetenidos: ResumenRetenidos = { modelos: retenidosLista, pedidos: 0, pares: 0, porModelo: retenidosLista.map((m) => ({ modelo: m, pedidos: 0, pares: 0 })) };
+  if (!externos.size && !retenidosLista.length) return { pendientes: vendedor ? [] : todos, retenidos: sinRetenidos };
+  const renglones = await renglonesLigerosDe(db, accountId, todos);
+  let delVendedor = todos;
+  if (externos.size) {
+    const vendedorDe = partirPorVendedor(renglones, externos);
+    delVendedor = pedidosDeVendedor(todos, vendedorDe, vendedor ?? null);
+  } else if (vendedor) {
+    delVendedor = [];
+  }
+  if (!retenidosLista.length) return { pendientes: delVendedor, retenidos: sinRetenidos };
+  const fuera = pedidosConModelos(renglones, retenidosLista);
+  const renglonesDelVendedor = new Map(delVendedor.map((p) => [p.orderId, renglones.get(p.orderId) ?? []]));
+  const retenidosDelVendedor = new Set([...fuera].filter((id) => renglonesDelVendedor.has(id)));
+  return {
+    pendientes: delVendedor.filter((p) => !fuera.has(p.orderId)),
+    retenidos: resumirRetenidos(renglonesDelVendedor, retenidosLista, retenidosDelVendedor),
+  };
 }
 
 /** Los renglones (SKU y pares) de cada pedido pendiente, sin defensa: para decidir qué modelos lleva cada uno. */
