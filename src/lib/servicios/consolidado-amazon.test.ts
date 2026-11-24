@@ -113,15 +113,18 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
       ventas: cascada,
       reembolsos: { ...cascada, eventos: 0, unidades: 0, bruto: 0, principal: 0, impuestoCobrado: 0, comision: 0, fba: 0, retenido: 0, neto: 0 },
       publicidad: { eventos: 1, monto: -348, base: -300, impuesto: -48 },
-      otros: [{ lista: "ServiceFeeEventList", eventos: 1, monto: -30, base: null, impuesto: null, sinClasificar: 0 }],
-      otrosTotal: -30,
+      otros: [
+        { lista: "ServiceFeeEventList", eventos: 1, monto: -30, base: null, impuesto: null, sinClasificar: 0 },
+        { lista: "AdjustmentEventList:MiscAdjustment", eventos: 1, monto: -10, base: null, impuesto: null, sinClasificar: 0 },
+      ],
+      otrosTotal: -40,
       netoProductos: 150.65,
-      netoDepositado: -227.35,
+      netoDepositado: -237.35,
       porModelo: [{ ...cascada, modelo: "GT114", categoria: "Corcho", reembolsos: 0, unidadesReembolsadas: 0, costo: 60, ganancia: 90.65 }],
       costoProducto: 60,
       unidadesConCosto: 1,
       coberturaCosto: 1,
-      ganancia: -287.35,
+      ganancia: -297.35,
       cobertura: { grupos: [{ grupoId: "g", inicio: "2026-07-29T00:00:00Z", fin: "2026-08-26T14:16:37Z", estado: "Closed", totalOriginal: 0, sumaEventos: 0, eventos: 1, sinClasificar: 0, completo: true, cuadra: true }], cerrados: 1, abiertos: 0, incompletos: 0, descuadrados: 0, completa: true, hasta: "2026-08-26T14:16:37Z" },
       avisos: [],
       exacto: true,
@@ -130,9 +133,10 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
     const b = bloqueAmazon(monitor({ real }), new Map([["GT114", { categoria: "Corcho", costo: 60 }]]), { desde: "2026-08-01", hasta: "2026-08-31" });
     expect(b).toMatchObject({ ventaBruta: 239, neto: 150.65, unidades: 1, devoluciones: 0, costoProducto: 60, adsPorModelo: 200, adsGenerales: 148, exacto: true });
     expect(b.fuenteNeto).toMatch(/Finances API/);
-    expect(b.descuentos.map((d) => [d.concepto, d.monto])).toEqual([["Comisión de Amazon (referral)", 35.86], ["Tarifa de FBA", 36], ["IVA retenido por Amazon", 16.49]]);
+    expect(b.descuentos.map((d) => [d.concepto, d.monto])).toEqual([["Comisión de Amazon (referral)", 35.86], ["Tarifa de FBA", 36], ["IVA e ISR retenidos por Amazon (por pedido)", 16.49]]);
     expect(b.gastos).toEqual([
       { concepto: "Amazon · cargos de servicio (almacenaje, suscripción…)", monto: 30 },
+      { concepto: "Amazon · ISR retenido por Amazon (cargo mensual del mes anterior)", monto: 10 },
       { concepto: "Publicidad de Amazon no amarrada a modelo (incluye IVA)", monto: 148 },
     ]);
     expect(b.porModelo[0]).toMatchObject({ modelo: "GT114", importe: 239, comision: 35.86, envio: 36, iva: 16.49, neto: 150.65, costo: 60, ads: 200 });

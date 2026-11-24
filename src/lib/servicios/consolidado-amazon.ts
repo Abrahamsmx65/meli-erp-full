@@ -10,6 +10,13 @@ import type { MonitorAmazon } from "./amazon-monitor";
 import type { FinanzasAmazon } from "./finanzas-amazon";
 import type { ConfigProducto } from "./productos";
 
+/**
+ * Lo que Amazon retiene en cada pedido: IVA siempre y, desde noviembre de
+ * 2026, también el ISR («IncomeTaxWithheldMexico»). Antes el ISR llegaba
+ * como un cargo mensual aparte (ver `NOMBRE_LISTA`).
+ */
+export const CONCEPTO_RETENIDO = "IVA e ISR retenidos por Amazon (por pedido)";
+
 export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProducto>, rango?: { desde: string; hasta: string }): BloqueCanal {
   // Con eventos de la Finances API en el rango, el bloque es EXACTO: cada
   // peso viene de un evento con nombre. Lo demás queda como respaldo para
@@ -77,7 +84,7 @@ export function sinModelosOmitidos(b: BloqueCanal, omitidos: ReadonlySet<string>
   const restar: Record<string, number> = {
     "Comisión de Amazon (referral)": comision,
     "Tarifa de FBA": envio,
-    "IVA retenido por Amazon": iva,
+    [CONCEPTO_RETENIDO]: iva,
   };
   const lineaOtros = b.descuentos.some((d) => d.concepto === "Otras tarifas por renglón")
     ? "Otras tarifas por renglón"
@@ -174,7 +181,7 @@ function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<st
   const descuentos: { concepto: string; monto: number }[] = [];
   if (v.comision) descuentos.push({ concepto: "Comisión de Amazon (referral)", monto: redondea(-v.comision) });
   if (v.fba) descuentos.push({ concepto: "Tarifa de FBA", monto: redondea(-v.fba) });
-  if (v.retenido) descuentos.push({ concepto: "IVA retenido por Amazon", monto: redondea(-v.retenido) });
+  if (v.retenido) descuentos.push({ concepto: CONCEPTO_RETENIDO, monto: redondea(-v.retenido) });
   if (v.promociones) descuentos.push({ concepto: "Promociones absorbidas", monto: redondea(-v.promociones) });
   if (v.otrasTarifas) descuentos.push({ concepto: "Otras tarifas por renglón", monto: redondea(-v.otrasTarifas) });
 
@@ -220,6 +227,7 @@ function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<st
 const NOMBRE_LISTA: Record<string, string> = {
   ServiceFeeEventList: "cargos de servicio (almacenaje, suscripción…)",
   AdjustmentEventList: "ajustes de Amazon",
+  "AdjustmentEventList:MiscAdjustment": "ISR retenido por Amazon (cargo mensual del mes anterior)",
   "AdjustmentEventList:SellerRewards": "recompensas de Amazon al vendedor (abono)",
   "AdjustmentEventList:FailedDisbursement": "depósito rebotado que Amazon regresó al saldo",
   TaxWithholdingEventList: "retención de impuestos del periodo",

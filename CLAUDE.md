@@ -2885,7 +2885,7 @@ guárdala numerada.
   de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
   distinto según la URL. Se trabaja SOLO en
   `https://meli-erp-full.vercel.app`. El candado es
-  `Consolidado.versionContable` (hoy 6; subió a 4 el 25-sep-2026 con la cobertura nueva, a 5 el 28-sep-2026 al entrar TikTok y a 6 ese mismo día al sacar los depósitos rebotados de Amazon): al cambiar las reglas del dinero se
+  `Consolidado.versionContable` (hoy 11; subió a 4 el 25-sep-2026 con la cobertura nueva, a 5 el 28-sep-2026 al entrar TikTok, a 6 ese mismo día al sacar los depósitos rebotados de Amazon y a 11 el 24-nov-2026 al nombrar el ISR mensual de Amazon): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
   recalcula en vez de enseñarse. **Y Vercel YA NO construye previews**
   (`ignoreCommand` en `vercel.json`: solo se construye `main`; decisión del
@@ -3127,7 +3127,19 @@ guárdala numerada.
   ganaba ese dinero dos veces. `amazon_finanzas_otros` lo separa de su
   lista, queda fuera de la ganancia y se declara. Las `SellerRewards`
   (recompensas de Amazon, $538,896 en enero) sí son abono y van con su
-  nombre. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
+  nombre. **El ISR de Amazon SÍ se resta** (revisado el 24-nov-2026 contra
+  la cuenta de un amigo, donde sale como «IncomeTax»): hasta octubre de 2026
+  llegaba en UN cargo mensual `AdjustmentEventList` tipo `MiscAdjustment`
+  cerca del día 11, con el ISR (2.5 % de la base) del mes ANTERIOR (11-sep
+  −$106,854 ≈ agosto; 12-oct −$90,421 ≈ septiembre). Se restaba dentro de
+  «ajustes de Amazon»; desde la migración 0164 sale con su nombre («ISR
+  retenido por Amazon (cargo mensual del mes anterior)»). Desde noviembre
+  el ISR viene POR PEDIDO (`IncomeTaxWithheldMexico` en
+  `ItemTaxWithheldList`) y entra en `retenido`, que el corte llama «IVA e
+  ISR retenidos por Amazon (por pedido)» (`CONCEPTO_RETENIDO`). Cada corte
+  va por fecha de asiento: el ISR mensual cae en el mes en que se cobró. El
+  de octubre no llegó como cargo mensual (al 24-nov solo un ajuste de $5).
+  Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
   o `?grupo=…`. **Lo real solo arma un mes si lo cubre DESDE SU PRIMER DÍA**
   (`realCubreDesde`: alguna liquidación completa que empiece ese día o
   antes); si no, el mes sale del respaldo y se declara. La ingesta

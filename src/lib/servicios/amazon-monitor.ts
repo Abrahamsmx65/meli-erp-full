@@ -165,7 +165,7 @@ export async function obtenerMonitorAmazon(
 }
 
 export const claveMonitorAmazon = (meliAccountId: string | null, r: RangoFechas): string =>
-  `monitor:v4:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`;
+  `monitor:v5:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`;
 
 /** Vida del monitor guardado: 6 h si el rango ya cerró, 5 min si incluye hoy. */
 export const vidaMonitorAmazon = (r: RangoFechas): number => (r.hasta < fechaMx(0) ? 6 * 3_600_000 : 5 * 60_000);
