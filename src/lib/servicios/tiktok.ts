@@ -522,7 +522,10 @@ async function sincronizarPedidosPorIdSinCandado(
   const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
   await recalcularSaldos(admin, accountId);
   if (!ventana.error) await avanzarCursorDePedidos(admin, accountId, ventana.hastaMs, ventana.pedidos.length);
-  if (pedidos.length) await reconstruirVentasDiarias(admin, accountId, { desdeDia: diaMxAtras(DIAS_VENTAS_RECIENTES) }).catch(() => undefined);
+  // Las ventas por día NO se rehacen aquí: rehacer 7 días (~7 mil pedidos y
+  // sus renglones) en cada aviso eran ~260 mil peticiones al día a Supabase
+  // (auditoría del 25-nov-2026). Las rehace la corrida completa del cron
+  // cada 15 min; no deciden kardex ni lo que se publica.
   const pub = await publicarDisponibilidad(admin, accountId, cliente, {
     pedidosCompletos: !ventana.error,
     avisosEnProceso: opciones.avisosEnProceso,
@@ -695,17 +698,22 @@ async function sincronizarTikTokSinCandado(
   const procesado = await procesarPedidos(admin, accountId, pedidos, amarrar);
   const { salidas, devoluciones, sinAmarre } = procesado;
 
-  // Las ventas por día se rehacen en CADA corrida, traiga o no pedidos: si
-  // solo se rehicieran con pedidos nuevos, una corrección (como la del día
-  // en hora de México) esperaría hasta la siguiente venta para verse.
-  try {
-    await reconstruirVentasDiarias(
-      admin,
-      accountId,
-      !opciones.soloPedidos && tocaVentasCompletas() ? {} : { desdeDia: diaMxAtras(DIAS_VENTAS_RECIENTES) },
-    );
-  } catch (err) {
-    avisos.push(`Ventas por día: ${(err as Error).message}`);
+  // Las ventas por día se rehacen en CADA corrida COMPLETA (cron de 15 min),
+  // traiga o no pedidos: si solo se rehicieran con pedidos nuevos, una
+  // corrección (como la del día en hora de México) esperaría hasta la
+  // siguiente venta para verse. Las corridas `soloPedidos` (captura a mano,
+  // conteo, retiro, devoluciones…) ya no las rehacen: la siguiente corrida
+  // completa lo hace a lo más 15 min después (25-nov-2026, costos).
+  if (!opciones.soloPedidos) {
+    try {
+      await reconstruirVentasDiarias(
+        admin,
+        accountId,
+        tocaVentasCompletas() ? {} : { desdeDia: diaMxAtras(DIAS_VENTAS_RECIENTES) },
+      );
+    } catch (err) {
+      avisos.push(`Ventas por día: ${(err as Error).message}`);
+    }
   }
 
   // (Lo que TikTok va a pagar por cada pedido vive en SU propio cron,
