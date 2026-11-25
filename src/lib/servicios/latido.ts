@@ -9,8 +9,14 @@ import { configuracionIndusther, sincronizarInventarioIndusther } from "./indust
 import { sincronizarPublicidadDiaria } from "./publicidad-sync";
 import { CLAVE_ENVIO_REAL, EDAD_ENVIO_REAL_MS, refrescarEnviosReales } from "./costos-envio";
 
-/** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
-export const EDAD_MAX_PLAN_MS = 3 * 60_000;
+/**
+ * Cuánto puede tener el plan de viejo antes de recalcularse solo. Era 3 min:
+ * como cada movimiento de stock lo invalida, se rehacía cada 10 min (cada
+ * latido) y cada vez bajaba ~580 páginas de historia de stock (~83 mil
+ * peticiones al día a Supabase). Decisión del dueño, 25-nov-2026: cada
+ * 30 min basta. El botón de recalcular y el sync diario no cambian.
+ */
+export const EDAD_MAX_PLAN_MS = 30 * 60_000;
 
 /**
  * El latido del sistema: drena los avisos de MELI y deja el plan recalculado.
