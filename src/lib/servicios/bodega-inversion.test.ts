@@ -140,3 +140,31 @@ describe("soloLoEmbarcado", () => {
     expect(r.paresEnFabrica).toBe(0);
   });
 });
+
+describe("inversionPorCategoria · por modelo", () => {
+  const base = config([
+    ["GT110", "corcho", 300],
+    ["GT120", "corcho", 250],
+    ["GT200", "pantufla", 100],
+  ]);
+
+  it("cada categoría se abre por modelo y los modelos suman la categoría", () => {
+    const inv = inversionPorCategoria(
+      [r("GT110", 10, 5), r("gt110", 2), r("GT120", 4), r("GT200", 20)],
+      base,
+      new Map([["GT110", 600]]),
+    );
+    const corcho = inv.categorias.find((c) => c.categoria === "corcho")!;
+    expect(corcho.porModelo!.map((m) => m.modelo)).toEqual(["GT110", "GT120"]);
+    const gt110 = corcho.porModelo![0];
+    expect(gt110.valor.total).toBe(17 * 300);
+    expect(gt110.pares.enBodega).toBe(12);
+    expect(gt110.ganancia.ganancia).toBe(17 * 300);
+    expect(corcho.porModelo!.reduce((a, m) => a + m.valor.total, 0)).toBe(corcho.valor.total);
+    // GT120 no vende en MELI: va con el promedio (600 ÷ 300 = 2 veces su costo).
+    const gt120 = corcho.porModelo![1];
+    expect(gt120.porPromedio).toBe(true);
+    expect(gt120.ganancia.deposito).toBe(4 * 250 * 2);
+    expect(corcho.porModelo!.reduce((a, m) => a + m.ganancia.ganancia, 0)).toBeCloseTo(corcho.ganancia.ganancia, 6);
+  });
+});

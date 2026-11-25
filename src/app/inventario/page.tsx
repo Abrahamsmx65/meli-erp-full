@@ -22,7 +22,8 @@ import {
   calcularVentasParaFamilias,
   type VentasParaFamilias,
 } from "@/lib/servicios/ventas-familias";
-import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { CategoriasExistencias, DondeEsta } from "@/components/inversion-existencias";
 import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
@@ -35,157 +36,73 @@ function pesos(x: number): string {
   return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
-function porcentaje(x: number): string {
-  return `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
-}
-
 const listaCorta = (xs: string[]) => (xs.length <= 8 ? xs.join(", ") : `${xs.slice(0, 8).join(", ")} y ${xs.length - 8} más`);
 const veces = (inv: InversionEnBodega) =>
   inv.sinVentaMeli.veces != null ? `${inv.sinVentaMeli.veces.toFixed(2)} veces` : "";
 
-/** Inversión, venta estimada y ganancia estimada de un bloque (calzado, fundas o todo). */
-function FichasDinero({
-  inversion,
-  venta,
-  costo,
-  ganancia,
-  notaInversion,
-  notaVenta,
-  notaGanancia,
-}: {
-  inversion: number;
-  venta: number | null;
-  costo: number;
-  ganancia: number | null;
-  notaInversion: string;
-  notaVenta?: string;
-  notaGanancia?: string;
-}) {
-  return (
-    <Cifras columnas={3}>
-      <Ficha titulo="Inversión" valor={inversion > 0 ? pesos(inversion) : "—"} nota={notaInversion} tono="bien" />
-      <Ficha
-        titulo="Venta estimada"
-        valor={venta != null ? pesos(venta) : "—"}
-        nota={notaVenta ?? (venta != null ? `Lo que depositaría MELI por lo que costó ${pesos(costo)}` : "Sin ventas de MELI para estimar")}
-      />
-      <Ficha
-        titulo="Ganancia estimada"
-        valor={ganancia != null ? pesos(ganancia) : "—"}
-        nota={notaGanancia ?? (ganancia != null ? `Venta estimada − ${pesos(costo)} de costo` : "Sin ventas de MELI para estimar")}
-        tono={ganancia == null || ganancia >= 0 ? "bien" : "critico"}
-      />
-    </Cifras>
-  );
-}
-
-/** La tabla de inversión por categoría, la misma para calzado y fundas. */
-function TablaInversion({ inversion, unidad, minimo }: { inversion: InversionEnBodega; unidad: string; minimo: number }) {
-  const { ganancia, sinVentaMeli } = inversion;
+/** Lo que no entra en los totales (sin costo, sin venta en MELI), en letra chica. */
+function NotasInversion({ inversion, unidad, minimo }: { inversion: InversionEnBodega; unidad: string; minimo: number }) {
+  const { sinVentaMeli, sinCosto, sinCategoria } = inversion;
   const porPromedio = sinVentaMeli.pares > 0 && sinVentaMeli.veces != null;
-  const conTikTok = inversion.total.enTikTok > 0;
+  if (!sinVentaMeli.pares && !sinCosto.pares && !sinCategoria) return null;
   return (
-    <Seccion titulo="Inversión por categoría" sinRelleno>
-      {inversion.categorias.length === 0 ? (
-        <p className="texto-2 p-4 text-sm">
-          Faltan costos.{" "}
+    <div className="space-y-1 border-t p-3 text-xs hairline texto-tenue">
+      {sinCosto.pares > 0 ? (
+        <p>
+          <strong>
+            {n(sinCosto.pares)} {unidad}
+          </strong>{" "}
+          de {sinCosto.modelos.length} modelos no entran porque no tienen costo ({listaCorta(sinCosto.modelos)}).{" "}
           <Link href="/productos" className="enlace">
-            Capturar costos en Catálogo y costos
+            Capturar costos
           </Link>
         </p>
-      ) : (
-        <Tabla>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Categoría</th>
-                <th className="num">Modelos</th>
-                <th className="num">{unidad[0].toUpperCase() + unidad.slice(1)}</th>
-                <th className="num">Valor en bodega</th>
-                <th className="num">Valor en barco</th>
-                <th className="num">Valor en Full</th>
-                <th className="num">Valor en FBA</th>
-                {conTikTok ? <th className="num">Valor en TikTok</th> : null}
-                <th className="num">Inversión</th>
-                <th className="num">Del total</th>
-                <th className="num">Depósito MELI</th>
-                <th className="num">Ganancia estimada</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inversion.categorias.map((c) => (
-                <tr key={c.categoria}>
-                  <td className="font-medium">{c.categoria}</td>
-                  <td className="num cifra">{n(c.modelos)}</td>
-                  <td className="num cifra">
-                    {n(c.pares.enBodega + c.pares.enCamino + c.pares.enFull + c.pares.enFba + c.pares.enTikTok)}
-                  </td>
-                  <td className="num cifra">{pesos(c.valor.enBodega)}</td>
-                  <td className="num cifra texto-2">{pesos(c.valor.enCamino)}</td>
-                  <td className="num cifra">{pesos(c.valor.enFull)}</td>
-                  <td className="num cifra">{pesos(c.valor.enFba)}</td>
-                  {conTikTok ? <td className="num cifra">{pesos(c.valor.enTikTok)}</td> : null}
-                  <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
-                  <td className="num cifra texto-2">{porcentaje(c.parte)}</td>
-                  <td className="num cifra texto-2">{c.ganancia.pares ? pesos(c.ganancia.deposito) : "—"}</td>
-                  <td className="num cifra font-semibold">{c.ganancia.pares ? pesos(c.ganancia.ganancia) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-            {/* El total va abajo, para poder compararlo con las fichas de arriba. */}
-            <tfoot>
-              <tr style={{ background: "var(--surface-2)" }}>
-                <td className="font-semibold">Total</td>
-                <td></td>
-                <td></td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enBodega)}</td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enCamino)}</td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enFull)}</td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enFba)}</td>
-                {conTikTok ? <td className="num cifra font-semibold">{pesos(inversion.total.enTikTok)}</td> : null}
-                <td className="num cifra font-semibold">{pesos(inversion.total.total)}</td>
-                <td className="num cifra">100%</td>
-                <td className="num cifra font-semibold">{ganancia.pares ? pesos(ganancia.deposito) : "—"}</td>
-                <td className="num cifra font-semibold">{ganancia.pares ? pesos(ganancia.ganancia) : "—"}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </Tabla>
-      )}
-
+      ) : null}
       {sinVentaMeli.pares > 0 ? (
-        <footer className="border-t p-3 text-xs hairline texto-tenue">
+        <p>
           <strong>
             {n(sinVentaMeli.pares)} {unidad}
           </strong>{" "}
-          de {sinVentaMeli.modelos.length} modelos vendieron menos de {minimo} {unidad} en MELI en 30 días (
-          {listaCorta(sinVentaMeli.modelos)})
+          de {sinVentaMeli.modelos.length} modelos vendieron menos de {minimo} en MELI en 30 días
           {porPromedio
-            ? `: su venta se estima con el promedio de los que sí venden (MELI deposita ${veces(inversion)} su costo): ${pesos(sinVentaMeli.costo)} de costo → ${pesos(sinVentaMeli.deposito)}.`
-            : ": no hay modelos con venta para sacar un promedio, así que no entran en la ganancia."}
-        </footer>
+            ? `: su venta se estima con el promedio (MELI deposita ${veces(inversion)} su costo). Van marcados «promedio».`
+            : ": sin modelos con venta para sacar un promedio, no entran en la ganancia."}
+        </p>
       ) : null}
-      {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (
-        <footer className="border-t p-3 text-xs hairline texto-tenue">
-          {inversion.sinCosto.pares > 0 ? (
-            <>
-              <strong>
-                {n(inversion.sinCosto.pares)} {unidad}
-              </strong>{" "}
-              de {inversion.sinCosto.modelos.length} modelos NO entran en estos totales porque no tienen costo capturado (
-              {listaCorta(inversion.sinCosto.modelos)}).{" "}
-              <Link href="/productos" className="enlace">
-                Capturarlos
-              </Link>
-              {inversion.sinCategoria > 0 ? " · " : ""}
-            </>
-          ) : null}
-          {inversion.sinCategoria > 0
-            ? `${inversion.sinCategoria} modelos tienen costo pero no categoría: van juntos en «Sin categoría».`
-            : null}
-        </footer>
-      ) : null}
-    </Seccion>
+      {sinCategoria > 0 ? <p>{sinCategoria} modelos con costo pero sin categoría van en «Sin categoría».</p> : null}
+    </div>
+  );
+}
+
+/** Lo de un negocio (calzado o fundas): dónde está el dinero y las categorías que se abren por modelo. */
+function Negocio({
+  inversion,
+  unidad,
+  notaBarco,
+}: {
+  inversion: InversionEnBodega;
+  unidad: string;
+  notaBarco?: string | null;
+}) {
+  return (
+    <div className="space-y-4">
+      <Seccion titulo="¿Dónde está el dinero?">
+        <DondeEsta inversion={inversion} unidad={unidad} notaBarco={notaBarco} />
+      </Seccion>
+      <Seccion titulo="Por categoría" descripcion="Toca una categoría para ver sus modelos." sinRelleno>
+        {inversion.categorias.length === 0 ? (
+          <p className="texto-2 p-4 text-sm">
+            Faltan costos.{" "}
+            <Link href="/productos" className="enlace">
+              Capturar costos en Catálogo y costos
+            </Link>
+          </p>
+        ) : (
+          <CategoriasExistencias inversion={inversion} unidad={unidad} />
+        )}
+        <NotasInversion inversion={inversion} unidad={unidad} minimo={10} />
+      </Seccion>
+    </div>
   );
 }
 
@@ -227,8 +144,7 @@ export default async function Inventario({
     ventasHist: ventasFamilias?.hist ?? [],
   });
   const { fichas, inversion } = vista;
-  const { ganancia, sinVentaMeli } = inversion;
-  const porPromedio = sinVentaMeli.pares > 0 && sinVentaMeli.veces != null;
+  const { ganancia } = inversion;
 
   const fundas = "error" in fundasLeidas ? null : fundasLeidas.datos.hayCuenta ? fundasLeidas.datos : null;
   const errorFundas = "error" in fundasLeidas ? fundasLeidas.error : null;
@@ -249,10 +165,122 @@ export default async function Inventario({
       <Encabezado
         ceja="Inventario"
         titulo="Existencias"
-        descripcion="Calzado y fundas: bodega, lo que viene en barco y lo que ya está en Full, FBA y TikTok, con lo invertido y lo que dejaría venderlo."
+        descripcion="Cuánto dinero hay en mercancía, dónde está y qué dejaría venderla."
         frescura={"error" in fundasLeidas ? undefined : fundasLeidas.generadoEn}
         refrescando={"error" in fundasLeidas ? undefined : fundasLeidas.refrescando}
-        ayuda={
+        ayuda={AYUDA}
+      />
+
+      <Cifras columnas={3}>
+        <Ficha
+          titulo="Inversión"
+          valor={junto.inversion > 0 ? pesos(junto.inversion) : "—"}
+          nota={`Calzado ${pesos(inversion.total.total)} · fundas ${fi ? pesos(fi.total.total) : "—"} · a costo`}
+        />
+        <Ficha
+          titulo="Venta estimada"
+          valor={junto.hayVenta ? pesos(junto.venta) : "—"}
+          nota="Lo que depositaría MELI por todo"
+        />
+        <Ficha
+          titulo="Ganancia estimada"
+          valor={junto.hayVenta ? pesos(junto.ganancia) : "—"}
+          nota={
+            junto.hayVenta
+              ? `Calzado ${pesos(ganancia.ganancia)} · fundas ${fi ? pesos(fi.ganancia.ganancia) : "—"}`
+              : "Sin ventas de MELI para estimar"
+          }
+          tono={!junto.hayVenta || junto.ganancia >= 0 ? "bien" : "critico"}
+        />
+      </Cifras>
+
+      {vista.avisos.map((a, i) => (
+        <Aviso key={i} tono="alerta">
+          {a}
+        </Aviso>
+      ))}
+      {errorFundas ? <Aviso tono="alerta">No se pudieron leer las fundas: {errorFundas}</Aviso> : null}
+      {fundas?.avisos.map((a, i) => (
+        <Aviso key={`f${i}`} tono="alerta">
+          {a}
+        </Aviso>
+      ))}
+
+      {/* Calzado y fundas por categoría primero; la familia con ventas y la
+           búsqueda por SKU quedan atrás (el buscador de la barra superior
+           aterriza en «Buscar SKU»). */}
+      <Pestanas
+        key={busquedaInicial || "raiz"}
+        inicial={busquedaInicial ? "sku" : undefined}
+        pestanas={[
+          {
+            id: "calzado",
+            titulo: "Calzado",
+            cuenta: pesos(inversion.total.total),
+            contenido: (
+              <Negocio
+                inversion={inversion}
+                unidad="pares"
+                notaBarco={
+                  fichas.paresEnFabrica > 0 ? `${n(fichas.paresEnFabrica)} pares más en la fábrica, no cuentan` : null
+                }
+              />
+            ),
+          },
+          fi && fi.total.total > 0
+            ? {
+                id: "fundas",
+                titulo: "Fundas",
+                cuenta: pesos(fi.total.total),
+                contenido: (
+                  <Negocio
+                    inversion={fi}
+                    unidad="piezas"
+                    notaBarco={
+                      fundas && fundas.piezas.enFabrica > 0
+                        ? `${n(fundas.piezas.enFabrica)} piezas más en la fábrica, no cuentan`
+                        : null
+                    }
+                  />
+                ),
+              }
+            : null,
+          {
+            id: "familia",
+            titulo: "Calzado con ventas",
+            contenido: (
+              <>
+                {"error" in ventasLeidas ? (
+                  <Aviso tono="alerta">No se pudieron leer las ventas por familia: {ventasLeidas.error}</Aviso>
+                ) : null}
+                <FamiliasExistencias
+                  familias={familias}
+                  desde30={ventasFamilias?.desde30 ?? ""}
+                  hasta={ventasFamilias?.hasta ?? ""}
+                  desdeCanal={ventasFamilias?.desdeCanal ?? { meli: null, amazon: null, tiktok: null }}
+                />
+              </>
+            ),
+          },
+          {
+            id: "sku",
+            titulo: "Buscar SKU",
+            contenido: (
+              <TablaInventario
+                key={busquedaInicial || "raiz"}
+                busquedaInicial={busquedaInicial}
+                renglones={vista.renglones}
+                almacenes={vista.almacenes}
+              />
+            ),
+          },
+        ]}
+      />
+    </Pagina>
+  );
+}
+
+const AYUDA = (
           <>
             <p>
               Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
@@ -283,212 +311,4 @@ export default async function Inventario({
               par cuyo SKU no dice el color cuenta en la familia pero no en ningún color.
             </p>
           </>
-        }
-      />
-
-      <Seccion titulo="Todo junto · calzado + fundas" suelta>
-        <FichasDinero
-          inversion={junto.inversion}
-          venta={junto.hayVenta ? junto.venta : null}
-          costo={junto.costo}
-          ganancia={junto.hayVenta ? junto.ganancia : null}
-          notaInversion={`Calzado ${pesos(inversion.total.total)} + fundas ${fi ? pesos(fi.total.total) : "—"}, a costo`}
-          notaGanancia={
-            junto.hayVenta
-              ? `Calzado ${pesos(ganancia.ganancia)} + fundas ${fi ? pesos(fi.ganancia.ganancia) : "—"}`
-              : undefined
-          }
-        />
-      </Seccion>
-
-      {vista.avisos.map((a, i) => (
-        <Aviso key={i} tono="alerta">
-          {a}
-        </Aviso>
-      ))}
-
-      <Seccion titulo="Calzado" suelta>
-        <Cifras columnas={6}>
-          <Ficha titulo="SKUs" valor={n(fichas.skus)} nota="Con producto en bodega o en camino" />
-          <Ficha
-            titulo="Pares en bodega"
-            valor={n(fichas.paresEnBodega)}
-            nota={`En ${n(fichas.cajas)} cajas cerradas en México`}
-          />
-          <Ficha
-            titulo="En barco"
-            valor={n(fichas.paresEnCamino)}
-            nota={
-              fichas.paresEnFabrica > 0
-                ? `En contenedor sin llegar · ${n(fichas.paresEnFabrica)} pares más en la fábrica, no cuentan`
-                : "En contenedor sin llegar"
-            }
-            tono={fichas.paresEnCamino > 0 ? "alerta" : "neutro"}
-          />
-          <Ficha titulo="En Full" valor={n(fichas.paresEnFull)} nota="Pares en Mercado Libre, con lo que va en transferencia" />
-          <Ficha titulo="En FBA" valor={n(fichas.paresEnFba)} nota="Pares en Amazon, con lo ya enviado" />
-          <Ficha titulo="En TikTok" valor={n(fichas.paresEnTikTok)} nota="Bodega de TikTok, sin lo de David" />
-        </Cifras>
-
-        <Cifras columnas={5}>
-          <Ficha titulo="Valor en bodega" valor={fichas.valorEnBodega > 0 ? pesos(fichas.valorEnBodega) : "—"} nota="A costo" />
-          <Ficha
-            titulo="Valor en barco"
-            valor={fichas.valorEnCamino > 0 ? pesos(fichas.valorEnCamino) : "—"}
-            nota={
-              fichas.paresSinCosto > 0
-                ? `A costo · ${n(fichas.paresSinCosto)} pares sin costo capturado`
-                : "Lo que ya va en barco, a costo"
-            }
-          />
-          <Ficha titulo="Valor en Full" valor={fichas.valorEnFull > 0 ? pesos(fichas.valorEnFull) : "—"} nota="Mercado Libre, a costo" />
-          <Ficha titulo="Valor en FBA" valor={fichas.valorEnFba > 0 ? pesos(fichas.valorEnFba) : "—"} nota="Amazon, a costo" />
-          <Ficha titulo="Valor en TikTok" valor={fichas.valorEnTikTok > 0 ? pesos(fichas.valorEnTikTok) : "—"} nota="La bodega de TikTok, a costo" />
-        </Cifras>
-
-        <FichasDinero
-          inversion={fichas.inversionTotal}
-          venta={ganancia.pares > 0 ? ganancia.deposito : null}
-          costo={ganancia.costo}
-          ganancia={ganancia.pares > 0 ? ganancia.ganancia : null}
-          notaInversion="Bodega + barco + Full + FBA + TikTok, a costo"
-          notaVenta={
-            ganancia.pares > 0
-              ? `Lo que depositaría MELI por ${n(ganancia.pares)} pares que costaron ${pesos(ganancia.costo)}${
-                  porPromedio ? ` · ${pesos(sinVentaMeli.deposito)} de eso por promedio` : ""
-                }`
-              : undefined
-          }
-          notaGanancia={
-            ganancia.pares > 0
-              ? `Venta estimada − ${pesos(ganancia.costo)} de costo${
-                  porPromedio
-                    ? ` · ${n(sinVentaMeli.pares)} pares sin venta en MELI con el promedio (MELI deposita ${veces(inversion)} su costo)`
-                    : ""
-                }`
-              : undefined
-          }
-        />
-      </Seccion>
-
-      <Seccion titulo="Fundas" suelta>
-        {errorFundas ? <Aviso tono="alerta">No se pudieron leer las fundas: {errorFundas}</Aviso> : null}
-        {!errorFundas && !fundas ? <Aviso tono="info">No hay cuenta de fundas conectada.</Aviso> : null}
-        {fundas && fi ? (
-          <>
-            {fundas.avisos.map((a, i) => (
-              <Aviso key={i} tono="alerta">
-                {a}
-              </Aviso>
-            ))}
-            <Cifras columnas={4}>
-              <Ficha
-                titulo="Piezas en bodega"
-                valor={n(fundas.piezas.enBodega)}
-                nota={
-                  fundas.sinAmarrar.unidades > 0
-                    ? `Del sheet · ${n(fundas.sinAmarrar.unidades)} sin amarrar a MELI, fuera`
-                    : "Del sheet de inventario"
-                }
-              />
-              <Ficha
-                titulo="En barco"
-                valor={n(fundas.piezas.enCamino)}
-                nota={
-                  fundas.piezas.enFabrica > 0
-                    ? `Pedidos marcados «en camino» · ${n(fundas.piezas.enFabrica)} piezas más en la fábrica, no cuentan`
-                    : "Pedidos marcados «en camino»"
-                }
-                tono={fundas.piezas.enCamino > 0 ? "alerta" : "neutro"}
-              />
-              <Ficha titulo="En Full" valor={n(fundas.piezas.enFull)} nota="Cuenta de fundas, con lo que va en transferencia" />
-              <Ficha titulo="En FBA" valor={n(fundas.piezas.enFba)} nota="Fundas en Amazon, con lo ya enviado" />
-            </Cifras>
-            <Cifras columnas={4}>
-              <Ficha titulo="Valor en bodega" valor={fi.total.enBodega > 0 ? pesos(fi.total.enBodega) : "—"} nota="A costo" />
-              <Ficha titulo="Valor en barco" valor={fi.total.enCamino > 0 ? pesos(fi.total.enCamino) : "—"} nota="A costo" />
-              <Ficha titulo="Valor en Full" valor={fi.total.enFull > 0 ? pesos(fi.total.enFull) : "—"} nota="A costo" />
-              <Ficha
-                titulo="Valor en FBA"
-                valor={fi.total.enFba > 0 ? pesos(fi.total.enFba) : "—"}
-                nota={fi.sinCosto.pares > 0 ? `A costo · ${n(fi.sinCosto.pares)} piezas sin costo, fuera` : "A costo"}
-              />
-            </Cifras>
-            <FichasDinero
-              inversion={fi.total.total}
-              venta={fi.ganancia.pares > 0 ? fi.ganancia.deposito : null}
-              costo={fi.ganancia.costo}
-              ganancia={fi.ganancia.pares > 0 ? fi.ganancia.ganancia : null}
-              notaInversion="Bodega + barco + Full + FBA, a costo"
-              notaGanancia={
-                fi.ganancia.pares > 0
-                  ? `Venta estimada − ${pesos(fi.ganancia.costo)} de costo${
-                      fi.sinVentaMeli.pares > 0 && fi.sinVentaMeli.veces != null
-                        ? ` · ${n(fi.sinVentaMeli.pares)} piezas sin venta en MELI con el promedio (${veces(fi)} su costo)`
-                        : ""
-                    }`
-                  : undefined
-              }
-            />
-          </>
-        ) : null}
-      </Seccion>
-
-      {/* Pestañas: la tabla por SKU primero (ahí aterriza el buscador de la
-           barra superior; la llave la rearma con cada búsqueda y vuelve a la
-           primera pestaña), luego el total por familia y la inversión. */}
-      <Pestanas
-        key={busquedaInicial || "raiz"}
-        pestanas={[
-          {
-            id: "sku",
-            titulo: "Por SKU",
-            cuenta: vista.renglones.length,
-            contenido: (
-              <TablaInventario
-                key={busquedaInicial || "raiz"}
-                busquedaInicial={busquedaInicial}
-                renglones={vista.renglones}
-                almacenes={vista.almacenes}
-              />
-            ),
-          },
-          {
-            id: "familia",
-            titulo: "Por familia",
-            cuenta: familias.filter((f) => f.total > 0).length,
-            contenido: (
-              <>
-                {"error" in ventasLeidas ? (
-                  <Aviso tono="alerta">No se pudieron leer las ventas por familia: {ventasLeidas.error}</Aviso>
-                ) : null}
-                <FamiliasExistencias
-                  familias={familias}
-                  desde30={ventasFamilias?.desde30 ?? ""}
-                  hasta={ventasFamilias?.hasta ?? ""}
-                  desdeCanal={ventasFamilias?.desdeCanal ?? { meli: null, amazon: null, tiktok: null }}
-                />
-              </>
-            ),
-          },
-          {
-            id: "inversion",
-            titulo: "Inversión calzado",
-            cuenta: inversion.categorias.length || null,
-            contenido: <TablaInversion inversion={inversion} unidad="pares" minimo={10} />,
-          },
-          ...(fi
-            ? [
-                {
-                  id: "inversion-fundas",
-                  titulo: "Inversión fundas",
-                  cuenta: fi.categorias.length || null,
-                  contenido: <TablaInversion inversion={fi} unidad="piezas" minimo={10} />,
-                },
-              ]
-            : []),
-        ]}
-      />
-    </Pagina>
-  );
-}
+);

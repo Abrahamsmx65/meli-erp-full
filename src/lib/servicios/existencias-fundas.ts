@@ -29,7 +29,7 @@ import { obtenerInventarioPantalla } from "../yapanizcel/inventario-pantalla";
 import { hoyMx, restarDias, rpcTodo } from "../yapanizcel/db";
 import { desglosar } from "../yapanizcel/sku";
 
-export const CLAVE_FUNDAS = "existencias:fundas:v2";
+export const CLAVE_FUNDAS = "existencias:fundas:v3";
 export const EDAD_FUNDAS_MS = 15 * 60_000;
 /** Con menos piezas vendidas en 30 días, el depósito por pieza no se usa. */
 export const PIEZAS_MINIMAS = 10;

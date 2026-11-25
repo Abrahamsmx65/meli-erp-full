@@ -196,6 +196,23 @@ export interface InversionCategoria {
   modelos: number;
   /** Qué parte del valor total representa (0-1). */
   parte: number;
+  /**
+   * Cada modelo de la categoría con lo mismo que la categoría, de más valor
+   * a menos (dueño, 25-nov-2026: «ver por categoría y luego abrir abajo y ver
+   * cómo se divide por modelo»). Opcional: lo guardado antes no lo trae.
+   */
+  porModelo?: InversionModelo[];
+}
+
+/** Un modelo dentro de su categoría (ver `InversionCategoria.porModelo`). */
+export interface InversionModelo {
+  modelo: string;
+  costo: number;
+  pares: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number };
+  valor: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
+  ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
+  /** Sin venta propia en MELI: su venta se estimó con el promedio. */
+  porPromedio: boolean;
 }
 
 export interface InversionEnBodega {
@@ -247,7 +264,10 @@ export function inversionPorCategoria(
   /** Depósito real de MELI por par y modelo (30 días); vacío = sin ganancia estimada. */
   netoPorModelo: Map<string, number> = new Map(),
 ): InversionEnBodega {
-  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string>; costoSinVenta: number }>();
+  const grupos = new Map<
+    string,
+    InversionCategoria & { modelosVistos: Set<string>; costoSinVenta: number; modelosMap: Map<string, InversionModelo> }
+  >();
   const sinCostoModelos = new Set<string>();
   const sinVentaModelos = new Set<string>();
   let paresSinVenta = 0;
@@ -285,6 +305,7 @@ export function inversionPorCategoria(
         modelos: 0,
         parte: 0,
         modelosVistos: new Set<string>(),
+        modelosMap: new Map<string, InversionModelo>(),
       };
     g.pares.enBodega += r.enBodega;
     g.pares.enCamino += r.enCamino;
@@ -297,6 +318,39 @@ export function inversionPorCategoria(
     g.valor.enFba += enFba * c.costo;
     g.valor.enTikTok += enTikTok * c.costo;
     const neto = netoDeModelo(netoPorModelo, r.modelo);
+    const clave = r.modelo.toUpperCase();
+    const m =
+      g.modelosMap.get(clave) ??
+      ({
+        modelo: clave,
+        costo: c.costo,
+        pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0 },
+        valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0, total: 0 },
+        ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 },
+        porPromedio: false,
+      } satisfies InversionModelo);
+    m.pares.enBodega += r.enBodega;
+    m.pares.enCamino += r.enCamino;
+    m.pares.enFull += enFull;
+    m.pares.enFba += enFba;
+    m.pares.enTikTok += enTikTok;
+    m.valor.enBodega += r.enBodega * c.costo;
+    m.valor.enCamino += r.enCamino * c.costo;
+    m.valor.enFull += enFull * c.costo;
+    m.valor.enFba += enFba * c.costo;
+    m.valor.enTikTok += enTikTok * c.costo;
+    m.valor.total += pares * c.costo;
+    if (neto == null) {
+      m.porPromedio = true;
+      m.ganancia.pares += pares;
+      m.ganancia.costo += pares * c.costo;
+    } else {
+      m.ganancia.pares += pares;
+      m.ganancia.deposito += pares * neto;
+      m.ganancia.costo += pares * c.costo;
+      m.ganancia.ganancia += pares * (neto - c.costo);
+    }
+    g.modelosMap.set(clave, m);
     if (neto == null) {
       paresSinVenta += pares;
       sinVentaModelos.add(r.modelo);
@@ -345,6 +399,19 @@ export function inversionPorCategoria(
   }
   if (veces == null) for (const g of categorias) g.paresPorPromedio = 0;
 
+  // Por modelo: lo sin venta propia toma el mismo promedio que su categoría;
+  // sin promedio no hay ganancia que estimarle.
+  for (const g of categorias) {
+    g.porModelo = [...g.modelosMap.values()]
+      .map((m) => {
+        if (!m.porPromedio) return m;
+        if (veces == null) return { ...m, porPromedio: false, ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 } };
+        const deposito = m.ganancia.costo * veces;
+        return { ...m, ganancia: { ...m.ganancia, deposito, ganancia: deposito - m.ganancia.costo } };
+      })
+      .sort((a, b) => b.valor.total - a.valor.total || a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
+  }
+
   const ganancia = {
     pares: categorias.reduce((a, g) => a + g.ganancia.pares, 0),
     deposito: categorias.reduce((a, g) => a + g.ganancia.deposito, 0),
@@ -357,7 +424,7 @@ export function inversionPorCategoria(
   categorias.sort((a, b) => b.valor.total - a.valor.total || a.categoria.localeCompare(b.categoria, "es"));
 
   return {
-    categorias: categorias.map(({ modelosVistos: _m, costoSinVenta: _c, ...resto }) => resto),
+    categorias: categorias.map(({ modelosVistos: _m, costoSinVenta: _c, modelosMap: _mm, ...resto }) => resto),
     total,
     ganancia,
     sinVentaMeli: {

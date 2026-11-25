@@ -3217,6 +3217,20 @@ guárdala numerada.
   PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
   `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
   capturado no entra a nada.
+- **EXISTENCIAS se lee POR CATEGORÍA que se abre POR MODELO** (dueño,
+  25-nov-2026: «no es nada claro, algo más legible que se vaya abriendo; ver
+  por categoría y luego abrir abajo y ver cómo se divide por modelo; no me
+  interesa por SKU; lo que está en cero que no salga»): arriba solo las tres
+  cifras de todo junto (inversión, venta y ganancia estimadas); luego
+  pestañas Calzado / Fundas, cada una con «¿Dónde está el dinero?» (barra y
+  una tarjeta por lugar: bodega, barco, Full, FBA, TikTok) y la tabla de
+  categorías que se abren por modelo (`InversionCategoria.porModelo`, que
+  arma `inversionPorCategoria`; `components/inversion-existencias.tsx`,
+  buscador de modelo, «Ver valor por lugar» y «Abrir todas»). Una categoría,
+  modelo o lugar en cero NO sale; Fundas no sale si no tiene inversión. «Por
+  familia» quedó como «Calzado con ventas» y la tabla por SKU atrás como
+  «Buscar SKU» (ahí aterriza el buscador de la barra). Caché de fundas
+  `existencias:fundas:v3`.
 - **EXISTENCIAS POR FAMILIA con sus ventas** (`servicios/familias-existencias.ts`
   puro con pruebas: `armarFamiliasExistencias`, `colorDeSku`,
   `compararFamilias`, `filtrarFamilias`; `servicios/ventas-familias.ts`
