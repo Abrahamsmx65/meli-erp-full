@@ -124,19 +124,19 @@ export async function traerTodo<T>(
     return (data ?? []) as T[];
   };
 
-  // La página 0 y el conteo salen JUNTOS: para las tablas chicas (la
-  // mayoría) la página 0 basta y el conteo deja de costar un viaje EN SERIE
-  // antes de cada lectura, que sumaba ~medio segundo por pantalla.
-  const [primera, conteo] = await Promise.all([
-    leer(0),
-    filtros(db.from(tabla).select(columnas, { count: "estimated", head: true })),
-  ]);
+  // Primero la página 0 SOLA: casi todas las lecturas caben en ella y el
+  // conteo (un HEAD) sobraba. Mandarlo siempre junto eran ~150 mil
+  // peticiones al día a Supabase (auditoría de costos, 25-nov-2026); ahora
+  // solo se cuenta cuando la página 0 vino llena.
+  const primera = await leer(0);
+  if (primera.length < paso) return primera;
+
+  const conteo = await filtros(db.from(tabla).select(columnas, { count: "estimated", head: true }));
   if (conteo.error) {
     throw Object.assign(new Error(`${tabla}: ${conteo.error.message}`), {
       code: conteo.error.code,
     });
   }
-  if (primera.length < paso) return primera;
 
   const count = conteo.count as number | null;
   const CONCURRENCIA = 6; // más que esto y Supabase empieza a encolar
