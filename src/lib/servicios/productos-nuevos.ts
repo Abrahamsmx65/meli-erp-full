@@ -222,18 +222,6 @@ export function agruparProductosDePedidos(
   return salida;
 }
 
-/** Corre `fn` sobre los elementos con a lo más `paralelo` en vuelo. */
-async function enParalelo<T>(items: T[], paralelo: number, fn: (x: T) => Promise<void>) {
-  let cursor = 0;
-  const trabajador = async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      await fn(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(paralelo, items.length) }, trabajador));
-}
-
 /** ¿Alguna fila cumple? Una sola consulta con límite 1. */
 export async function existe(
   db: DB,
@@ -454,8 +442,7 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   // --- ¿Alguna vez tuvo stock? --------------------------------------------
   // Primero lo barato y masivo: el stock actual de Full y de FBA de TODOS
   // los SKUs de los candidatos. Lo que ya tiene stock hoy sale de la lista
-  // sin más preguntas; para el resto se pregunta historia, producto por
-  // producto, con consultas de límite 1.
+  // sin más preguntas; para el resto se pregunta la historia de un jalón.
   const conStock = new Set<string>();
 
   const todosSkus = [...skusPorProducto.values()].flat();
@@ -482,27 +469,33 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
 
   const candidatos = [...productos.values()].filter((p) => !conStock.has(p.clave));
 
-  await enParalelo(candidatos, 6, async (p) => {
-    const skusP = skusPorProducto.get(p.clave) ?? [];
-    const porSku = (q: any) => q.eq("account_id", accountId).in("sku", skusP);
-    if (skusP.length) {
-      const [vendio, fotoConStock, movio] = await Promise.all([
-        existe(db, "ventas_diarias", (q) => porSku(q).gt("unidades", 0)),
-        existe(db, "stock_snapshots", (q) => porSku(q).gt("disponible", 0)),
-        existe(db, "stock_operaciones", (q) => porSku(q).gt("resultado_disponible", 0)),
-      ]);
-      if (vendio || fotoConStock || movio) {
-        conStock.add(p.clave);
-        return;
-      }
-    }
-    if (amazonConectado && p.amazon.skus.length) {
-      const vendioAmz = await existe(db, "amazon_ventas_diarias", (q) =>
-        q.in("seller_sku", p.amazon.skus).gt("unidades", 0),
-      );
-      if (vendioAmz) conStock.add(p.clave);
-    }
-  });
+  // La historia de TODOS los candidatos sale de un jalón con el RPC
+  // `skus_con_historia` (migración 0166): antes eran 4 consultas `limit 1`
+  // POR PRODUCTO (~22 mil peticiones al día; auditoría de costos,
+  // 25-nov-2026). Mismas reglas: venta, foto con stock o movimiento con
+  // stock en MELI; venta en Amazon.
+  const skusMeli = [...new Set(candidatos.flatMap((p) => skusPorProducto.get(p.clave) ?? []))];
+  const skusAmz = amazonConectado ? [...new Set(candidatos.flatMap((p) => p.amazon.skus))] : [];
+  const conHistoria = new Set<string>();
+  const preguntar = async (meli: string[], amz: string[]) => {
+    const { data, error } = await db.rpc("skus_con_historia", {
+      p_account: accountId,
+      p_skus: meli,
+      p_amazon: amz.length ? cuentaAmz!.id : null,
+      p_skus_amazon: amz,
+    });
+    if (error) throw new Error(`skus_con_historia: ${error.message ?? String(error)}`);
+    for (const r of (data ?? []) as { canal: string; sku: string }[]) conHistoria.add(`${r.canal}|${r.sku}`);
+  };
+  // Tandas de 500: cada tanda contesta a lo más 500 renglones, abajo del
+  // tope de 1,000 del API.
+  for (const grupo of trozos(skusMeli, 500)) await preguntar(grupo, []);
+  for (const grupo of trozos(skusAmz, 500)) await preguntar([], grupo);
+  for (const p of candidatos) {
+    const meli = (skusPorProducto.get(p.clave) ?? []).some((s) => conHistoria.has(`meli|${s}`));
+    const amz = amazonConectado && p.amazon.skus.some((s) => conHistoria.has(`amazon|${s}`));
+    if (meli || amz) conStock.add(p.clave);
+  }
 
   const nuevos = [...productos.values()].filter((p) => !conStock.has(p.clave));
 
