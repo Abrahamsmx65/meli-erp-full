@@ -374,7 +374,18 @@ export async function latido(
  * corrido en la última hora — con la app abierta corre cada medio minuto,
  * así que esto solo prende cuando la app lleva rato cerrada.
  */
+// Lo que contestó `latidoApagado` por cuenta, recordado un minuto en la
+// instancia: se pregunta en CADA aviso de MELI (~79 mil al día) y eran ~79
+// mil lecturas de `sync_log` para una respuesta que cambia a lo más una vez
+// por hora (auditoría de costos, 25-nov-2026). Si contesta «apagado», la
+// siguiente pregunta del mismo minuto dice que no: ese aviso ya lo prende.
+const latidoVisto = new Map<string, number>();
+const VIDA_LATIDO_VISTO_MS = 60_000;
+
 export async function latidoApagado(admin: DB, accountId: string): Promise<boolean> {
+  const visto = latidoVisto.get(accountId);
+  if (visto && Date.now() - visto < VIDA_LATIDO_VISTO_MS) return false;
+  latidoVisto.set(accountId, Date.now());
   const { data } = await admin
     .from("sync_log")
     .select("id")
