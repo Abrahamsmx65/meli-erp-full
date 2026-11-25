@@ -107,3 +107,18 @@ Revisar memoria y `maxDuration` (casi todo en 300 s, cortes 800 s).
 
 Las cifras de "después" son estimaciones; se miden con 24 h de logs tras el
 deploy.
+
+## Cambios hechos (25-nov-2026, aprobados por el dueño: B, C, D, E y conteos; A rechazado)
+
+| Cambio | Archivo | Antes → después |
+|---|---|---|
+| B. Ventas diarias de TikTok solo en la corrida completa | `lib/servicios/tiktok.ts` | En cada aviso (~3,950/día) y cada corrida `soloPedidos` → cada 15 min (96/día) |
+| C. Plan de Full | `lib/servicios/latido.ts` (`EDAD_MAX_PLAN_MS`) | Cada latido (~10 min) → a lo más cada 30 min |
+| D. `latidoApagado` | `lib/servicios/latido.ts` | Una lectura por aviso de MELI (~79,000/día) → una por minuto por instancia |
+| E. Historia de Productos nuevos | `lib/servicios/productos-nuevos.ts` + migración 0166 `skus_con_historia` | 4 consultas por producto → 1 RPC por tanda de 500 SKUs |
+| Conteos | `lib/datos/repos.ts` `traerTodo` | HEAD en cada lectura → solo si la página 0 vino llena |
+
+Sin A, el pipeline de cada aviso de TikTok (catálogo, kardex, publicación)
+sigue corriendo por aviso, igual que el bucle del candado cada 2 s.
+Estimación revisada: de ~713,000 a ~300,000 peticiones/día en la tabla
+(−58 %); con la baja de temas de MELI, ~250,000 (−65 %).
